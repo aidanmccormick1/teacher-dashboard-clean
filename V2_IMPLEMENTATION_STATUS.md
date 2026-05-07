@@ -4,6 +4,16 @@
 
 ### Latest phase execution (production phases)
 
+- Classroom/schedule workflow hardening:
+  - Added manual class section APIs:
+    - `POST /v1/sections`
+    - `PATCH /v1/sections/:sectionId`
+    - `DELETE /v1/sections/:sectionId`
+  - Added real classroom resume API:
+    - `GET /v1/sections/:sectionId/resume`
+  - Replaced fake `demo-lesson` classroom navigation with real section/curriculum resume logic.
+  - Lesson tracker now loads section context, resume state, lesson segments, completed segment state, stopped-at segment, carry-over notes, and last class note.
+  - Added ownership validation to lesson progress and class note writes so one teacher cannot write another teacher's section state.
 - Curriculum migration completed:
   - API CRUD endpoints added for `courses`, `units`, `lessons`, and `lesson_segments`
   - Curriculum and course detail pages now use live `/v1` APIs (no placeholder pages)
@@ -64,6 +74,10 @@
   - `POST /v1/onboarding`
   - `GET /v1/dashboard/today`
   - `GET /v1/schedule`
+  - `POST /v1/sections`
+  - `PATCH /v1/sections/:sectionId`
+  - `DELETE /v1/sections/:sectionId`
+  - `GET /v1/sections/:sectionId/resume`
   - `POST /v1/schedule/import`
   - `POST /v1/holidays`
   - `POST /v1/lesson-progress/upsert`
@@ -115,10 +129,8 @@
 
 ## Remaining work to complete full plan
 
-- Migrate all curriculum/course CRUD features into new `/v1` backend routes.
 - Expand classroom + lesson tracker UX to full parity with section-specific states and segment interactions.
 - Implement full repository/service layering in API modules (currently routes contain direct orchestration).
-- Move AI HTTP routes to fully queued execution path with job polling and retry policies.
 - Add contract and integration tests for each business route (currently smoke-level baseline).
 - Add full e2e scenarios for all acceptance criteria in the plan.
 - Complete DNS cutover + production runbooks/backup verification.

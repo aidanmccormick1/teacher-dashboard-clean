@@ -8,6 +8,7 @@ import {
   AiJobControlResponseSchema,
   AiJobEnqueueResponseSchema,
   AiJobStatusResponseSchema,
+  ClassroomResumeResponseSchema,
   ClassNotesUpsertRequestSchema,
   ClassNotesUpsertResponseSchema,
   CreateUploadUrlRequestSchema,
@@ -34,6 +35,8 @@ import {
   SegmentUpdateRequestSchema,
   ScheduleImportRequestSchema,
   ScheduleImportResponseSchema,
+  SectionMutationRequestSchema,
+  SectionUpdateRequestSchema,
   UnitCreateRequestSchema,
   UnitUpdateRequestSchema,
   LessonCreateRequestSchema,
@@ -130,6 +133,7 @@ const CourseParamsSchema = z.object({ courseId: UuidSchema });
 const UnitParamsSchema = z.object({ unitId: UuidSchema });
 const LessonParamsSchema = z.object({ lessonId: UuidSchema });
 const SegmentParamsSchema = z.object({ segmentId: UuidSchema });
+const SectionParamsSchema = z.object({ sectionId: UuidSchema });
 const AiJobParamsSchema = z.object({ jobId: UuidSchema });
 
 async function findOwnedCourse(userId: string, courseId: string) {
@@ -187,6 +191,101 @@ async function findOwnedCourseIdForSegment(userId: string, segmentId: string) {
     .limit(1);
 
   return row?.courseId ?? null;
+}
+
+async function findOwnedSection(userId: string, sectionId: string) {
+  const [row] = await db
+    .select({
+      sectionId: sections.id,
+      sectionName: sections.name,
+      courseId: courses.id,
+      courseName: courses.name
+    })
+    .from(sections)
+    .innerJoin(courses, eq(sections.courseId, courses.id))
+    .where(and(eq(sections.id, sectionId), eq(courses.teacherId, userId)))
+    .limit(1);
+
+  return row ?? null;
+}
+
+async function findOwnedLessonInSectionCourse(userId: string, sectionId: string, lessonId: string) {
+  const [row] = await db
+    .select({
+      sectionId: sections.id,
+      lessonId: lessons.id
+    })
+    .from(sections)
+    .innerJoin(courses, eq(sections.courseId, courses.id))
+    .innerJoin(units, eq(units.courseId, courses.id))
+    .innerJoin(lessons, eq(lessons.unitId, units.id))
+    .where(and(eq(sections.id, sectionId), eq(lessons.id, lessonId), eq(courses.teacherId, userId)))
+    .limit(1);
+
+  return row ?? null;
+}
+
+async function buildScheduleResponse(userId: string, schoolId: string) {
+  const rows = await db
+    .select({
+      sectionId: sections.id,
+      sectionName: sections.name,
+      courseId: courses.id,
+      courseName: courses.name,
+      day: sectionMeetings.day,
+      meetingTime: sectionMeetings.meetingTime,
+      room: sectionMeetings.room
+    })
+    .from(sections)
+    .innerJoin(courses, eq(sections.courseId, courses.id))
+    .leftJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
+    .where(eq(courses.teacherId, userId));
+
+  const holidayRows = await db
+    .select({
+      id: schoolHolidays.id,
+      date: schoolHolidays.date,
+      name: schoolHolidays.name
+    })
+    .from(schoolHolidays)
+    .where(eq(schoolHolidays.schoolId, schoolId))
+    .orderBy(asc(schoolHolidays.date));
+
+  const bySection = new Map<
+    string,
+    {
+      sectionId: string;
+      courseId: string;
+      courseName: string;
+      sectionName: string;
+      meetings: Array<{ day: string; time: string | null; room: string | null }>;
+    }
+  >();
+
+  rows.forEach((row) => {
+    if (!bySection.has(row.sectionId)) {
+      bySection.set(row.sectionId, {
+        sectionId: row.sectionId,
+        courseId: row.courseId,
+        courseName: row.courseName,
+        sectionName: row.sectionName,
+        meetings: []
+      });
+    }
+
+    if (row.day) {
+      bySection.get(row.sectionId)?.meetings.push({
+        day: row.day,
+        time: row.meetingTime ? row.meetingTime.slice(0, 5) : null,
+        room: row.room
+      });
+    }
+  });
+
+  return GetScheduleResponseSchema.parse({
+    sections: Array.from(bySection.values()),
+    holidays: holidayRows.map((row) => ({ id: row.id, date: row.date, name: row.name }))
+  });
 }
 
 async function buildCourseDetail(userId: string, courseId: string) {
@@ -460,66 +559,281 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
 
-      const rows = await db
-        .select({
-          sectionId: sections.id,
-          sectionName: sections.name,
-          courseId: courses.id,
-          courseName: courses.name,
-          day: sectionMeetings.day,
-          meetingTime: sectionMeetings.meetingTime,
-          room: sectionMeetings.room
-        })
-        .from(sections)
-        .innerJoin(courses, eq(sections.courseId, courses.id))
-        .leftJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
-        .where(eq(courses.teacherId, user.id));
+      return buildScheduleResponse(user.id, schoolId);
+    }
+  );
 
-      const holidayRows = await db
-        .select({
-          id: schoolHolidays.id,
-          date: schoolHolidays.date,
-          name: schoolHolidays.name
-        })
-        .from(schoolHolidays)
-        .where(eq(schoolHolidays.schoolId, schoolId))
-        .orderBy(asc(schoolHolidays.date));
-
-      const bySection = new Map<
-        string,
-        {
-          sectionId: string;
-          courseId: string;
-          courseName: string;
-          sectionName: string;
-          meetings: Array<{ day: string; time: string | null; room: string | null }>;
+  app.post(
+    '/v1/sections',
+    {
+      schema: {
+        body: SectionMutationRequestSchema,
+        response: {
+          200: GetScheduleResponseSchema
         }
-      >();
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const schoolId = await loadTeacherSchoolId(user.id);
+      const body = SectionMutationRequestSchema.parse(request.body);
 
-      rows.forEach((row) => {
-        if (!bySection.has(row.sectionId)) {
-          bySection.set(row.sectionId, {
-            sectionId: row.sectionId,
-            courseId: row.courseId,
-            courseName: row.courseName,
-            sectionName: row.sectionName,
-            meetings: []
-          });
-        }
+      const ownedCourse = await findOwnedCourse(user.id, body.courseId);
+      if (!ownedCourse) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
 
-        if (row.day) {
-          bySection.get(row.sectionId)?.meetings.push({
-            day: row.day,
-            time: row.meetingTime ? row.meetingTime.slice(0, 5) : null,
-            room: row.room
-          });
+      await db.transaction(async (tx) => {
+        const [section] = await tx
+          .insert(sections)
+          .values({
+            courseId: body.courseId,
+            name: body.sectionName
+          })
+          .returning({ id: sections.id });
+        if (!section) throw new Error('Failed to create section');
+
+        if (body.meetings.length > 0) {
+          await tx.insert(sectionMeetings).values(
+            body.meetings.map((meeting) => ({
+              sectionId: section.id,
+              day: meeting.day,
+              meetingTime: meeting.time,
+              room: meeting.room
+            }))
+          );
         }
       });
 
-      return {
-        sections: Array.from(bySection.values()),
-        holidays: holidayRows.map((row) => ({ id: row.id, date: row.date, name: row.name }))
-      };
+      return buildScheduleResponse(user.id, schoolId);
+    }
+  );
+
+  app.patch(
+    '/v1/sections/:sectionId',
+    {
+      schema: {
+        params: SectionParamsSchema,
+        body: SectionUpdateRequestSchema,
+        response: {
+          200: GetScheduleResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const schoolId = await loadTeacherSchoolId(user.id);
+      const params = SectionParamsSchema.parse(request.params);
+      const body = SectionUpdateRequestSchema.parse(request.body);
+
+      const ownedSection = await findOwnedSection(user.id, params.sectionId);
+      if (!ownedSection) {
+        (reply as any).code(404);
+        return { error: 'Section not found', requestId: request.id };
+      }
+
+      await db.transaction(async (tx) => {
+        if (body.sectionName !== undefined) {
+          await tx
+            .update(sections)
+            .set({ name: body.sectionName, updatedAt: new Date() })
+            .where(eq(sections.id, params.sectionId));
+        }
+
+        if (body.meetings !== undefined) {
+          await tx.delete(sectionMeetings).where(eq(sectionMeetings.sectionId, params.sectionId));
+          if (body.meetings.length > 0) {
+            await tx.insert(sectionMeetings).values(
+              body.meetings.map((meeting) => ({
+                sectionId: params.sectionId,
+                day: meeting.day,
+                meetingTime: meeting.time,
+                room: meeting.room
+              }))
+            );
+          }
+        }
+      });
+
+      return buildScheduleResponse(user.id, schoolId);
+    }
+  );
+
+  app.delete(
+    '/v1/sections/:sectionId',
+    {
+      schema: {
+        params: SectionParamsSchema,
+        response: {
+          200: DeleteEntityResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionParamsSchema.parse(request.params);
+
+      const ownedSection = await findOwnedSection(user.id, params.sectionId);
+      if (!ownedSection) {
+        (reply as any).code(404);
+        return { error: 'Section not found', requestId: request.id };
+      }
+
+      await db.delete(sections).where(eq(sections.id, params.sectionId));
+      return { deleted: true };
+    }
+  );
+
+  app.get(
+    '/v1/sections/:sectionId/resume',
+    {
+      schema: {
+        params: SectionParamsSchema,
+        response: {
+          200: ClassroomResumeResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionParamsSchema.parse(request.params);
+
+      const ownedSection = await findOwnedSection(user.id, params.sectionId);
+      if (!ownedSection) {
+        (reply as any).code(404);
+        return { error: 'Section not found', requestId: request.id };
+      }
+
+      const [activeState] = await db
+        .select({
+          stateId: sectionLessonState.id,
+          lessonId: sectionLessonState.lessonId,
+          status: sectionLessonState.status,
+          currentSegmentId: sectionLessonState.currentSegmentId,
+          stoppedAtSegmentId: sectionLessonState.stoppedAtSegmentId,
+          completedSegmentIds: sectionLessonState.completedSegmentIds,
+          carryOverNote: sectionLessonState.carryOverNote,
+          lastTaughtDate: sectionLessonState.lastTaughtDate,
+          updatedAt: sectionLessonState.updatedAt
+        })
+        .from(sectionLessonState)
+        .innerJoin(lessons, eq(sectionLessonState.lessonId, lessons.id))
+        .innerJoin(units, eq(lessons.unitId, units.id))
+        .where(
+          and(
+            eq(sectionLessonState.sectionId, params.sectionId),
+            eq(units.courseId, ownedSection.courseId),
+            inArray(sectionLessonState.status, [
+              'in_progress',
+              'stopped_at_segment',
+              'carried_over',
+              'needs_reteach'
+            ])
+          )
+        )
+        .orderBy(desc(sectionLessonState.updatedAt))
+        .limit(1);
+
+      const [firstLesson] = !activeState
+        ? await db
+            .select({ id: lessons.id })
+            .from(lessons)
+            .innerJoin(units, eq(lessons.unitId, units.id))
+            .where(eq(units.courseId, ownedSection.courseId))
+            .orderBy(asc(units.orderIndex), asc(lessons.orderIndex), asc(lessons.createdAt))
+            .limit(1)
+        : [];
+
+      const lessonId = activeState?.lessonId ?? firstLesson?.id ?? null;
+
+      const [lesson] = lessonId
+        ? await db
+            .select({
+              id: lessons.id,
+              title: lessons.title,
+              description: lessons.description,
+              orderIndex: lessons.orderIndex,
+              estimatedDurationMinutes: lessons.estimatedDurationMinutes
+            })
+            .from(lessons)
+            .where(eq(lessons.id, lessonId))
+            .limit(1)
+        : [];
+
+      const segmentRows = lessonId
+        ? await db
+            .select({
+              id: lessonSegments.id,
+              title: lessonSegments.title,
+              description: lessonSegments.description,
+              durationMinutes: lessonSegments.durationMinutes,
+              orderIndex: lessonSegments.orderIndex
+            })
+            .from(lessonSegments)
+            .where(eq(lessonSegments.lessonId, lessonId))
+            .orderBy(asc(lessonSegments.orderIndex), asc(lessonSegments.createdAt))
+        : [];
+
+      const [lastNote] = await db
+        .select({
+          noteId: classNotes.id,
+          date: classNotes.date,
+          content: classNotes.content,
+          updatedAt: classNotes.updatedAt
+        })
+        .from(classNotes)
+        .where(and(eq(classNotes.sectionId, params.sectionId), eq(classNotes.userId, user.id)))
+        .orderBy(desc(classNotes.date), desc(classNotes.updatedAt))
+        .limit(1);
+
+      return ClassroomResumeResponseSchema.parse({
+        section: {
+          sectionId: ownedSection.sectionId,
+          courseId: ownedSection.courseId,
+          courseName: ownedSection.courseName,
+          sectionName: ownedSection.sectionName
+        },
+        lesson: lesson
+          ? {
+              id: lesson.id,
+              title: lesson.title,
+              description: lesson.description,
+              orderIndex: lesson.orderIndex,
+              estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+              segments: segmentRows
+            }
+          : null,
+        state: activeState
+          ? {
+              stateId: activeState.stateId,
+              lessonId: activeState.lessonId,
+              status: activeState.status,
+              currentSegmentId: activeState.currentSegmentId,
+              stoppedAtSegmentId: activeState.stoppedAtSegmentId,
+              completedSegmentIds: activeState.completedSegmentIds,
+              carryOverNote: activeState.carryOverNote,
+              lastTaughtDate: activeState.lastTaughtDate,
+              updatedAt: activeState.updatedAt.toISOString()
+            }
+          : null,
+        lastNote: lastNote
+          ? {
+              noteId: lastNote.noteId,
+              date: lastNote.date,
+              content: lastNote.content,
+              updatedAt: lastNote.updatedAt.toISOString()
+            }
+          : null
+      });
     }
   );
 
@@ -1121,8 +1435,14 @@ export async function v1Routes(app: FastifyInstance) {
     async (request, reply) => {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
-      await ensureUserFromPrincipal(principal);
+      const user = await ensureUserFromPrincipal(principal);
       const body = LessonProgressUpsertRequestSchema.parse(request.body);
+
+      const ownedLesson = await findOwnedLessonInSectionCourse(user.id, body.sectionId, body.lessonId);
+      if (!ownedLesson) {
+        (reply as any).code(404);
+        return { error: 'Section or lesson not found', requestId: request.id };
+      }
 
       const [state] = await db
         .insert(sectionLessonState)
@@ -1176,6 +1496,12 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
       const body = ClassNotesUpsertRequestSchema.parse(request.body);
+
+      const ownedSection = await findOwnedSection(user.id, body.sectionId);
+      if (!ownedSection) {
+        (reply as any).code(404);
+        return { error: 'Section not found', requestId: request.id };
+      }
 
       const [note] = await db
         .insert(classNotes)

@@ -6,6 +6,7 @@ import type {
   AiJobStatusResponse,
   ClassNotesUpsertRequest,
   ClassNotesUpsertResponse,
+  ClassroomResumeResponse,
   CourseCreateRequest,
   CourseDetailResponse,
   CourseListResponse,
@@ -29,6 +30,8 @@ import type {
   SegmentCreateRequest,
   SegmentUpdateRequest,
   ScheduleImportRequest,
+  SectionMutationRequest,
+  SectionUpdateRequest,
   UnitCreateRequest,
   UnitUpdateRequest
 } from '@teacheros/contracts';
@@ -84,6 +87,18 @@ export function useApiClient() {
         request<OnboardingResponse>('/v1/onboarding', { method: 'POST', body: JSON.stringify(body) }, auth),
       dashboardToday: () => request<DashboardTodayResponse>('/v1/dashboard/today', { method: 'GET' }, auth),
       getSchedule: () => request<GetScheduleResponse>('/v1/schedule', { method: 'GET' }, auth),
+      createSection: (body: SectionMutationRequest) =>
+        request<GetScheduleResponse>('/v1/sections', { method: 'POST', body: JSON.stringify(body) }, auth),
+      updateSection: (sectionId: string, body: SectionUpdateRequest) =>
+        request<GetScheduleResponse>(
+          `/v1/sections/${sectionId}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      deleteSection: (sectionId: string) =>
+        request<DeleteEntityResponse>(`/v1/sections/${sectionId}`, { method: 'DELETE' }, auth),
+      getClassroomResume: (sectionId: string) =>
+        request<ClassroomResumeResponse>(`/v1/sections/${sectionId}/resume`, { method: 'GET' }, auth),
       listCourses: () => request<CourseListResponse>('/v1/courses', { method: 'GET' }, auth),
       getCourseDetail: (courseId: string) =>
         request<CourseDetailResponse>(`/v1/courses/${courseId}`, { method: 'GET' }, auth),

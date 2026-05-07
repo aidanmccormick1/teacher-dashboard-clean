@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import type { AiJobStatusResponse, GetScheduleResponse } from '@teacheros/contracts';
+import type { AiJobStatusResponse, CourseListResponse, GetScheduleResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 
@@ -8,9 +8,17 @@ function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
 }
 
+const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'] as const;
+
 export function SchedulePage() {
   const api = useApiClient();
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
+  const [courses, setCourses] = useState<CourseListResponse['courses']>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [sectionName, setSectionName] = useState('');
+  const [meetingDay, setMeetingDay] = useState<(typeof meetingDays)[number]>('Monday');
+  const [meetingTime, setMeetingTime] = useState('');
+  const [meetingRoom, setMeetingRoom] = useState('');
   const [importText, setImportText] = useState('');
   const [segmentLessonTitle, setSegmentLessonTitle] = useState('');
   const [segmentObjective, setSegmentObjective] = useState('');
@@ -34,9 +42,20 @@ export function SchedulePage() {
     }
   }, [api]);
 
+  const loadCourses = useCallback(async () => {
+    try {
+      const response = await api.listCourses();
+      setCourses(response.courses);
+      setSelectedCourseId((current) => current || response.courses[0]?.id || '');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to load courses');
+    }
+  }, [api]);
+
   useEffect(() => {
     void loadSchedule();
-  }, [loadSchedule]);
+    void loadCourses();
+  }, [loadCourses, loadSchedule]);
 
   useEffect(() => {
     if (!activeJobId) return;
@@ -80,6 +99,87 @@ export function SchedulePage() {
     <div className="stack">
       <h1>Schedule</h1>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
+
+      <div className="card stack">
+        <h3>Add class section</h3>
+        {courses.length === 0 ? (
+          <p className="muted">Create a course in Curriculum before adding scheduled sections.</p>
+        ) : null}
+        <select
+          className="input"
+          value={selectedCourseId}
+          onChange={(event) => setSelectedCourseId(event.target.value)}
+        >
+          {courses.map((course) => (
+            <option key={course.id} value={course.id}>
+              {course.name}
+            </option>
+          ))}
+        </select>
+        <input
+          className="input"
+          value={sectionName}
+          onChange={(event) => setSectionName(event.target.value)}
+          placeholder="Section name, like Period 1 or Algebra A"
+        />
+        <div className="row">
+          <select
+            className="input"
+            value={meetingDay}
+            onChange={(event) => setMeetingDay(event.target.value as (typeof meetingDays)[number])}
+          >
+            {meetingDays.map((day) => (
+              <option key={day} value={day}>
+                {day}
+              </option>
+            ))}
+          </select>
+          <input
+            className="input"
+            type="time"
+            value={meetingTime}
+            onChange={(event) => setMeetingTime(event.target.value)}
+          />
+          <input
+            className="input"
+            value={meetingRoom}
+            onChange={(event) => setMeetingRoom(event.target.value)}
+            placeholder="Room"
+          />
+        </div>
+        <button
+          type="button"
+          disabled={busy || !selectedCourseId || !sectionName.trim()}
+          onClick={async () => {
+            try {
+              setBusy(true);
+              setSchedule(
+                await api.createSection({
+                  courseId: selectedCourseId,
+                  sectionName: sectionName.trim(),
+                  meetings: [
+                    {
+                      day: meetingDay,
+                      time: meetingTime || null,
+                      room: meetingRoom.trim() || null
+                    }
+                  ]
+                })
+              );
+              setSectionName('');
+              setMeetingTime('');
+              setMeetingRoom('');
+              setError(null);
+            } catch (err) {
+              setError(err instanceof ApiError ? err.message : 'Failed to create class section');
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Add section
+        </button>
+      </div>
 
       <div className="card stack">
         <h3>AI: Parse Schedule</h3>
@@ -299,13 +399,69 @@ export function SchedulePage() {
       <div className="card stack">
         <h3>Current sections</h3>
         {schedule?.sections.length ? (
-          <ul>
+          <div className="stack">
             {schedule.sections.map((section) => (
-              <li key={section.sectionId}>
-                {section.courseName} - {section.sectionName}
-              </li>
+              <div key={section.sectionId} className="card stack">
+                <div className="row">
+                  <strong>
+                    {section.courseName} - {section.sectionName}
+                  </strong>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={async () => {
+                      const nextName = window.prompt('Section name', section.sectionName);
+                      if (nextName === null || !nextName.trim()) return;
+                      try {
+                        setBusy(true);
+                        setSchedule(
+                          await api.updateSection(section.sectionId, {
+                            sectionName: nextName.trim()
+                          })
+                        );
+                        setError(null);
+                      } catch (err) {
+                        setError(err instanceof ApiError ? err.message : 'Failed to update section');
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete section "${section.sectionName}"?`)) return;
+                      try {
+                        setBusy(true);
+                        await api.deleteSection(section.sectionId);
+                        await loadSchedule();
+                      } catch (err) {
+                        setError(err instanceof ApiError ? err.message : 'Failed to delete section');
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+                {section.meetings.length ? (
+                  <ul>
+                    {section.meetings.map((meeting) => (
+                      <li key={`${meeting.day}-${meeting.time ?? 'none'}-${meeting.room ?? 'none'}`}>
+                        {meeting.day} at {meeting.time ?? 'TBD'}
+                        {meeting.room ? ` in ${meeting.room}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="muted">No meeting times added yet.</p>
+                )}
+              </div>
             ))}
-          </ul>
+          </div>
         ) : (
           <p className="muted">No section schedule data yet.</p>
         )}

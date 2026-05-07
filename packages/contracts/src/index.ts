@@ -112,6 +112,17 @@ export const GetScheduleResponseSchema = z.object({
   )
 });
 
+export const SectionMutationRequestSchema = z.object({
+  courseId: UuidSchema,
+  sectionName: z.string().min(1),
+  meetings: z.array(SectionMeetingSchema).default([])
+});
+
+export const SectionUpdateRequestSchema = z.object({
+  sectionName: z.string().min(1).optional(),
+  meetings: z.array(SectionMeetingSchema).optional()
+});
+
 export const ScheduleImportRequestSchema = z.object({
   text: z.string().min(1).optional(),
   imageBase64: z.string().min(1).optional()
@@ -338,6 +349,37 @@ export const SegmentUpdateRequestSchema = z.object({
   orderIndex: z.number().int().nonnegative().optional()
 });
 
+export const ClassroomResumeResponseSchema = z.object({
+  section: z.object({
+    sectionId: UuidSchema,
+    courseId: UuidSchema,
+    courseName: z.string(),
+    sectionName: z.string()
+  }),
+  lesson: LessonSchema.nullable(),
+  state: z
+    .object({
+      stateId: UuidSchema,
+      lessonId: UuidSchema,
+      status: LessonProgressStatusSchema,
+      currentSegmentId: UuidSchema.nullable(),
+      stoppedAtSegmentId: UuidSchema.nullable(),
+      completedSegmentIds: z.array(UuidSchema),
+      carryOverNote: z.string().nullable(),
+      lastTaughtDate: IsoDateSchema.nullable(),
+      updatedAt: z.string()
+    })
+    .nullable(),
+  lastNote: z
+    .object({
+      noteId: UuidSchema,
+      date: IsoDateSchema,
+      content: z.string(),
+      updatedAt: z.string()
+    })
+    .nullable()
+});
+
 export const DeleteEntityResponseSchema = z.object({
   deleted: z.literal(true)
 });
@@ -361,6 +403,8 @@ export type OnboardingRequest = z.infer<typeof OnboardingRequestSchema>;
 export type OnboardingResponse = z.infer<typeof OnboardingResponseSchema>;
 export type DashboardTodayResponse = z.infer<typeof DashboardTodayResponseSchema>;
 export type GetScheduleResponse = z.infer<typeof GetScheduleResponseSchema>;
+export type SectionMutationRequest = z.infer<typeof SectionMutationRequestSchema>;
+export type SectionUpdateRequest = z.infer<typeof SectionUpdateRequestSchema>;
 export type ScheduleImportRequest = z.infer<typeof ScheduleImportRequestSchema>;
 export type ScheduleImportResponse = z.infer<typeof ScheduleImportResponseSchema>;
 export type HolidaysUpsertRequest = z.infer<typeof HolidaysUpsertRequestSchema>;
@@ -390,4 +434,5 @@ export type LessonCreateRequest = z.infer<typeof LessonCreateRequestSchema>;
 export type LessonUpdateRequest = z.infer<typeof LessonUpdateRequestSchema>;
 export type SegmentCreateRequest = z.infer<typeof SegmentCreateRequestSchema>;
 export type SegmentUpdateRequest = z.infer<typeof SegmentUpdateRequestSchema>;
+export type ClassroomResumeResponse = z.infer<typeof ClassroomResumeResponseSchema>;
 export type DeleteEntityResponse = z.infer<typeof DeleteEntityResponseSchema>;
