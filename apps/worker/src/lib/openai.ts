@@ -1,0 +1,76 @@
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import { z } from 'zod';
+
+type PromptInput = {
+  apiKey: string;
+  model: string;
+  schemaName: string;
+  schema: z.ZodTypeAny;
+  systemPrompt: string;
+  userPrompt: string;
+};
+
+function extractOutputText(payload: unknown): string {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'output_text' in payload &&
+    typeof payload.output_text === 'string'
+  ) {
+    return payload.output_text;
+  }
+
+  if (payload && typeof payload === 'object' && 'output' in payload && Array.isArray(payload.output)) {
+    const firstOutput = payload.output[0];
+    if (firstOutput && typeof firstOutput === 'object' && 'content' in firstOutput) {
+      const content = firstOutput.content;
+      if (Array.isArray(content)) {
+        const textPart = content.find(
+          (part) => part && typeof part === 'object' && 'text' in part && typeof part.text === 'string'
+        );
+        if (textPart && typeof textPart === 'object' && 'text' in textPart) {
+          return textPart.text as string;
+        }
+      }
+    }
+  }
+
+  throw new Error('Could not extract output text from OpenAI response');
+}
+
+export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
+  const schemaJson = zodToJsonSchema(params.schema, params.schemaName);
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${params.apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: params.model,
+      input: [
+        { role: 'system', content: params.systemPrompt },
+        { role: 'user', content: params.userPrompt }
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: params.schemaName,
+          strict: true,
+          schema: schemaJson
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI request failed with status ${response.status}`);
+  }
+
+  const payload = (await response.json()) as unknown;
+  const outputText = extractOutputText(payload);
+  const parsedOutput = JSON.parse(outputText) as unknown;
+
+  return params.schema.parse(parsedOutput) as T;
+}
