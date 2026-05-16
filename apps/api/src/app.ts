@@ -65,23 +65,26 @@ export async function createApp(config: AppConfig) {
     timeWindow: '1 minute'
   });
 
-  await app.register(swagger, {
-    openapi: {
-      info: {
-        title: 'TeacherOS API',
-        version: '0.1.0'
-      }
-    },
-    transform: jsonSchemaTransform
-  });
+  if (config.ENABLE_API_DOCS) {
+    await app.register(swagger, {
+      openapi: {
+        info: {
+          title: 'TeacherOS API',
+          version: '0.1.0'
+        }
+      },
+      transform: jsonSchemaTransform
+    });
 
-  await app.register(swaggerUI, {
-    routePrefix: '/docs'
-  });
+    await app.register(swaggerUI, {
+      routePrefix: '/docs'
+    });
+  }
 
   await app.register(requestContextPlugin);
   await app.register(authPlugin);
   await app.register(healthRoutes);
+
   await app.register(v1Routes);
 
   app.setErrorHandler((error, request, reply) => {

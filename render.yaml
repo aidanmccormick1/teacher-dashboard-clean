@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: teacheros-api
+    runtime: node
+    rootDir: .
+    plan: free
+    region: ohio
+    branch: main
+    buildCommand: npm ci --include=dev && npm --workspace @teacheros/contracts run build && npm --workspace @teacheros/db run build && npm --workspace @teacheros/api run build
+    preDeployCommand: npm --workspace @teacheros/db run db:migrate
+    startCommand: npm --workspace @teacheros/api run start
+    healthCheckPath: /health/readiness
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 20.10.0
+      - key: NODE_ENV
+        value: production
+      - key: ENABLE_API_DOCS
+        value: false
+      - key: REQUEST_ID_HEADER
+        value: x-request-id
+      - key: CLERK_AUTHORIZED_PARTIES
+        value: https://teacher-dashboard-clean.pages.dev
+      - key: DATABASE_URL
+        fromDatabase:
+          name: teacheros-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: teacheros-redis
+          property: connectionString
+      - key: OPENAI_MODEL_PARSE_SCHEDULE
+        value: gpt-4o-mini
+      - key: OPENAI_MODEL_GENERATE_SEGMENTS
+        value: gpt-4o
+      - key: OPENAI_MODEL_CONTINUITY
+        value: gpt-4o
+      - key: S3_REGION
+        value: us-east-1
+
+  - type: keyvalue
+    name: teacheros-redis
+    plan: free
+    region: ohio
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+databases:
+  - name: teacheros-db
+    plan: free
+    region: ohio
+    databaseName: teacheros
+    user: teacheros
+    postgresMajorVersion: "17"
+    ipAllowList: []

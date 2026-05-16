@@ -2,8 +2,12 @@ import { z } from 'zod';
 
 const ConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  API_PORT: z.coerce.number().int().positive().default(3001),
+  API_PORT: z.preprocess(
+    (value) => value ?? process.env.PORT,
+    z.coerce.number().int().positive().default(3001)
+  ),
   REQUEST_ID_HEADER: z.string().default('x-request-id'),
+  ENABLE_API_DOCS: z.coerce.boolean().default(false),
   CLERK_SECRET_KEY: z.string().optional(),
   CLERK_AUTHORIZED_PARTIES: z.string().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1),
