@@ -43,7 +43,7 @@
   - GitHub Actions CI (`typecheck`, `lint`, `test`, `build`)
 - Deployment scaffolding added:
   - Cloudflare Pages setup guide: `infra/cloudflare-pages.md`
-  - Render blueprint: `infra/render.yaml`
+  - Render blueprint: `render.yaml`
 - Health and readiness routes implemented:
   - `GET /health/liveness`
   - `GET /health/readiness`
