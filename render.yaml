@@ -7,8 +7,7 @@ services:
     region: ohio
     branch: main
     buildCommand: npm ci --include=dev && npm --workspace @teacheros/contracts run build && npm --workspace @teacheros/db run build && npm --workspace @teacheros/api run build
-    preDeployCommand: npm --workspace @teacheros/db run db:migrate
-    startCommand: npm --workspace @teacheros/api run start
+    startCommand: npm --workspace @teacheros/db run db:migrate && npm --workspace @teacheros/api run start
     healthCheckPath: /health/readiness
     autoDeployTrigger: commit
     envVars:
