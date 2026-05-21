@@ -55,6 +55,35 @@ export const OnboardingResponseSchema = z.object({
   onboarded: z.literal(true)
 });
 
+export const ProfileResponseSchema = z.object({
+  user: z.object({
+    id: UuidSchema,
+    email: z.string(),
+    fullName: z.string().nullable()
+  }),
+  profile: z
+    .object({
+      role: z.enum(['teacher', 'department_head', 'admin']),
+      phone: z.string().nullable(),
+      workEmail: z.string().nullable(),
+      subjects: z.array(z.string()),
+      grades: z.array(z.string()),
+      onboarded: z.boolean()
+    })
+    .nullable(),
+  school: z
+    .object({
+      id: UuidSchema,
+      name: z.string(),
+      district: z.string().nullable(),
+      state: z.string().nullable()
+    })
+    .nullable()
+});
+
+export const ProfileUpdateRequestSchema = OnboardingRequestSchema;
+export const ProfileUpdateResponseSchema = ProfileResponseSchema;
+
 export const DashboardTodayResponseSchema = z.object({
   date: IsoDateSchema,
   currentClass: z
@@ -125,7 +154,10 @@ export const SectionUpdateRequestSchema = z.object({
 
 export const ScheduleImportRequestSchema = z.object({
   text: z.string().min(1).optional(),
-  imageBase64: z.string().min(1).optional()
+  imageBase64: z.string().min(1).optional(),
+  fileBase64: z.string().min(1).optional(),
+  fileName: z.string().min(1).optional(),
+  fileMimeType: z.string().min(1).optional()
 });
 
 export const ScheduleImportResponseSchema = z.object({
@@ -186,7 +218,10 @@ export const ClassNotesUpsertResponseSchema = z.object({
 
 export const ParseScheduleRequestSchema = z.object({
   text: z.string().min(1).optional(),
-  imageBase64: z.string().min(1).optional()
+  imageBase64: z.string().min(1).optional(),
+  fileBase64: z.string().min(1).optional(),
+  fileName: z.string().min(1).optional(),
+  fileMimeType: z.string().min(1).optional()
 });
 
 export const ParseScheduleResponseSchema = ScheduleImportResponseSchema;
@@ -401,6 +436,9 @@ export const ApiErrorSchema = z.object({
 
 export type OnboardingRequest = z.infer<typeof OnboardingRequestSchema>;
 export type OnboardingResponse = z.infer<typeof OnboardingResponseSchema>;
+export type ProfileResponse = z.infer<typeof ProfileResponseSchema>;
+export type ProfileUpdateRequest = z.infer<typeof ProfileUpdateRequestSchema>;
+export type ProfileUpdateResponse = z.infer<typeof ProfileUpdateResponseSchema>;
 export type DashboardTodayResponse = z.infer<typeof DashboardTodayResponseSchema>;
 export type GetScheduleResponse = z.infer<typeof GetScheduleResponseSchema>;
 export type SectionMutationRequest = z.infer<typeof SectionMutationRequestSchema>;

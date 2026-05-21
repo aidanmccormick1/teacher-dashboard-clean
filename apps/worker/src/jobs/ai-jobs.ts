@@ -28,6 +28,36 @@ class CancelledError extends Error {
   }
 }
 
+type ScheduleImportInput = {
+  text?: string;
+  imageBase64?: string;
+  fileBase64?: string;
+  fileName?: string;
+  fileMimeType?: string;
+};
+
+function scheduleImportFileDataUrl(input: ScheduleImportInput): string | undefined {
+  if (input.fileBase64) {
+    if (input.fileBase64.startsWith('data:')) return input.fileBase64;
+    return `data:${input.fileMimeType ?? 'application/pdf'};base64,${input.fileBase64}`;
+  }
+
+  if (input.imageBase64) {
+    if (input.imageBase64.startsWith('data:')) return input.imageBase64;
+    return `data:${input.fileMimeType ?? 'image/png'};base64,${input.imageBase64}`;
+  }
+
+  return undefined;
+}
+
+function scheduleImportUserPrompt(input: ScheduleImportInput): string {
+  if (input.text) return `Parse this schedule and assignments:\n${input.text}`;
+  if (input.fileMimeType === 'application/pdf' || input.fileName?.toLowerCase().endsWith('.pdf')) {
+    return 'Parse the uploaded PDF schedule. Extract teaching classes and assignments. Return JSON only.';
+  }
+  return 'Parse the uploaded schedule image. Extract teaching classes and assignments. Return JSON only.';
+}
+
 export function createAiJobsWorker(config: WorkerConfig): Worker<AiQueuePayload> {
   const { redisUrl, openAiApiKey, modelParseSchedule, modelGenerateSegments, modelContinuity } =
     config;
@@ -107,7 +137,7 @@ export function createAiJobsWorker(config: WorkerConfig): Worker<AiQueuePayload>
 
         let output: Record<string, unknown>;
         if (aiJob.type === 'parse_schedule') {
-          const input = aiJob.input as { text?: string; imageBase64?: string };
+          const input = aiJob.input as ScheduleImportInput;
           output = await runStructuredPrompt({
             apiKey: openAiApiKey,
             model: modelParseSchedule,
@@ -115,9 +145,9 @@ export function createAiJobsWorker(config: WorkerConfig): Worker<AiQueuePayload>
             schema: ParseScheduleResponseSchema,
             systemPrompt:
               'Extract classes and assignments from teacher schedule text. Return JSON only and skip non-teaching events.',
-            userPrompt: input.text
-              ? `Parse this schedule and assignments:\n${input.text}`
-              : 'Parse the supplied schedule image and return classes + assignments.'
+            userPrompt: scheduleImportUserPrompt(input),
+            fileDataUrl: scheduleImportFileDataUrl(input),
+            fileName: input.fileName
           });
         } else if (aiJob.type === 'generate_segments') {
           const input = aiJob.input as {

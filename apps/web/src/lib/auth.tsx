@@ -29,23 +29,30 @@ const AuthContext = createContext<AuthState | null>(null);
 function DevAuthProvider({ children }: PropsWithChildren) {
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     const raw = window.localStorage.getItem(DEV_SESSION_KEY);
-    if (!raw) return;
+    if (!raw) {
+      setIsLoaded(true);
+      return;
+    }
+
     try {
       const parsed = JSON.parse(raw) as { userId: string; email: string | null };
       setUserId(parsed.userId);
       setEmail(parsed.email);
     } catch {
       window.localStorage.removeItem(DEV_SESSION_KEY);
+    } finally {
+      setIsLoaded(true);
     }
   }, []);
 
   const value = useMemo<AuthState>(
     () => ({
       mode: 'dev',
-      isLoaded: true,
+      isLoaded,
       isSignedIn: Boolean(userId),
       userId,
       email,
@@ -64,7 +71,7 @@ function DevAuthProvider({ children }: PropsWithChildren) {
         );
       }
     }),
-    [email, userId]
+    [email, isLoaded, userId]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

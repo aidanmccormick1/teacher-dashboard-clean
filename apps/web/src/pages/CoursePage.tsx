@@ -89,10 +89,20 @@ export function CoursePage() {
 
   return (
     <div className="stack">
-      <div className="row">
-        <Link to="/curriculum">Back to curriculum</Link>
+      <div className="editor-topbar">
+        <div>
+          <p className="eyebrow">Course editor</p>
+          <h1>Course Detail</h1>
+        </div>
+        <div className="profile-actions">
+          <Link className="button-link secondary" to="/curriculum">
+            Back to Curriculum
+          </Link>
+          <Link className="button-link secondary" to="/management">
+            Back to Management
+          </Link>
+        </div>
       </div>
-      <h1>Course Detail</h1>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
       {loading && !course ? <p className="muted">Loading course...</p> : null}
 

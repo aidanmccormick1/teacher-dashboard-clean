@@ -197,6 +197,48 @@ Prefer:
 
 ---
 
+## Management Product Model
+
+Management should feel like a teacher setup and planning hub, not a technical admin panel.
+
+Keep this model visible in the product:
+
+- Courses are shared year-plan/curriculum containers.
+- Sections/class periods attach to a course.
+- Multiple sections can share one course plan.
+- Each section tracks progress independently.
+- Schedule controls when sections meet.
+- Year Plan shows units, lessons, segments, and school-year pacing.
+- Dashboard and Classroom Mode should eventually use this data to show what to teach next.
+
+Teacher-facing Management flow:
+
+1. Create course.
+2. Add periods/sections.
+3. Add meeting days and times.
+4. Build year plan.
+5. Track section progress.
+6. Use Dashboard/Classroom Mode to continue from the right stopping point.
+
+Management tabs should stay simple:
+
+- Courses: These are the classes I teach.
+- Schedule: These are the periods that meet each week.
+- Year Plan: This is what I am teaching across the year.
+
+The Year Plan view should include an online-course-style outline and a Year Timeline/Pacing View. The outline shows units, lessons, and segments. The timeline shows pacing across the school year, holidays/no-school days when available, and section markers so teachers can see which periods are ahead, behind, or on pace.
+
+Smart setup prompts should appear inside the relevant Management tabs instead of a permanent setup path. Prompts should be dismissible, teacher-facing, and should explain why the next step matters.
+
+First-time school setup should stay optional and lightweight. School-year dates, normal meeting days, bell schedule type, and holidays improve pacing, but skipping school setup must not block course, schedule, or year-plan creation.
+
+Future Today Impact concept:
+
+- Missed days, holidays, behind sections, catch-up needs, and unit spillover should eventually surface in Dashboard and Classroom Mode.
+- The product should help teachers understand how today changes the rest of the week and year.
+
+---
+
 ## Recommended Multi-Week Build Plan
 
 This plan is organized by priority, not strict calendar dates. Work through it in order unless a dependency requires otherwise.

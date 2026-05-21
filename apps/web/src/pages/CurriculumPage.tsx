@@ -45,7 +45,15 @@ export function CurriculumPage() {
 
   return (
     <div className="stack">
-      <h1>Curriculum</h1>
+      <div className="editor-topbar">
+        <div>
+          <p className="eyebrow">Editor</p>
+          <h1>Curriculum</h1>
+        </div>
+        <Link className="button-link secondary" to="/management">
+          Back to Management
+        </Link>
+      </div>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
 
       <div className="card stack">

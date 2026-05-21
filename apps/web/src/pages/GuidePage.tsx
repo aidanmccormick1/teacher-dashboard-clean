@@ -4,87 +4,96 @@ import { Link } from 'react-router-dom';
 type GuideStep = {
   id: string;
   title: string;
-  plain: string;
-  why: string;
+  task: string;
+  result: string;
   to: string;
   action: string;
-  advanced?: string;
+  detail?: string;
 };
 
-const GUIDE_STORAGE_KEY = 'teacheros_start_here_progress';
+const GUIDE_STORAGE_KEY = 'teacheros_welcome_progress';
 
 const steps: GuideStep[] = [
   {
     id: 'course',
-    title: 'Create one course',
-    plain: 'Add the class you teach, like Algebra I or English 10. Do not worry about every detail yet.',
-    why: 'Courses are the folder that units, lessons, and class sections attach to.',
+    title: 'Course',
+    task: 'Create the subject container.',
+    result: 'Example: Algebra I, English 10, Biology.',
     to: '/curriculum',
-    action: 'Add a course',
-    advanced: 'Later, split the course into units, lessons, and timed segments for better pacing.'
+    action: 'Create course',
+    detail: 'Courses hold units, lessons, and the schedule sections that teach them.'
+  },
+  {
+    id: 'unit',
+    title: 'Curriculum',
+    task: 'Add one unit and one lesson.',
+    result: 'This gives Classroom something real to resume.',
+    to: '/management',
+    action: 'Open management',
+    detail: 'A unit can be rough. The lesson should be the next thing you expect to teach.'
+  },
+  {
+    id: 'segments',
+    title: 'Segments',
+    task: 'Break the lesson into timed parts.',
+    result: 'Warm-up, mini lesson, practice, exit ticket.',
+    to: '/schedule',
+    action: 'Generate segments',
+    detail: 'Segments make stopped-at tracking precise instead of vague.'
   },
   {
     id: 'schedule',
-    title: 'Add one section to the schedule',
-    plain: 'Tell the app when that class meets. Start with one period and one meeting time.',
-    why: 'The dashboard uses this to know what class is happening now and what is next.',
+    title: 'Schedule',
+    task: 'Connect the course to a class section.',
+    result: 'Example: Period 2 meets Monday at 9:15.',
     to: '/schedule',
-    action: 'Add schedule',
-    advanced: 'If you have a messy pasted schedule, use the parser as a draft, then review before saving.'
-  },
-  {
-    id: 'lesson',
-    title: 'Add the next lesson',
-    plain: 'Create the lesson you are actually going to teach next. A rough title is enough to begin.',
-    why: 'The classroom page needs at least one lesson before it can resume and track progress.',
-    to: '/curriculum',
-    action: 'Add lesson',
-    advanced: 'Timed lesson segments make it possible to stop at an exact point and continue next class.'
+    action: 'Add section',
+    detail: 'Sections let two groups move through the same course at different speeds.'
   },
   {
     id: 'teach',
-    title: 'Open Classroom when class starts',
-    plain: 'Use Classroom during the period. It shows the current class and the lesson to resume.',
-    why: 'This keeps the teaching workflow separate from setup screens.',
+    title: 'Teach',
+    task: 'Use Classroom during the period.',
+    result: 'Mark progress and keep the current section up to date.',
     to: '/classroom',
     action: 'Open Classroom',
-    advanced: 'Each section can move at its own pace, even when two sections share the same course.'
+    detail: 'Classroom is for teaching. Management is for setup.'
   },
   {
     id: 'note',
-    title: 'End with one carry-over note',
-    plain: 'Before moving on, write what happened and where to pick up next time.',
-    why: 'This is the habit that makes the next dashboard useful.',
+    title: 'Carry-over',
+    task: 'Save one note before the next class.',
+    result: 'The dashboard knows where to restart.',
     to: '/classroom',
     action: 'Save note',
-    advanced: 'Carry-over notes feed continuity planning and make reteach decisions easier to spot.'
+    detail: 'This is what keeps sections from blending together.'
   }
 ];
 
 const glossary = [
   {
     term: 'Course',
-    meaning: 'The subject or class container, like Algebra I.'
+    meaning: 'Subject container.'
   },
   {
     term: 'Section',
-    meaning: 'A specific group of students, like Period 2.'
+    meaning: 'One scheduled group.'
   },
   {
     term: 'Unit',
-    meaning: 'A larger chunk of curriculum inside a course.'
+    meaning: 'Curriculum chapter.'
   },
   {
     term: 'Lesson',
-    meaning: 'What you plan to teach in a class or across a few classes.'
+    meaning: 'What gets taught next.'
   },
   {
     term: 'Segment',
-    meaning: 'A smaller timed part of a lesson, like warm-up, mini lesson, or practice.'
+    meaning: 'Timed lesson part.'
   },
   {
     term: 'Carry-over note',
-    meaning: 'A short note that says where to start next time.'
+    meaning: 'Next class restart note.'
   }
 ];
 
@@ -99,7 +108,7 @@ function loadProgress(): string[] {
 
 export function GuidePage() {
   const [completedIds, setCompletedIds] = useState<string[]>(() => loadProgress());
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
 
   useEffect(() => {
     window.localStorage.setItem(GUIDE_STORAGE_KEY, JSON.stringify(completedIds));
@@ -114,17 +123,13 @@ export function GuidePage() {
     <div className="guide-page stack">
       <section className="paper-hero">
         <div>
-          <p className="eyebrow">Start Here</p>
-          <h1>Set up your first usable teaching day</h1>
-          <p>
-            This walkthrough is for a teacher who does not want to think about software. Follow the
-            left side first. Open the advanced notes only when you want more control.
-          </p>
+          <p className="eyebrow">Welcome</p>
+          <h1>Set up the teaching backbone.</h1>
         </div>
         <div className="guide-progress-card">
           <span>{percentComplete}%</span>
           <progress max={100} value={percentComplete} />
-          <p className="muted">{completedIds.length} of {steps.length} setup steps checked off.</p>
+          <p className="muted">{completedIds.length} of {steps.length} complete</p>
         </div>
       </section>
 
@@ -132,15 +137,15 @@ export function GuidePage() {
         <div className="card stack">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Simple path</p>
-              <h2>Do these in order</h2>
+              <p className="eyebrow">First run</p>
+              <h2>Build in this order</h2>
             </div>
             <button
               className="secondary"
               type="button"
-              onClick={() => setShowAdvanced((current) => !current)}
+              onClick={() => setShowDetail((current) => !current)}
             >
-              {showAdvanced ? 'Hide advanced' : 'Show advanced'}
+              {showDetail ? 'Hide detail' : 'Show detail'}
             </button>
           </div>
 
@@ -165,10 +170,10 @@ export function GuidePage() {
                   </label>
                   <div>
                     <h3>{step.title}</h3>
-                    <p>{step.plain}</p>
-                    <p className="muted">Why this matters: {step.why}</p>
-                    {showAdvanced && step.advanced ? (
-                      <p className="advanced-note">Advanced: {step.advanced}</p>
+                    <p>{step.task}</p>
+                    <p className="muted">{step.result}</p>
+                    {showDetail && step.detail ? (
+                      <p className="advanced-note">{step.detail}</p>
                     ) : null}
                     <Link className="button-link secondary" to={step.to}>
                       {step.action}
@@ -182,16 +187,17 @@ export function GuidePage() {
 
         <aside className="stack">
           <div className="card stack">
-            <p className="eyebrow">If you only have 5 minutes</p>
-            <h2>Fastest useful demo</h2>
+            <p className="eyebrow">Quick start</p>
+            <h2>Minimum setup</h2>
             <ol className="plain-list">
-              <li>Open Dashboard and check the current class.</li>
-              <li>Open Curriculum and confirm there is at least one lesson.</li>
-              <li>Open Classroom and resume the lesson.</li>
-              <li>Write one carry-over note before leaving.</li>
+              <li>One course.</li>
+              <li>One unit.</li>
+              <li>One lesson.</li>
+              <li>One section.</li>
+              <li>One carry-over note.</li>
             </ol>
-            <Link className="button-link" to="/">
-              Go to Dashboard
+            <Link className="button-link" to="/management">
+              Open Management
             </Link>
           </div>
 
@@ -209,13 +215,10 @@ export function GuidePage() {
           </div>
 
           <div className="card stack">
-            <p className="eyebrow">Power user lane</p>
-            <h2>When you are ready</h2>
-            <p className="muted">
-              The advanced workflow is: build course structure, create schedule sections, segment
-              lessons, teach from Classroom, then use carry-over notes to keep sections independent.
-            </p>
+            <p className="eyebrow">Advanced path</p>
+            <h2>Go deeper</h2>
             <div className="mini-link-list">
+              <Link to="/management">Management hub</Link>
               <Link to="/schedule">Schedule tools</Link>
               <Link to="/curriculum">Curriculum builder</Link>
               <Link to="/classroom">Classroom tracker</Link>

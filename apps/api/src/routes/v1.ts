@@ -31,6 +31,9 @@ import {
   OnboardingRequestSchema,
   OnboardingResponseSchema,
   ParseScheduleResponseSchema,
+  ProfileResponseSchema,
+  ProfileUpdateRequestSchema,
+  ProfileUpdateResponseSchema,
   SegmentCreateRequestSchema,
   SegmentUpdateRequestSchema,
   ScheduleImportRequestSchema,
@@ -55,8 +58,10 @@ import {
   sectionLessonState,
   sectionMeetings,
   sections,
+  schools,
   teacherProfiles,
-  units
+  units,
+  users
 } from '@teacheros/db';
 
 import { runStructuredPrompt } from '../lib/openai.js';
@@ -86,6 +91,34 @@ const InternalParseScheduleSchema = z.object({
     })
   )
 });
+
+type ScheduleImportBody = z.infer<typeof ScheduleImportRequestSchema>;
+
+function hasScheduleImportInput(body: ScheduleImportBody): boolean {
+  return Boolean(body.text || body.imageBase64 || body.fileBase64);
+}
+
+function scheduleImportFileDataUrl(body: ScheduleImportBody): string | undefined {
+  if (body.fileBase64) {
+    if (body.fileBase64.startsWith('data:')) return body.fileBase64;
+    return `data:${body.fileMimeType ?? 'application/pdf'};base64,${body.fileBase64}`;
+  }
+
+  if (body.imageBase64) {
+    if (body.imageBase64.startsWith('data:')) return body.imageBase64;
+    return `data:${body.fileMimeType ?? 'image/png'};base64,${body.imageBase64}`;
+  }
+
+  return undefined;
+}
+
+function scheduleImportUserPrompt(body: ScheduleImportBody): string {
+  if (body.text) return `Parse this teacher schedule and assignments:\n${body.text}`;
+  if (body.fileMimeType === 'application/pdf' || body.fileName?.toLowerCase().endsWith('.pdf')) {
+    return 'Parse the uploaded PDF schedule. Extract teaching classes and assignments. Return JSON only.';
+  }
+  return 'Parse the uploaded schedule image. Extract teaching classes and assignments. Return JSON only.';
+}
 
 function requirePrincipal(request: FastifyRequest, reply: FastifyReply) {
   if (!request.principal) {
@@ -428,6 +461,141 @@ export async function v1Routes(app: FastifyInstance) {
         schoolId: result.schoolId,
         onboarded: true
       };
+    }
+  );
+
+  app.get(
+    '/v1/profile',
+    {
+      schema: {
+        response: {
+          200: ProfileResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+
+      const user = await ensureUserFromPrincipal(principal);
+      const [row] = await db
+        .select({
+          userId: users.id,
+          email: users.email,
+          fullName: users.fullName,
+          role: teacherProfiles.role,
+          phone: teacherProfiles.phone,
+          workEmail: teacherProfiles.workEmail,
+          subjects: teacherProfiles.subjects,
+          grades: teacherProfiles.grades,
+          onboarded: teacherProfiles.onboarded,
+          schoolId: schools.id,
+          schoolName: schools.name,
+          district: schools.district,
+          state: schools.state
+        })
+        .from(users)
+        .leftJoin(teacherProfiles, eq(teacherProfiles.userId, users.id))
+        .leftJoin(schools, eq(schools.id, teacherProfiles.schoolId))
+        .where(eq(users.id, user.id))
+        .limit(1);
+
+      return ProfileResponseSchema.parse({
+        user: {
+          id: user.id,
+          email: row?.email ?? user.email,
+          fullName: row?.fullName ?? null
+        },
+        profile:
+          row?.role && row.onboarded !== null
+            ? {
+                role: row.role,
+                phone: row.phone,
+                workEmail: row.workEmail,
+                subjects: row.subjects ?? [],
+                grades: row.grades ?? [],
+                onboarded: row.onboarded
+              }
+            : null,
+        school:
+          row?.schoolId && row.schoolName
+            ? {
+                id: row.schoolId,
+                name: row.schoolName,
+                district: row.district,
+                state: row.state
+              }
+            : null
+      });
+    }
+  );
+
+  app.patch(
+    '/v1/profile',
+    {
+      schema: {
+        body: ProfileUpdateRequestSchema,
+        response: {
+          200: ProfileUpdateResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+
+      const body = ProfileUpdateRequestSchema.parse(request.body);
+      await upsertOnboarding(principal, body);
+
+      const user = await ensureUserFromPrincipal(principal);
+      const [row] = await db
+        .select({
+          userId: users.id,
+          email: users.email,
+          fullName: users.fullName,
+          role: teacherProfiles.role,
+          phone: teacherProfiles.phone,
+          workEmail: teacherProfiles.workEmail,
+          subjects: teacherProfiles.subjects,
+          grades: teacherProfiles.grades,
+          onboarded: teacherProfiles.onboarded,
+          schoolId: schools.id,
+          schoolName: schools.name,
+          district: schools.district,
+          state: schools.state
+        })
+        .from(users)
+        .leftJoin(teacherProfiles, eq(teacherProfiles.userId, users.id))
+        .leftJoin(schools, eq(schools.id, teacherProfiles.schoolId))
+        .where(eq(users.id, user.id))
+        .limit(1);
+
+      return ProfileUpdateResponseSchema.parse({
+        user: {
+          id: user.id,
+          email: row?.email ?? user.email,
+          fullName: row?.fullName ?? null
+        },
+        profile: row?.role
+          ? {
+              role: row.role,
+              phone: row.phone,
+              workEmail: row.workEmail,
+              subjects: row.subjects ?? [],
+              grades: row.grades ?? [],
+              onboarded: row.onboarded ?? true
+            }
+          : null,
+        school:
+          row?.schoolId && row.schoolName
+            ? {
+                id: row.schoolId,
+                name: row.schoolName,
+                district: row.district,
+                state: row.state
+              }
+            : null
+      });
     }
   );
 
@@ -1359,9 +1527,9 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
       const body = ScheduleImportRequestSchema.parse(request.body);
 
-      if (!body.text && !body.imageBase64) {
+      if (!hasScheduleImportInput(body)) {
         (reply as any).code(400);
-        return { error: 'text or imageBase64 is required', requestId: request.id };
+        return { error: 'Paste schedule text or upload a schedule image/PDF', requestId: request.id };
       }
 
       if (!app.config.OPENAI_API_KEY) {
@@ -1376,9 +1544,9 @@ export async function v1Routes(app: FastifyInstance) {
         schema: InternalParseScheduleSchema,
         systemPrompt:
           'Extract schedule classes and assignments. Return JSON only. Ignore non-teaching blocks like lunch/planning.',
-        userPrompt: body.text
-          ? `Parse this teacher schedule and assignments:\n${body.text}`
-          : 'Parse the provided schedule image and return classes + assignments. Output JSON only.'
+        userPrompt: scheduleImportUserPrompt(body),
+        fileDataUrl: scheduleImportFileDataUrl(body),
+        fileName: body.fileName
       });
 
       return ParseScheduleResponseSchema.parse(response);
@@ -1582,9 +1750,9 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
 
       const body = ScheduleImportRequestSchema.parse(request.body);
-      if (!body.text && !body.imageBase64) {
+      if (!hasScheduleImportInput(body)) {
         (reply as any).code(400);
-        return { error: 'text or imageBase64 is required', requestId: request.id };
+        return { error: 'Paste schedule text or upload a schedule image/PDF', requestId: request.id };
       }
 
       if (!app.aiQueue) {
@@ -1909,9 +2077,9 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
 
       const body = ScheduleImportRequestSchema.parse(request.body);
-      if (!body.text && !body.imageBase64) {
+      if (!hasScheduleImportInput(body)) {
         (reply as any).code(400);
-        return { error: 'text or imageBase64 is required', requestId: request.id };
+        return { error: 'Paste schedule text or upload a schedule image/PDF', requestId: request.id };
       }
 
       if (!app.config.OPENAI_API_KEY) {
@@ -1939,9 +2107,9 @@ export async function v1Routes(app: FastifyInstance) {
           schema: InternalParseScheduleSchema,
           systemPrompt:
             'Extract classes and assignments from teacher schedule text. Return JSON only and skip non-teaching events.',
-          userPrompt: body.text
-            ? `Parse this schedule and assignments:\n${body.text}`
-            : 'Parse the supplied schedule image and return classes + assignments.'
+          userPrompt: scheduleImportUserPrompt(body),
+          fileDataUrl: scheduleImportFileDataUrl(body),
+          fileName: body.fileName
         });
 
         await db.insert(aiOutputs).values({

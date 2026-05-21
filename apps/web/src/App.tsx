@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/DashboardPage.js';
 import { GuidePage } from './pages/GuidePage.js';
 import { LessonTrackerPage } from './pages/LessonTrackerPage.js';
 import { LoginPage } from './pages/LoginPage.js';
+import { ManagementPage } from './pages/ManagementPage.js';
 import { OnboardingPage } from './pages/OnboardingPage.js';
 import { ProfilePage } from './pages/ProfilePage.js';
 import { SchedulePage } from './pages/SchedulePage.js';
@@ -31,8 +32,10 @@ export default function App() {
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route element={<AppShell />}>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/guide" element={<GuidePage />} />
+          <Route path="/welcome" element={<GuidePage />} />
+          <Route path="/guide" element={<Navigate to="/welcome" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/management" element={<ManagementPage />} />
           <Route path="/school" element={<SchoolPage />} />
           <Route path="/classroom" element={<ClassroomPage />} />
           <Route path="/curriculum" element={<CurriculumPage />} />

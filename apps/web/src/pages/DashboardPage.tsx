@@ -218,7 +218,7 @@ export function DashboardPage() {
           (result) => result.status === 'rejected'
         );
         if (failedPrimaryLoads.length > 0) {
-          setError('Some dashboard signals could not load yet, so this view is using the data that is available.');
+          setError('Some dashboard data could not load.');
         }
       } catch (err) {
         if (!cancelled) {
@@ -317,8 +317,8 @@ export function DashboardPage() {
 
     if (summary.lessonCount > 0 && summary.segmentCount === 0) {
       prompts.push({
-        title: 'Make lessons teachable',
-        body: 'Lessons exist, but they need timed segments so the tracker can show precise stopping points.',
+        title: 'Add lesson segments',
+        body: 'Lessons need timed segments for stopped-at tracking.',
         to: '/schedule',
         action: 'Generate segments'
       });
@@ -382,10 +382,6 @@ export function DashboardPage() {
         <div className="hero-copy">
           <p className="eyebrow">{todayLabel}</p>
           <h1>Daily Teaching Desk</h1>
-          <p>
-            A practical desk view for the next class, the lesson behind it, and the small notes
-            that keep the day from slipping through the cracks.
-          </p>
           <div className="hero-actions">
             {state.today?.currentClass && currentResume?.lesson ? (
               <Link
@@ -413,33 +409,29 @@ export function DashboardPage() {
             <h2>Readiness</h2>
             <p className="muted">
               {readinessScore >= 85
-                ? 'Looks teachable. You have the major pieces lined up.'
+                ? 'Ready.'
                 : readinessScore >= 55
-                  ? 'Almost there. A few setup gaps are worth fixing.'
-                  : 'Needs setup. The dashboard found missing schedule or curriculum pieces.'}
+                  ? 'Needs a few updates.'
+                  : 'Setup needed.'}
             </p>
           </div>
         </div>
       </section>
 
       {error ? <p className="notice warning">{error}</p> : null}
-      {loading ? <p className="muted">Loading teacher signals...</p> : null}
+      {loading ? <p className="muted">Loading...</p> : null}
 
       <section className="walkthrough-callout">
         <div>
-          <p className="eyebrow">New to this?</p>
-          <h2>Start with the guided setup</h2>
-          <p>
-            The app works best when a teacher adds one course, one schedule section, one lesson,
-            and one carry-over note. The walkthrough explains those pieces without tech language.
-          </p>
+          <p className="eyebrow">First time</p>
+          <h2>Welcome setup</h2>
         </div>
         <div className="callout-actions">
-          <Link className="button-link" to="/guide">
-            Open Start Here
+          <Link className="button-link" to="/welcome">
+            Open welcome
           </Link>
-          <Link className="button-link secondary" to="/curriculum">
-            Skip to advanced setup
+          <Link className="button-link secondary" to="/management">
+            Manage classes
           </Link>
         </div>
       </section>
@@ -459,7 +451,7 @@ export function DashboardPage() {
         </div>
         <div className="metric-card">
           <span>{summary.segmentCount}</span>
-          <p>teachable segments</p>
+          <p>lesson segments</p>
         </div>
       </section>
 
@@ -703,7 +695,7 @@ export function DashboardPage() {
               ))}
             </ul>
           ) : (
-            <p className="muted">No obvious setup gaps. That is the good kind of boring.</p>
+            <p className="muted">Ready.</p>
           )}
         </div>
       </section>

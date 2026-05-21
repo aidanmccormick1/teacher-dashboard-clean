@@ -3,11 +3,9 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAppAuth } from '../lib/auth.js';
 
 const links = [
-  { path: '/guide', label: 'Start Here' },
   { path: '/', label: 'Dashboard' },
   { path: '/classroom', label: 'Classroom' },
-  { path: '/curriculum', label: 'Curriculum' },
-  { path: '/schedule', label: 'Schedule' },
+  { path: '/management', label: 'Management' },
   { path: '/school', label: 'School' },
   { path: '/profile', label: 'Profile' }
 ];

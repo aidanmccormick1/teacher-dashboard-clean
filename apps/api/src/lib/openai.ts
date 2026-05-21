@@ -8,7 +8,39 @@ type PromptInput = {
   schema: z.ZodTypeAny;
   systemPrompt: string;
   userPrompt: string;
+  fileDataUrl?: string;
+  fileName?: string;
 };
+
+function buildUserContent(params: PromptInput) {
+  if (!params.fileDataUrl) return params.userPrompt;
+
+  if (params.fileDataUrl.startsWith('data:application/pdf')) {
+    return [
+      {
+        type: 'input_file',
+        filename: params.fileName ?? 'schedule.pdf',
+        file_data: params.fileDataUrl
+      },
+      {
+        type: 'input_text',
+        text: params.userPrompt
+      }
+    ];
+  }
+
+  return [
+    {
+      type: 'input_text',
+      text: params.userPrompt
+    },
+    {
+      type: 'input_image',
+      image_url: params.fileDataUrl,
+      detail: 'high'
+    }
+  ];
+}
 
 function extractOutputText(payload: unknown): string {
   if (
@@ -54,7 +86,7 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
           model: params.model,
           input: [
             { role: 'system', content: params.systemPrompt },
-            { role: 'user', content: params.userPrompt }
+            { role: 'user', content: buildUserContent(params) }
           ],
           text: {
             format: {

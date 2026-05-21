@@ -27,6 +27,9 @@ import type {
   OnboardingRequest,
   OnboardingResponse,
   ParseScheduleResponse,
+  ProfileResponse,
+  ProfileUpdateRequest,
+  ProfileUpdateResponse,
   SegmentCreateRequest,
   SegmentUpdateRequest,
   ScheduleImportRequest,
@@ -85,6 +88,9 @@ export function useApiClient() {
     () => ({
       onboarding: (body: OnboardingRequest) =>
         request<OnboardingResponse>('/v1/onboarding', { method: 'POST', body: JSON.stringify(body) }, auth),
+      getProfile: () => request<ProfileResponse>('/v1/profile', { method: 'GET' }, auth),
+      updateProfile: (body: ProfileUpdateRequest) =>
+        request<ProfileUpdateResponse>('/v1/profile', { method: 'PATCH', body: JSON.stringify(body) }, auth),
       dashboardToday: () => request<DashboardTodayResponse>('/v1/dashboard/today', { method: 'GET' }, auth),
       getSchedule: () => request<GetScheduleResponse>('/v1/schedule', { method: 'GET' }, auth),
       createSection: (body: SectionMutationRequest) =>
