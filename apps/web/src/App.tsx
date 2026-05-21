@@ -6,6 +6,7 @@ import { ClassroomPage } from './pages/ClassroomPage.js';
 import { CoursePage } from './pages/CoursePage.js';
 import { CurriculumPage } from './pages/CurriculumPage.js';
 import { DashboardPage } from './pages/DashboardPage.js';
+import { GuidePage } from './pages/GuidePage.js';
 import { LessonTrackerPage } from './pages/LessonTrackerPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { OnboardingPage } from './pages/OnboardingPage.js';
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route element={<AppShell />}>
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/guide" element={<GuidePage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/school" element={<SchoolPage />} />
           <Route path="/classroom" element={<ClassroomPage />} />

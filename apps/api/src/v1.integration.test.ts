@@ -74,6 +74,7 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       NODE_ENV: 'test',
       API_PORT: 3001,
       REQUEST_ID_HEADER: 'x-request-id',
+      ENABLE_API_DOCS: false,
       CLERK_AUTHORIZED_PARTIES: 'http://localhost:5173',
       DATABASE_URL:
         process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/teacheros_test',
