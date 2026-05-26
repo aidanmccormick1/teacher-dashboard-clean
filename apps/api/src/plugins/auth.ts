@@ -25,8 +25,8 @@ export const authPlugin = fp(async (app) => {
       return;
     }
 
-    if (!app.config.CLERK_SECRET_KEY) {
-      reply.code(500).send({ error: 'CLERK_SECRET_KEY is not configured', requestId: request.id });
+    if (!app.config.CLERK_SECRET_KEY && !app.config.CLERK_JWT_KEY) {
+      reply.code(500).send({ error: 'Clerk token verification is not configured', requestId: request.id });
       return;
     }
 
@@ -39,6 +39,7 @@ export const authPlugin = fp(async (app) => {
     try {
       const tokenClaims = await verifyToken(token, {
         secretKey: app.config.CLERK_SECRET_KEY,
+        jwtKey: app.config.CLERK_JWT_KEY,
         authorizedParties: app.config.CLERK_AUTHORIZED_PARTIES.split(',').map((value) => value.trim())
       });
 

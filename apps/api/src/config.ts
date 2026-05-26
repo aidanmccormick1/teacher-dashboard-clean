@@ -9,6 +9,7 @@ const ConfigSchema = z.object({
   REQUEST_ID_HEADER: z.string().default('x-request-id'),
   ENABLE_API_DOCS: z.coerce.boolean().default(false),
   CLERK_SECRET_KEY: z.string().optional(),
+  CLERK_JWT_KEY: z.string().optional(),
   CLERK_AUTHORIZED_PARTIES: z.string().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().optional(),
