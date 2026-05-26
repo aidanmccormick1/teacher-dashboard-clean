@@ -1,6 +1,16 @@
 import fp from 'fastify-plugin';
 import { verifyToken } from '@clerk/backend';
 
+const defaultClerkJwtKey = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5eX3zK/SkRroDRqnGyTk
+UZH7GaOJS3OIS1jXxwjZibV3IZoNTUsp6Nv3PdO4eS1gnCwmoj9K1huq32oUf844
+jIrjsM2HPHclmnlSw/vRcNA/XrNJ0iNUVYzCUjWplo77IyotHSQzY1hcSB7BOSLz
+AdtfhNOmDM5T0nu4Sx/UVxC8ngrvVbN81kzslP4R+JIZvDgkZpU0XRoAaYAXsUA7
+UBWWJSk6XxQa5Ycv8W+8gGfdoYn9VFqQOSYYq3B3TQxi66qPBua+5t+9HWGmnoR7
+Vaqef7Zss7xhqRE1N7Cz/GjNkWQq4tYY2IT+EwwkZ8s8DvBUcUQEHLRaUTFkzXjF
+uwIDAQAB
+-----END PUBLIC KEY-----`;
+
 export const authPlugin = fp(async (app) => {
   app.decorateRequest('principal', null);
 
@@ -25,7 +35,9 @@ export const authPlugin = fp(async (app) => {
       return;
     }
 
-    if (!app.config.CLERK_SECRET_KEY && !app.config.CLERK_JWT_KEY) {
+    const clerkJwtKey = app.config.CLERK_JWT_KEY || defaultClerkJwtKey;
+
+    if (!app.config.CLERK_SECRET_KEY && !clerkJwtKey) {
       reply.code(500).send({ error: 'Clerk token verification is not configured', requestId: request.id });
       return;
     }
@@ -39,7 +51,7 @@ export const authPlugin = fp(async (app) => {
     try {
       const tokenClaims = await verifyToken(token, {
         secretKey: app.config.CLERK_SECRET_KEY,
-        jwtKey: app.config.CLERK_JWT_KEY,
+        jwtKey: clerkJwtKey,
         authorizedParties: app.config.CLERK_AUTHORIZED_PARTIES.split(',').map((value) => value.trim())
       });
 
