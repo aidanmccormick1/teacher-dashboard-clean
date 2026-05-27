@@ -1258,6 +1258,17 @@ button.danger {
   background: #fffaf0;
 }
 
+.year-plan-inline-edit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.year-plan-inline-edit .input {
+  font-size: 0.92rem;
+}
+
 .segment-list > div {
   display: flex;
   flex-wrap: wrap;
@@ -1268,9 +1279,25 @@ button.danger {
   padding-top: 10px;
 }
 
+.segment-list .year-plan-inline-edit {
+  flex: 1 1 360px;
+}
+
 .segment-list span {
   color: var(--muted);
   font-weight: 800;
+}
+
+.segment-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.segment-actions button {
+  padding: 7px 10px;
+  font-size: 0.82rem;
 }
 
 .segment-list .segment-status {

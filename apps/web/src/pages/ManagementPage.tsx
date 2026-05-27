@@ -20,6 +20,9 @@ type ParsedScheduleClass = ParseScheduleResponse['classes'][number];
 type LessonDraft = { title: string; description: string; duration: string };
 type SegmentDraft = { title: string; description: string; duration: string };
 type CourseEditDraft = { name: string; subject: string; gradeLevel: string };
+type UnitEditDraft = { title: string; description: string; order: string };
+type LessonEditDraft = { title: string; description: string; duration: string; order: string };
+type SegmentEditDraft = { title: string; description: string; duration: string; order: string };
 type SectionEditDraft = {
   courseId: string;
   sectionName: string;
@@ -367,6 +370,34 @@ function sectionToDraft(section: ScheduleSection): SectionEditDraft {
   };
 }
 
+function unitToDraft(unit: CourseDetail['units'][number]): UnitEditDraft {
+  return {
+    title: unit.title,
+    description: unit.description ?? '',
+    order: String(unit.orderIndex)
+  };
+}
+
+function lessonToDraft(lesson: CourseDetail['units'][number]['lessons'][number]): LessonEditDraft {
+  return {
+    title: lesson.title,
+    description: lesson.description ?? '',
+    duration: lesson.estimatedDurationMinutes ? String(lesson.estimatedDurationMinutes) : '',
+    order: String(lesson.orderIndex)
+  };
+}
+
+function segmentToDraft(
+  segment: CourseDetail['units'][number]['lessons'][number]['segments'][number]
+): SegmentEditDraft {
+  return {
+    title: segment.title,
+    description: segment.description ?? '',
+    duration: segment.durationMinutes ? String(segment.durationMinutes) : '',
+    order: String(segment.orderIndex)
+  };
+}
+
 function courseDepth(course: CourseDetail) {
   const lessons = course.units.reduce((count, unit) => count + unit.lessons.length, 0);
   const segments = course.units.reduce(
@@ -520,6 +551,12 @@ export function ManagementPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState(yearPlanTemplates[0]?.id ?? '');
   const [lessonDrafts, setLessonDrafts] = useState<Record<string, LessonDraft>>({});
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, SegmentDraft>>({});
+  const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
+  const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
+  const [unitEditDrafts, setUnitEditDrafts] = useState<Record<string, UnitEditDraft>>({});
+  const [lessonEditDrafts, setLessonEditDrafts] = useState<Record<string, LessonEditDraft>>({});
+  const [segmentEditDrafts, setSegmentEditDrafts] = useState<Record<string, SegmentEditDraft>>({});
 
   const loadManagement = useCallback(
     async (showLoading = true) => {
@@ -853,6 +890,116 @@ export function ManagementPage() {
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to apply starter year plan');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const refreshSelectedCourse = async () => {
+    if (!selectedCourse) return;
+    updateFromDetail(await api.getCourseDetail(selectedCourse.id));
+  };
+
+  const beginUnitEdit = (unit: CourseDetail['units'][number]) => {
+    setEditingUnitId(unit.id);
+    setUnitEditDrafts((previous) => ({ ...previous, [unit.id]: unitToDraft(unit) }));
+  };
+
+  const beginLessonEdit = (lesson: CourseDetail['units'][number]['lessons'][number]) => {
+    setEditingLessonId(lesson.id);
+    setLessonEditDrafts((previous) => ({ ...previous, [lesson.id]: lessonToDraft(lesson) }));
+  };
+
+  const beginSegmentEdit = (segment: CourseDetail['units'][number]['lessons'][number]['segments'][number]) => {
+    setEditingSegmentId(segment.id);
+    setSegmentEditDrafts((previous) => ({ ...previous, [segment.id]: segmentToDraft(segment) }));
+  };
+
+  const saveUnitEdit = async (unitId: string) => {
+    const draft = unitEditDrafts[unitId];
+    if (!draft?.title.trim()) {
+      setError('Unit title is required.');
+      return;
+    }
+    try {
+      setBusy(true);
+      updateFromDetail(
+        await api.updateUnit(unitId, {
+          title: draft.title.trim(),
+          description: toNullable(draft.description),
+          orderIndex: parseOptionalOrder(draft.order)
+        })
+      );
+      setEditingUnitId(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update unit');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveLessonEdit = async (lessonId: string) => {
+    const draft = lessonEditDrafts[lessonId];
+    if (!draft?.title.trim()) {
+      setError('Lesson title is required.');
+      return;
+    }
+    try {
+      setBusy(true);
+      updateFromDetail(
+        await api.updateLesson(lessonId, {
+          title: draft.title.trim(),
+          description: toNullable(draft.description),
+          estimatedDurationMinutes: parseNullablePositiveInt(draft.duration),
+          orderIndex: parseOptionalOrder(draft.order)
+        })
+      );
+      setEditingLessonId(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update lesson');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveSegmentEdit = async (segmentId: string) => {
+    const draft = segmentEditDrafts[segmentId];
+    if (!draft?.title.trim()) {
+      setError('Segment title is required.');
+      return;
+    }
+    try {
+      setBusy(true);
+      updateFromDetail(
+        await api.updateSegment(segmentId, {
+          title: draft.title.trim(),
+          description: toNullable(draft.description),
+          durationMinutes: parseNullablePositiveInt(draft.duration),
+          orderIndex: parseOptionalOrder(draft.order)
+        })
+      );
+      setEditingSegmentId(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update segment');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeYearPlanItem = async (type: 'unit' | 'lesson' | 'segment', id: string) => {
+    if (!window.confirm(`Remove this ${type}?`)) return;
+    try {
+      setBusy(true);
+      if (type === 'unit') await api.deleteUnit(id);
+      if (type === 'lesson') await api.deleteLesson(id);
+      if (type === 'segment') await api.deleteSegment(id);
+      await refreshSelectedCourse();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `Failed to remove ${type}`);
     } finally {
       setBusy(false);
     }
@@ -1916,12 +2063,78 @@ export function ManagementPage() {
                   {selectedCourse.units.length ? (
                     selectedCourse.units.map((unit) => {
                       const lessonDraft = lessonDrafts[unit.id] ?? { title: '', description: '', duration: '' };
+                      const isUnitEditing = editingUnitId === unit.id;
+                      const unitDraft = unitEditDrafts[unit.id] ?? unitToDraft(unit);
                       return (
                         <section key={unit.id} className="unit-editor-card">
                           <div className="section-heading">
                             <div>
                               <p className="eyebrow">Unit {unit.orderIndex}</p>
-                              <h3>{unit.title}</h3>
+                              {isUnitEditing ? (
+                                <div className="year-plan-inline-edit">
+                                  <input
+                                    className="input"
+                                    value={unitDraft.title}
+                                    onChange={(event) =>
+                                      setUnitEditDrafts((previous) => ({
+                                        ...previous,
+                                        [unit.id]: { ...unitDraft, title: event.target.value }
+                                      }))
+                                    }
+                                    placeholder="Unit title"
+                                  />
+                                  <input
+                                    className="input"
+                                    value={unitDraft.description}
+                                    onChange={(event) =>
+                                      setUnitEditDrafts((previous) => ({
+                                        ...previous,
+                                        [unit.id]: { ...unitDraft, description: event.target.value }
+                                      }))
+                                    }
+                                    placeholder="Description"
+                                  />
+                                  <input
+                                    className="input"
+                                    value={unitDraft.order}
+                                    onChange={(event) =>
+                                      setUnitEditDrafts((previous) => ({
+                                        ...previous,
+                                        [unit.id]: { ...unitDraft, order: event.target.value }
+                                      }))
+                                    }
+                                    placeholder="Order"
+                                  />
+                                </div>
+                              ) : (
+                                <h3>{unit.title}</h3>
+                              )}
+                            </div>
+                            <div className="profile-actions">
+                              {isUnitEditing ? (
+                                <>
+                                  <button type="button" disabled={busy || !unitDraft.title.trim()} onClick={() => void saveUnitEdit(unit.id)}>
+                                    Save unit
+                                  </button>
+                                  <button className="secondary" type="button" onClick={() => setEditingUnitId(null)}>
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button className="secondary" type="button" onClick={() => beginUnitEdit(unit)}>
+                                    Edit unit
+                                  </button>
+                                  <button
+                                    className="secondary danger"
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => void removeYearPlanItem('unit', unit.id)}
+                                  >
+                                    Remove
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                           <div className="inline-editor">
@@ -1980,6 +2193,8 @@ export function ManagementPage() {
                           <div className="lesson-editor-list">
                             {unit.lessons.map((lesson) => {
                               const segmentDraft = segmentDrafts[lesson.id] ?? { title: '', description: '', duration: '' };
+                              const isLessonEditing = editingLessonId === lesson.id;
+                              const lessonEditDraft = lessonEditDrafts[lesson.id] ?? lessonToDraft(lesson);
                               const lessonCompleteForSelected =
                                 selectedSection &&
                                 state.resumesBySectionId[selectedSection.sectionId]?.lesson?.id === lesson.id
@@ -1991,7 +2206,45 @@ export function ManagementPage() {
                                 <article key={lesson.id} className="lesson-editor-card">
                                   <div className="section-heading">
                                     <div>
-                                      <strong>{lesson.title}</strong>
+                                      {isLessonEditing ? (
+                                        <div className="year-plan-inline-edit">
+                                          <input
+                                            className="input"
+                                            value={lessonEditDraft.title}
+                                            onChange={(event) =>
+                                              setLessonEditDrafts((previous) => ({
+                                                ...previous,
+                                                [lesson.id]: { ...lessonEditDraft, title: event.target.value }
+                                              }))
+                                            }
+                                            placeholder="Lesson title"
+                                          />
+                                          <input
+                                            className="input"
+                                            value={lessonEditDraft.duration}
+                                            onChange={(event) =>
+                                              setLessonEditDrafts((previous) => ({
+                                                ...previous,
+                                                [lesson.id]: { ...lessonEditDraft, duration: event.target.value }
+                                              }))
+                                            }
+                                            placeholder="Minutes"
+                                          />
+                                          <input
+                                            className="input"
+                                            value={lessonEditDraft.order}
+                                            onChange={(event) =>
+                                              setLessonEditDrafts((previous) => ({
+                                                ...previous,
+                                                [lesson.id]: { ...lessonEditDraft, order: event.target.value }
+                                              }))
+                                            }
+                                            placeholder="Order"
+                                          />
+                                        </div>
+                                      ) : (
+                                        <strong>{lesson.title}</strong>
+                                      )}
                                       <p className="muted">
                                         {unit.title} | {lesson.estimatedDurationMinutes ?? 'TBD'} min |{' '}
                                         {lessonCompleteForSelected >= 100
@@ -2002,6 +2255,36 @@ export function ManagementPage() {
                                       </p>
                                     </div>
                                     <progress max={100} value={lessonCompleteForSelected} />
+                                  </div>
+                                  <div className="profile-actions">
+                                    {isLessonEditing ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          disabled={busy || !lessonEditDraft.title.trim()}
+                                          onClick={() => void saveLessonEdit(lesson.id)}
+                                        >
+                                          Save lesson
+                                        </button>
+                                        <button className="secondary" type="button" onClick={() => setEditingLessonId(null)}>
+                                          Cancel
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <button className="secondary" type="button" onClick={() => beginLessonEdit(lesson)}>
+                                          Edit lesson
+                                        </button>
+                                        <button
+                                          className="secondary danger"
+                                          type="button"
+                                          disabled={busy}
+                                          onClick={() => void removeYearPlanItem('lesson', lesson.id)}
+                                        >
+                                          Remove
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                   <div className="section-indicators">
                                     {selectedSections.map((section) => {
@@ -2071,12 +2354,84 @@ export function ManagementPage() {
                                             ? state.resumesBySectionId[selectedSection.sectionId]
                                             : undefined;
                                         const status = segmentStatusLabel(resume, segment.id);
+                                        const isSegmentEditing = editingSegmentId === segment.id;
+                                        const segmentEditDraft = segmentEditDrafts[segment.id] ?? segmentToDraft(segment);
                                         return (
                                           <div key={segment.id}>
-                                            <span>{segment.title}</span>
-                                            <span>{segment.durationMinutes ? `${segment.durationMinutes} min` : 'No time'}</span>
-                                            <span className={`segment-status ${status.toLowerCase().replaceAll(' ', '-')}`}>
-                                              {status}
+                                            {isSegmentEditing ? (
+                                              <div className="year-plan-inline-edit">
+                                                <input
+                                                  className="input"
+                                                  value={segmentEditDraft.title}
+                                                  onChange={(event) =>
+                                                    setSegmentEditDrafts((previous) => ({
+                                                      ...previous,
+                                                      [segment.id]: { ...segmentEditDraft, title: event.target.value }
+                                                    }))
+                                                  }
+                                                  placeholder="Segment title"
+                                                />
+                                                <input
+                                                  className="input"
+                                                  value={segmentEditDraft.duration}
+                                                  onChange={(event) =>
+                                                    setSegmentEditDrafts((previous) => ({
+                                                      ...previous,
+                                                      [segment.id]: { ...segmentEditDraft, duration: event.target.value }
+                                                    }))
+                                                  }
+                                                  placeholder="Minutes"
+                                                />
+                                                <input
+                                                  className="input"
+                                                  value={segmentEditDraft.order}
+                                                  onChange={(event) =>
+                                                    setSegmentEditDrafts((previous) => ({
+                                                      ...previous,
+                                                      [segment.id]: { ...segmentEditDraft, order: event.target.value }
+                                                    }))
+                                                  }
+                                                  placeholder="Order"
+                                                />
+                                              </div>
+                                            ) : (
+                                              <>
+                                                <span>{segment.title}</span>
+                                                <span>{segment.durationMinutes ? `${segment.durationMinutes} min` : 'No time'}</span>
+                                                <span className={`segment-status ${status.toLowerCase().replaceAll(' ', '-')}`}>
+                                                  {status}
+                                                </span>
+                                              </>
+                                            )}
+                                            <span className="segment-actions">
+                                              {isSegmentEditing ? (
+                                                <>
+                                                  <button
+                                                    type="button"
+                                                    disabled={busy || !segmentEditDraft.title.trim()}
+                                                    onClick={() => void saveSegmentEdit(segment.id)}
+                                                  >
+                                                    Save
+                                                  </button>
+                                                  <button className="secondary" type="button" onClick={() => setEditingSegmentId(null)}>
+                                                    Cancel
+                                                  </button>
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <button className="secondary" type="button" onClick={() => beginSegmentEdit(segment)}>
+                                                    Edit
+                                                  </button>
+                                                  <button
+                                                    className="secondary danger"
+                                                    type="button"
+                                                    disabled={busy}
+                                                    onClick={() => void removeYearPlanItem('segment', segment.id)}
+                                                  >
+                                                    Remove
+                                                  </button>
+                                                </>
+                                              )}
                                             </span>
                                           </div>
                                         );
