@@ -92,6 +92,27 @@ a {
   place-items: center;
 }
 
+.pilot-login-card {
+  grid-column: 2;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed rgba(38, 56, 77, 0.28);
+  border-radius: 6px;
+  background: #fffdf7;
+}
+
+.pilot-login-card strong,
+.pilot-login-card p {
+  margin: 0;
+}
+
+.pilot-login-card label {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
@@ -1643,6 +1664,9 @@ progress::-webkit-progress-value {
   .login-panel {
     grid-template-columns: 1fr;
     padding: 22px;
+  }
+  .pilot-login-card {
+    grid-column: auto;
   }
   .login-intro h1 {
     font-size: clamp(2.2rem, 12vw, 3.8rem);

@@ -16,14 +16,19 @@ type AuthState = {
   mode: 'clerk' | 'dev';
   isLoaded: boolean;
   isSignedIn: boolean;
+  isPilot: boolean;
   userId: string | null;
   email: string | null;
   getToken: () => Promise<string | null>;
   signOut: () => Promise<void>;
+  signInPilot: () => void;
   signInDev: (userId: string, email: string | null) => void;
 };
 
 const DEV_SESSION_KEY = 'teacheros_dev_session';
+const PILOT_SESSION_KEY = 'teacheros_pilot_session';
+const PILOT_TOKEN = 'teacher-dashboard-pilot-2026';
+const PILOT_EMAIL = 'teacher.test@example.com';
 const AuthContext = createContext<AuthState | null>(null);
 
 function DevAuthProvider({ children }: PropsWithChildren) {
@@ -54,6 +59,7 @@ function DevAuthProvider({ children }: PropsWithChildren) {
       mode: 'dev',
       isLoaded,
       isSignedIn: Boolean(userId),
+      isPilot: false,
       userId,
       email,
       getToken: async () => null,
@@ -61,6 +67,9 @@ function DevAuthProvider({ children }: PropsWithChildren) {
         setUserId(null);
         setEmail(null);
         window.localStorage.removeItem(DEV_SESSION_KEY);
+      },
+      signInPilot: () => {
+        throw new Error('signInPilot is unavailable in local dev mode');
       },
       signInDev: (nextUserId, nextEmail) => {
         setUserId(nextUserId);
@@ -80,23 +89,35 @@ function DevAuthProvider({ children }: PropsWithChildren) {
 function ClerkAuthBridge({ children }: PropsWithChildren) {
   const { isLoaded, isSignedIn, userId, getToken, signOut } = useClerkAuth();
   const { user } = useClerkUser();
+  const [isPilot, setIsPilot] = useState(false);
+
+  useEffect(() => {
+    setIsPilot(window.localStorage.getItem(PILOT_SESSION_KEY) === 'true');
+  }, []);
 
   const value = useMemo<AuthState>(
     () => ({
       mode: 'clerk',
       isLoaded,
-      isSignedIn: Boolean(isSignedIn),
-      userId: userId ?? null,
-      email: user?.primaryEmailAddress?.emailAddress ?? null,
-      getToken: async () => (await getToken()) ?? null,
+      isSignedIn: isPilot || Boolean(isSignedIn),
+      isPilot,
+      userId: isPilot ? 'pilot-teacher-demo' : (userId ?? null),
+      email: isPilot ? PILOT_EMAIL : (user?.primaryEmailAddress?.emailAddress ?? null),
+      getToken: async () => (isPilot ? PILOT_TOKEN : ((await getToken()) ?? null)),
       signOut: async () => {
+        setIsPilot(false);
+        window.localStorage.removeItem(PILOT_SESSION_KEY);
         await signOut();
+      },
+      signInPilot: () => {
+        setIsPilot(true);
+        window.localStorage.setItem(PILOT_SESSION_KEY, 'true');
       },
       signInDev: () => {
         throw new Error('signInDev is unavailable in Clerk mode');
       }
     }),
-    [getToken, isLoaded, isSignedIn, signOut, user?.primaryEmailAddress?.emailAddress, userId]
+    [getToken, isLoaded, isPilot, isSignedIn, signOut, user?.primaryEmailAddress?.emailAddress, userId]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
