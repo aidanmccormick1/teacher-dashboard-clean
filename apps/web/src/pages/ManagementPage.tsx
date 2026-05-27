@@ -20,6 +20,17 @@ type ParsedScheduleClass = ParseScheduleResponse['classes'][number];
 type LessonDraft = { title: string; description: string; duration: string };
 type SegmentDraft = { title: string; description: string; duration: string };
 type CourseEditDraft = { name: string; subject: string; gradeLevel: string };
+type SectionEditDraft = {
+  courseId: string;
+  sectionName: string;
+  days: string;
+  time: string;
+  room: string;
+};
+type LocalScheduleParseResult = ParseScheduleResponse & {
+  confidence: number;
+  warnings: string[];
+};
 type ParsedClassEditDraft = {
   name: string;
   period: string;
@@ -45,6 +56,30 @@ const tabs: Array<{ id: ManagementTab; label: string }> = [
 
 const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'] as const;
 const maxScheduleUploadBytes = 10 * 1024 * 1024;
+const dayAliases: Record<string, (typeof meetingDays)[number]> = {
+  m: 'Monday',
+  mon: 'Monday',
+  monday: 'Monday',
+  t: 'Tuesday',
+  tue: 'Tuesday',
+  tues: 'Tuesday',
+  tuesday: 'Tuesday',
+  w: 'Wednesday',
+  wed: 'Wednesday',
+  wednesday: 'Wednesday',
+  th: 'Thursday',
+  thu: 'Thursday',
+  thur: 'Thursday',
+  thurs: 'Thursday',
+  thursday: 'Thursday',
+  f: 'Friday',
+  fri: 'Friday',
+  friday: 'Friday',
+  a: 'A-Day',
+  'a-day': 'A-Day',
+  b: 'B-Day',
+  'b-day': 'B-Day'
+};
 
 function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
@@ -111,6 +146,113 @@ function draftToParsedClass(draft: ParsedClassEditDraft): ParsedScheduleClass {
     days: days.length ? days : ['Monday'],
     time: draft.time.trim() || null,
     room: draft.room.trim() || null
+  };
+}
+
+function parseMeetingDaysInput(value: string): Array<(typeof meetingDays)[number]> {
+  const days = value
+    .split(',')
+    .map((day) => day.trim())
+    .filter((day): day is (typeof meetingDays)[number] =>
+      meetingDays.includes(day as (typeof meetingDays)[number])
+    );
+
+  return days.length ? days : ['Monday'];
+}
+
+function normalizeTime(value: string): string | null {
+  const match = value.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+  if (!match) return null;
+
+  let hour = Number(match[1]);
+  const minute = match[2] ?? '00';
+  const meridiem = match[3]?.toLowerCase();
+  if (meridiem === 'pm' && hour < 12) hour += 12;
+  if (meridiem === 'am' && hour === 12) hour = 0;
+  if (hour > 23) return null;
+  return `${String(hour).padStart(2, '0')}:${minute}`;
+}
+
+function parseDaysFromText(value: string): Array<(typeof meetingDays)[number]> {
+  const found = new Set<(typeof meetingDays)[number]>();
+  const compact = value.match(/\b[MTWFS]{2,5}\b/g);
+  compact?.forEach((token) => {
+    token.split('').forEach((letter) => {
+      const day = dayAliases[letter.toLowerCase()];
+      if (day) found.add(day);
+    });
+  });
+
+  value
+    .split(/[\s,;/|]+/)
+    .map((token) => token.trim().toLowerCase())
+    .forEach((token) => {
+      const day = dayAliases[token];
+      if (day) found.add(day);
+    });
+
+  return [...found];
+}
+
+function parseLocalScheduleText(text: string): LocalScheduleParseResult {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const classes: ParsedScheduleClass[] = [];
+  const warnings: string[] = [];
+
+  lines.forEach((line) => {
+    const periodMatch = line.match(/\b(?:period|per\.?|block|class)\s*([A-Za-z0-9-]+)\b/i);
+    const loosePeriodMatch = line.match(/^\s*([A-Za-z]?\d+[A-Za-z]?|[AB]-?Day|Block\s+[A-Za-z0-9-]+)/i);
+    const period = periodMatch?.[1] ?? loosePeriodMatch?.[1] ?? '';
+    const days = parseDaysFromText(line);
+    const time = normalizeTime(line);
+    const roomMatch = line.match(/\b(?:room|rm\.?)\s*([A-Za-z0-9-]+)\b/i);
+    const courseCandidate = line
+      .replace(/\b(?:period|per\.?|block|class)\s*[A-Za-z0-9-]+\b/gi, '')
+      .replace(/\b(?:room|rm\.?)\s*[A-Za-z0-9-]+\b/gi, '')
+      .replace(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, '')
+      .replace(/\b[MTWFS]{2,5}\b/g, '')
+      .replace(/\b(?:mon|tue|tues|wed|thu|thur|thurs|fri|monday|tuesday|wednesday|thursday|friday|a-day|b-day)\b/gi, '')
+      .replace(/[-–—|,;]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (period && courseCandidate && days.length) {
+      classes.push({
+        name: courseCandidate,
+        period: period.toLowerCase().startsWith('period') ? period : `Period ${period}`,
+        days,
+        time,
+        room: roomMatch?.[1] ?? null,
+        subject: courseCandidate,
+        grade: ''
+      });
+    } else {
+      warnings.push(`Skipped: ${line}`);
+    }
+  });
+
+  const confidence = lines.length ? Math.round((classes.length / lines.length) * 100) : 0;
+  return {
+    classes,
+    assignments: [],
+    confidence,
+    warnings
+  };
+}
+
+function sectionToDraft(section: ScheduleSection): SectionEditDraft {
+  const firstMeeting = section.meetings[0];
+  const days = section.meetings.length ? section.meetings.map((meeting) => meeting.day).join(', ') : 'Monday';
+
+  return {
+    courseId: section.courseId,
+    sectionName: section.sectionName,
+    days,
+    time: firstMeeting?.time ?? '',
+    room: firstMeeting?.room ?? ''
   };
 }
 
@@ -248,6 +390,8 @@ export function ManagementPage() {
   const [selectedMeetingDays, setSelectedMeetingDays] = useState<Array<(typeof meetingDays)[number]>>(['Monday']);
   const [meetingTime, setMeetingTime] = useState('');
   const [meetingRoom, setMeetingRoom] = useState('');
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [sectionEditDrafts, setSectionEditDrafts] = useState<Record<string, SectionEditDraft>>({});
   const [scheduleImportText, setScheduleImportText] = useState('');
   const [scheduleImportFileName, setScheduleImportFileName] = useState('');
   const [scheduleImportFileMimeType, setScheduleImportFileMimeType] = useState('');
@@ -255,6 +399,7 @@ export function ManagementPage() {
   const [scheduleImportJobId, setScheduleImportJobId] = useState<string | null>(null);
   const [scheduleImportJob, setScheduleImportJob] = useState<AiJobStatusResponse | null>(null);
   const [scheduleImportOutput, setScheduleImportOutput] = useState<ParseScheduleResponse | null>(null);
+  const [localScheduleParse, setLocalScheduleParse] = useState<LocalScheduleParseResult | null>(null);
   const [parsedClassEditDrafts, setParsedClassEditDrafts] = useState<Record<string, ParsedClassEditDraft>>({});
   const [addedParsedClassKeys, setAddedParsedClassKeys] = useState<string[]>([]);
 
@@ -479,6 +624,80 @@ export function ManagementPage() {
     }));
   };
 
+  const beginSectionEdit = (section: ScheduleSection) => {
+    setEditingSectionId(section.sectionId);
+    setSectionEditDrafts((previous) => ({
+      ...previous,
+      [section.sectionId]: sectionToDraft(section)
+    }));
+  };
+
+  const updateSectionDraft = (sectionId: string, patch: Partial<SectionEditDraft>) => {
+    setSectionEditDrafts((previous) => ({
+      ...previous,
+      [sectionId]: {
+        ...(previous[sectionId] ?? {
+          courseId: selectedCourseForSchedule,
+          sectionName: '',
+          days: 'Monday',
+          time: '',
+          room: ''
+        }),
+        ...patch
+      }
+    }));
+  };
+
+  const saveSectionEdit = async (sectionId: string) => {
+    const draft = sectionEditDrafts[sectionId];
+    if (!draft?.sectionName.trim()) {
+      setError('Period name is required.');
+      return;
+    }
+
+    try {
+      setBusy(true);
+      const schedule = await api.updateSection(sectionId, {
+        sectionName: draft.sectionName.trim(),
+        meetings: parseMeetingDaysInput(draft.days).map((day) => ({
+          day,
+          time: draft.time.trim() || null,
+          room: draft.room.trim() || null
+        }))
+      });
+      setState((previous) => ({ ...previous, schedule }));
+      setEditingSectionId(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update period');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteSection = async (sectionId: string) => {
+    if (!window.confirm('Remove this period from your schedule?')) return;
+
+    try {
+      setBusy(true);
+      await api.deleteSection(sectionId);
+      const schedule = await api.getSchedule();
+      setState((previous) => ({
+        ...previous,
+        schedule,
+        resumesBySectionId: Object.fromEntries(
+          Object.entries(previous.resumesBySectionId).filter(([id]) => id !== sectionId)
+        )
+      }));
+      if (selectedSectionId === sectionId) setSelectedSectionId(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to remove period');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const saveCourseEdit = async (courseId: string) => {
     const draft = courseEditDrafts[courseId];
     if (!draft?.name.trim()) {
@@ -547,6 +766,28 @@ export function ManagementPage() {
     }));
   };
 
+  const applyScheduleParseResult = (parsed: ParseScheduleResponse) => {
+    setScheduleImportOutput(parsed);
+    setParsedClassEditDrafts(
+      Object.fromEntries(parsed.classes.map((parsedClass) => [parsedClassKey(parsedClass), parsedClassToDraft(parsedClass)]))
+    );
+    setAddedParsedClassKeys([]);
+  };
+
+  const startLocalScheduleParse = () => {
+    if (!scheduleImportText.trim()) {
+      setError('Paste schedule text first.');
+      return;
+    }
+
+    const parsed = parseLocalScheduleText(scheduleImportText);
+    setLocalScheduleParse(parsed);
+    applyScheduleParseResult(parsed);
+    setScheduleImportJobId(null);
+    setScheduleImportJob(null);
+    setError(parsed.classes.length ? null : 'Local import could not find classes. Try the enhanced reader.');
+  };
+
   const startScheduleUpload = async () => {
     if (!scheduleImportText.trim() && !scheduleImportFileDataUrl) {
       setError('Paste schedule text or upload an image/PDF first.');
@@ -564,11 +805,8 @@ export function ManagementPage() {
         fileName: scheduleImportFileName || undefined,
         fileMimeType: scheduleImportFileMimeType || undefined
       });
-      setScheduleImportOutput(parsed);
-      setParsedClassEditDrafts(
-        Object.fromEntries(parsed.classes.map((parsedClass) => [parsedClassKey(parsedClass), parsedClassToDraft(parsedClass)]))
-      );
-      setAddedParsedClassKeys([]);
+      applyScheduleParseResult(parsed);
+      setLocalScheduleParse(null);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to read schedule');
@@ -905,8 +1143,11 @@ export function ManagementPage() {
             </div>
 
             <div className="profile-actions">
+              <button type="button" disabled={busy || !scheduleImportText.trim()} onClick={startLocalScheduleParse}>
+                Try local import
+              </button>
               <button type="button" disabled={busy || (!scheduleImportText.trim() && !scheduleImportFileDataUrl)} onClick={startScheduleUpload}>
-                {busy ? 'Reading...' : 'Read schedule'}
+                {busy ? 'Reading...' : 'Use enhanced reader'}
               </button>
               <button
                 className="secondary"
@@ -919,6 +1160,7 @@ export function ManagementPage() {
                   setScheduleImportJobId(null);
                   setScheduleImportJob(null);
                   setScheduleImportOutput(null);
+                  setLocalScheduleParse(null);
                   setParsedClassEditDrafts({});
                   setAddedParsedClassKeys([]);
                 }}
@@ -978,6 +1220,25 @@ export function ManagementPage() {
                   >
                     Try again
                   </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {localScheduleParse ? (
+              <div className={localScheduleParse.confidence >= 70 ? 'local-parse-summary good' : 'local-parse-summary cautious'}>
+                <strong>Local import confidence: {localScheduleParse.confidence}%</strong>
+                <span>
+                  {localScheduleParse.confidence >= 70
+                    ? 'This looks usable. Review before saving.'
+                    : 'Review carefully or use the enhanced reader for a second pass.'}
+                </span>
+                {localScheduleParse.warnings.length ? (
+                  <details>
+                    <summary>{localScheduleParse.warnings.length} lines need review</summary>
+                    {localScheduleParse.warnings.slice(0, 5).map((warning) => (
+                      <p key={warning}>{warning}</p>
+                    ))}
+                  </details>
                 ) : null}
               </div>
             ) : null}
@@ -1209,20 +1470,92 @@ export function ManagementPage() {
                     sections.map((section) => {
                       const resume = state.resumesBySectionId[section.sectionId];
                       const resumeLessonId = resume?.lesson?.id;
+                      const isEditing = editingSectionId === section.sectionId;
+                      const draft = sectionEditDrafts[section.sectionId] ?? sectionToDraft(section);
                       return (
                         <article key={section.sectionId} className="section-roster-card">
-                          <div>
-                            <strong>{section.sectionName}</strong>
-                            <span>Course: {section.courseName}</span>
-                          </div>
-                          <p>Meets: {formatMeeting(section)}</p>
-                          <p>Time: {section.meetings[0]?.time ?? 'TBD'} to TBD</p>
-                          <p>Room: {section.meetings[0]?.room ?? 'TBD'}</p>
-                          <p>Current: {resume?.lesson?.title ?? 'No lesson started'}</p>
-                          <p>Stopped at: {resume?.state?.carryOverNote ?? resume?.lastNote?.content ?? 'None'}</p>
-                          <p>Status: {sectionPercent(resume) >= 100 ? 'Ahead' : sectionPercent(resume) > 0 ? 'On pace' : 'Not started'}</p>
+                          {isEditing ? (
+                            <div className="section-inline-edit">
+                              <label>
+                                Period
+                                <input
+                                  className="input"
+                                  value={draft.sectionName}
+                                  onChange={(event) => updateSectionDraft(section.sectionId, { sectionName: event.target.value })}
+                                />
+                              </label>
+                              <label>
+                                Course
+                                <select
+                                  className="input"
+                                  value={draft.courseId}
+                                  disabled
+                                  onChange={(event) => updateSectionDraft(section.sectionId, { courseId: event.target.value })}
+                                >
+                                  {state.courses.map((course) => (
+                                    <option key={course.id} value={course.id}>
+                                      {course.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                Days
+                                <input
+                                  className="input"
+                                  value={draft.days}
+                                  onChange={(event) => updateSectionDraft(section.sectionId, { days: event.target.value })}
+                                  placeholder="Monday, Wednesday, Friday"
+                                />
+                              </label>
+                              <label>
+                                Time
+                                <input
+                                  className="input"
+                                  type="time"
+                                  value={draft.time}
+                                  onChange={(event) => updateSectionDraft(section.sectionId, { time: event.target.value })}
+                                />
+                              </label>
+                              <label>
+                                Room
+                                <input
+                                  className="input"
+                                  value={draft.room}
+                                  onChange={(event) => updateSectionDraft(section.sectionId, { room: event.target.value })}
+                                />
+                              </label>
+                              <p className="muted">Course changes are kept separate for now so progress history stays safe.</p>
+                            </div>
+                          ) : (
+                            <>
+                              <div>
+                                <strong>{section.sectionName}</strong>
+                                <span>Course: {section.courseName}</span>
+                              </div>
+                              <p>Meets: {formatMeeting(section)}</p>
+                              <p>Time: {section.meetings[0]?.time ?? 'TBD'} to TBD</p>
+                              <p>Room: {section.meetings[0]?.room ?? 'TBD'}</p>
+                              <p>Current: {resume?.lesson?.title ?? 'No lesson started'}</p>
+                              <p>Stopped at: {resume?.state?.carryOverNote ?? resume?.lastNote?.content ?? 'None'}</p>
+                              <p>Status: {sectionPercent(resume) >= 100 ? 'Ahead' : sectionPercent(resume) > 0 ? 'On pace' : 'Not started'}</p>
+                            </>
+                          )}
                           <div className="profile-actions">
-                            {resumeLessonId ? (
+                            {isEditing ? (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={busy || !draft.sectionName.trim()}
+                                  onClick={() => void saveSectionEdit(section.sectionId)}
+                                >
+                                  Save
+                                </button>
+                                <button className="secondary" type="button" onClick={() => setEditingSectionId(null)}>
+                                  Cancel
+                                </button>
+                              </>
+                            ) : resumeLessonId ? (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1232,17 +1565,32 @@ export function ManagementPage() {
                                 Open class
                               </button>
                             ) : null}
-                            <button
-                              className="secondary"
-                              type="button"
-                              onClick={() => {
-                                setSelectedCourseId(state.courseDetails.find((course) => course.name === section.courseName)?.id ?? selectedCourseId);
-                                setSelectedSectionId(section.sectionId);
-                                setActiveTab('curriculum');
-                              }}
-                            >
-                              View in Year Plan
-                            </button>
+                            {!isEditing ? (
+                              <>
+                                <button
+                                  className="secondary"
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCourseId(section.courseId);
+                                    setSelectedSectionId(section.sectionId);
+                                    setActiveTab('curriculum');
+                                  }}
+                                >
+                                  View in Year Plan
+                                </button>
+                                <button type="button" onClick={() => beginSectionEdit(section)}>
+                                  Edit
+                                </button>
+                                <button
+                                  className="secondary danger"
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void deleteSection(section.sectionId)}
+                                >
+                                  Remove
+                                </button>
+                              </>
+                            ) : null}
                           </div>
                         </article>
                       );
