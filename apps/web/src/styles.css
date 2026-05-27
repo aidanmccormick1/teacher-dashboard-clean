@@ -607,6 +607,39 @@ button.secondary {
   gap: 22px;
 }
 
+.management-snapshot {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 760px;
+  width: 100%;
+  margin: -8px auto 0;
+}
+
+.management-snapshot > div {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  border: 1px solid rgba(216, 200, 170, 0.78);
+  border-radius: 5px;
+  padding: 12px;
+  background: rgba(255, 250, 240, 0.78);
+}
+
+.management-snapshot strong {
+  color: var(--navy);
+  font-size: 1.45rem;
+  letter-spacing: -0.05em;
+}
+
+.management-snapshot span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .smart-prompt {
   display: flex;
   align-items: center;
@@ -1078,6 +1111,28 @@ button.secondary {
   justify-self: start;
 }
 
+.day-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.day-picker button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fffdf7;
+  color: var(--navy);
+  padding: 8px 11px;
+  box-shadow: none;
+  font-size: 0.88rem;
+}
+
+.day-picker button.active {
+  border-color: rgba(71, 108, 88, 0.45);
+  background: #eef4e9;
+  color: var(--green);
+}
+
 .lesson-editor-list {
   padding-left: 18px;
   border-left: 3px solid rgba(71, 108, 88, 0.22);
@@ -1100,6 +1155,24 @@ button.secondary {
 .segment-list span {
   color: var(--muted);
   font-weight: 800;
+}
+
+.segment-list .segment-status {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #f1eadc;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.segment-list .segment-status.completed {
+  background: #eef4e9;
+  color: var(--green);
+}
+
+.segment-list .segment-status.in-progress {
+  background: #fff3dd;
+  color: var(--amber);
 }
 
 .profile-hero .guide-progress-card {
@@ -1694,6 +1767,7 @@ progress::-webkit-progress-value {
   .management-editor-grid,
   .management-ai-grid,
   .management-setup-grid,
+  .management-snapshot,
   .schedule-upload-grid,
   .parsed-class-list,
   .section-roster,

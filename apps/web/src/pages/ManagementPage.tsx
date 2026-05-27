@@ -34,6 +34,7 @@ const tabs: Array<{ id: ManagementTab; label: string }> = [
 ];
 
 const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'] as const;
+const maxScheduleUploadBytes = 10 * 1024 * 1024;
 
 function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
@@ -89,7 +90,7 @@ function courseDepth(course: CourseDetail) {
 }
 
 function courseSections(course: CourseDetail, sections: ScheduleSection[]) {
-  return sections.filter((section) => section.courseName === course.name);
+  return sections.filter((section) => section.courseId === course.id);
 }
 
 function courseLessonIds(course: CourseDetail) {
@@ -118,6 +119,14 @@ function sectionProgressLabel(section: ScheduleSection, resume: ClassroomResumeR
 function sectionPercent(resume: ClassroomResumeResponse | undefined): number {
   if (!resume?.lesson?.segments.length) return 0;
   return Math.round(((resume.state?.completedSegmentIds.length ?? 0) / resume.lesson.segments.length) * 100);
+}
+
+function segmentStatusLabel(resume: ClassroomResumeResponse | undefined, segmentId: string): string {
+  if (resume?.state?.completedSegmentIds.includes(segmentId)) return 'Completed';
+  if (resume?.state?.currentSegmentId === segmentId || resume?.state?.stoppedAtSegmentId === segmentId) {
+    return 'In progress';
+  }
+  return 'Not started';
 }
 
 function promptForState(state: ManagementState, selectedCourse: CourseDetail | null) {
@@ -193,7 +202,7 @@ export function ManagementPage() {
 
   const [selectedCourseForSchedule, setSelectedCourseForSchedule] = useState('');
   const [sectionName, setSectionName] = useState('');
-  const [meetingDay, setMeetingDay] = useState<(typeof meetingDays)[number]>('Monday');
+  const [selectedMeetingDays, setSelectedMeetingDays] = useState<Array<(typeof meetingDays)[number]>>(['Monday']);
   const [meetingTime, setMeetingTime] = useState('');
   const [meetingRoom, setMeetingRoom] = useState('');
   const [scheduleImportText, setScheduleImportText] = useState('');
@@ -268,7 +277,6 @@ export function ManagementPage() {
     if (!scheduleImportJobId) return;
 
     let cancelled = false;
-
     const poll = async () => {
       try {
         const status = await api.getAiJobStatus(scheduleImportJobId);
@@ -281,6 +289,9 @@ export function ManagementPage() {
         if (status.status === 'failed' && status.error) {
           setError(status.error);
         }
+        if (isTerminalStatus(status.status)) {
+          window.clearInterval(timer);
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof ApiError ? err.message : 'Failed to read schedule upload status');
@@ -288,10 +299,10 @@ export function ManagementPage() {
       }
     };
 
-    void poll();
     const timer = window.setInterval(() => {
       void poll();
     }, 1200);
+    void poll();
 
     return () => {
       cancelled = true;
@@ -353,6 +364,15 @@ export function ManagementPage() {
   const selectedCourseLessonIds = selectedCourse ? courseLessonIds(selectedCourse) : [];
   const plannedPercent = selectedDepth.lessons > 0 ? Math.min(100, Math.round((selectedDepth.segments / selectedDepth.lessons) * 20)) : 0;
   const meetingsRemaining = selectedSections.reduce((count, section) => count + section.meetings.length, 0);
+  const setupSnapshot = [
+    { label: 'Courses', value: state.courseDetails.length },
+    { label: 'Periods', value: sections.length },
+    { label: 'Units', value: state.courseDetails.reduce((count, course) => count + course.units.length, 0) },
+    {
+      label: 'Lessons',
+      value: state.courseDetails.reduce((count, course) => count + courseDepth(course).lessons, 0)
+    }
+  ];
 
   const updateFromDetail = (detail: CourseDetailResponse) => {
     const nextCourse = detail.course;
@@ -391,6 +411,16 @@ export function ManagementPage() {
     setSelectedCourseId(courseId);
     setSelectedCourseForSchedule(courseId);
     if (nextTab) setActiveTab(nextTab);
+  };
+
+  const toggleMeetingDay = (day: (typeof meetingDays)[number]) => {
+    setSelectedMeetingDays((previous) => {
+      if (previous.includes(day)) {
+        const next = previous.filter((selectedDay) => selectedDay !== day);
+        return next.length ? next : previous;
+      }
+      return [...previous, day];
+    });
   };
 
   const findCourseForParsedClass = (parsedClass: ParsedScheduleClass) => {
@@ -482,6 +512,15 @@ export function ManagementPage() {
         ))}
       </nav>
 
+      <section className="management-snapshot" aria-label="Management setup snapshot">
+        {setupSnapshot.map((item) => (
+          <div key={item.label}>
+            <strong>{item.value}</strong>
+            <span>{item.label}</span>
+          </div>
+        ))}
+      </section>
+
       {error ? <p className="notice warning">{error}</p> : null}
       {loading ? <p className="muted">Loading...</p> : null}
       {showPrompt ? (
@@ -554,7 +593,19 @@ export function ManagementPage() {
                   onClick={async () => {
                     try {
                       setBusy(true);
-                      await createCourse(newCourseName, newCourseSubject, newCourseGrade);
+                      const course = await createCourse(newCourseName, newCourseSubject, newCourseGrade);
+                      const periodCount = parseNullablePositiveInt(newCoursePeriods);
+                      if (periodCount) {
+                        let latestSchedule = state.schedule;
+                        for (let index = 1; index <= periodCount; index += 1) {
+                          latestSchedule = await api.createSection({
+                            courseId: course.id,
+                            sectionName: `Period ${index}`,
+                            meetings: []
+                          });
+                        }
+                        if (latestSchedule) setState((previous) => ({ ...previous, schedule: latestSchedule }));
+                      }
                       setNewCourseName('');
                       setNewCourseSubject('');
                       setNewCourseGrade('');
@@ -694,6 +745,17 @@ export function ManagementPage() {
                   onChange={async (event) => {
                     const file = event.target.files?.[0];
                     if (!file) return;
+                    if (file.size > maxScheduleUploadBytes) {
+                      setError('Schedule files must be smaller than 10 MB.');
+                      event.currentTarget.value = '';
+                      return;
+                    }
+                    const supportedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'];
+                    if (file.type && !supportedTypes.includes(file.type)) {
+                      setError('Upload a PNG, JPG, WEBP, GIF, or PDF schedule file.');
+                      event.currentTarget.value = '';
+                      return;
+                    }
                     try {
                       const dataUrl = await readFileAsDataUrl(file);
                       setScheduleImportFileName(file.name);
@@ -906,18 +968,19 @@ export function ManagementPage() {
                   onChange={(event) => setSectionName(event.target.value)}
                   placeholder="Period name, like Period 3"
                 />
+                <div className="day-picker" aria-label="Meeting days">
+                  {meetingDays.map((day) => (
+                    <button
+                      key={day}
+                      className={selectedMeetingDays.includes(day) ? 'active' : ''}
+                      type="button"
+                      onClick={() => toggleMeetingDay(day)}
+                    >
+                      {day}
+                    </button>
+                  ))}
+                </div>
                 <div className="inline-editor">
-                  <select
-                    className="input"
-                    value={meetingDay}
-                    onChange={(event) => setMeetingDay(event.target.value as (typeof meetingDays)[number])}
-                  >
-                    {meetingDays.map((day) => (
-                      <option key={day} value={day}>
-                        {day}
-                      </option>
-                    ))}
-                  </select>
                   <input
                     className="input"
                     type="time"
@@ -940,7 +1003,11 @@ export function ManagementPage() {
                       const schedule = await api.createSection({
                         courseId: selectedCourseForSchedule,
                         sectionName: sectionName.trim(),
-                        meetings: [{ day: meetingDay, time: meetingTime || null, room: meetingRoom.trim() || null }]
+                        meetings: selectedMeetingDays.map((day) => ({
+                          day,
+                          time: meetingTime || null,
+                          room: meetingRoom.trim() || null
+                        }))
                       });
                       setState((previous) => ({ ...previous, schedule }));
                       setSectionName('');
@@ -964,6 +1031,7 @@ export function ManagementPage() {
                   {sections.length ? (
                     sections.map((section) => {
                       const resume = state.resumesBySectionId[section.sectionId];
+                      const resumeLessonId = resume?.lesson?.id;
                       return (
                         <article key={section.sectionId} className="section-roster-card">
                           <div>
@@ -977,6 +1045,16 @@ export function ManagementPage() {
                           <p>Stopped at: {resume?.state?.carryOverNote ?? resume?.lastNote?.content ?? 'None'}</p>
                           <p>Status: {sectionPercent(resume) >= 100 ? 'Ahead' : sectionPercent(resume) > 0 ? 'On pace' : 'Not started'}</p>
                           <div className="profile-actions">
+                            {resumeLessonId ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  window.location.href = `/sections/${section.sectionId}/lessons/${resumeLessonId}`;
+                                }}
+                              >
+                                Open class
+                              </button>
+                            ) : null}
                             <button
                               className="secondary"
                               type="button"
@@ -1106,6 +1184,7 @@ export function ManagementPage() {
                         setUnitTitle('');
                         setUnitDescription('');
                         setUnitOrder('');
+                        setError(null);
                       } catch (err) {
                         setError(err instanceof ApiError ? err.message : 'Failed to add unit');
                       } finally {
@@ -1170,6 +1249,7 @@ export function ManagementPage() {
                                     ...previous,
                                     [unit.id]: { title: '', description: '', duration: '' }
                                   }));
+                                  setError(null);
                                 } catch (err) {
                                   setError(err instanceof ApiError ? err.message : 'Failed to add lesson');
                                 } finally {
@@ -1257,6 +1337,7 @@ export function ManagementPage() {
                                               ...previous,
                                               [lesson.id]: { title: '', description: '', duration: '' }
                                             }));
+                                            setError(null);
                                           } catch (err) {
                                             setError(err instanceof ApiError ? err.message : 'Failed to add segment');
                                           } finally {
@@ -1268,12 +1349,22 @@ export function ManagementPage() {
                                       </button>
                                     </div>
                                     <div className="segment-list">
-                                      {lesson.segments.map((segment) => (
-                                        <div key={segment.id}>
-                                          <span>{segment.title}</span>
-                                          <span>{segment.durationMinutes ? `${segment.durationMinutes} min` : 'No time'}</span>
-                                        </div>
-                                      ))}
+                                      {lesson.segments.map((segment) => {
+                                        const resume =
+                                          selectedSection && state.resumesBySectionId[selectedSection.sectionId]?.lesson?.id === lesson.id
+                                            ? state.resumesBySectionId[selectedSection.sectionId]
+                                            : undefined;
+                                        const status = segmentStatusLabel(resume, segment.id);
+                                        return (
+                                          <div key={segment.id}>
+                                            <span>{segment.title}</span>
+                                            <span>{segment.durationMinutes ? `${segment.durationMinutes} min` : 'No time'}</span>
+                                            <span className={`segment-status ${status.toLowerCase().replaceAll(' ', '-')}`}>
+                                              {status}
+                                            </span>
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                   </details>
                                 </article>
