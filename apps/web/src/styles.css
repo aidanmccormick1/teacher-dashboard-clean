@@ -708,6 +708,36 @@ button.secondary {
   background: #fffdf7;
 }
 
+.course-inline-edit,
+.parsed-class-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.course-inline-edit {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.parsed-class-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.parsed-class-fields label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.parsed-class-fields .input {
+  font-size: 0.94rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .section-progress-list,
 .section-progress-comparison {
   display: grid;
@@ -1768,6 +1798,7 @@ progress::-webkit-progress-value {
   .management-ai-grid,
   .management-setup-grid,
   .management-snapshot,
+  .parsed-class-fields,
   .schedule-upload-grid,
   .parsed-class-list,
   .section-roster,

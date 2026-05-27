@@ -19,6 +19,16 @@ type ScheduleSection = GetScheduleResponse['sections'][number];
 type ParsedScheduleClass = ParseScheduleResponse['classes'][number];
 type LessonDraft = { title: string; description: string; duration: string };
 type SegmentDraft = { title: string; description: string; duration: string };
+type CourseEditDraft = { name: string; subject: string; gradeLevel: string };
+type ParsedClassEditDraft = {
+  name: string;
+  period: string;
+  subject: string;
+  grade: string;
+  days: string;
+  time: string;
+  room: string;
+};
 
 type ManagementState = {
   courses: CourseSummary[];
@@ -71,6 +81,37 @@ function parseOptionalOrder(value: string): number | undefined {
   const parsed = Number(trimmed);
   if (!Number.isInteger(parsed) || parsed < 0) return undefined;
   return parsed;
+}
+
+function parsedClassToDraft(parsedClass: ParsedScheduleClass): ParsedClassEditDraft {
+  return {
+    name: parsedClass.name,
+    period: parsedClass.period,
+    subject: parsedClass.subject,
+    grade: parsedClass.grade ?? '',
+    days: parsedClass.days.join(', '),
+    time: parsedClass.time ?? '',
+    room: parsedClass.room ?? ''
+  };
+}
+
+function draftToParsedClass(draft: ParsedClassEditDraft): ParsedScheduleClass {
+  const days = draft.days
+    .split(',')
+    .map((day) => day.trim())
+    .filter((day): day is (typeof meetingDays)[number] =>
+      meetingDays.includes(day as (typeof meetingDays)[number])
+    );
+
+  return {
+    name: draft.name.trim(),
+    period: draft.period.trim(),
+    subject: draft.subject.trim() || draft.name.trim(),
+    grade: draft.grade.trim(),
+    days: days.length ? days : ['Monday'],
+    time: draft.time.trim() || null,
+    room: draft.room.trim() || null
+  };
 }
 
 function courseDepth(course: CourseDetail) {
@@ -197,6 +238,8 @@ export function ManagementPage() {
   const [newCourseSubject, setNewCourseSubject] = useState('');
   const [newCourseGrade, setNewCourseGrade] = useState('');
   const [newCoursePeriods, setNewCoursePeriods] = useState('');
+  const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
+  const [courseEditDrafts, setCourseEditDrafts] = useState<Record<string, CourseEditDraft>>({});
   const [quickCourseName, setQuickCourseName] = useState('');
   const [quickCourseSubject, setQuickCourseSubject] = useState('');
 
@@ -212,6 +255,7 @@ export function ManagementPage() {
   const [scheduleImportJobId, setScheduleImportJobId] = useState<string | null>(null);
   const [scheduleImportJob, setScheduleImportJob] = useState<AiJobStatusResponse | null>(null);
   const [scheduleImportOutput, setScheduleImportOutput] = useState<ParseScheduleResponse | null>(null);
+  const [parsedClassEditDrafts, setParsedClassEditDrafts] = useState<Record<string, ParsedClassEditDraft>>({});
   const [addedParsedClassKeys, setAddedParsedClassKeys] = useState<string[]>([]);
 
   const [unitTitle, setUnitTitle] = useState('');
@@ -413,6 +457,53 @@ export function ManagementPage() {
     if (nextTab) setActiveTab(nextTab);
   };
 
+  const beginCourseEdit = (course: CourseDetail) => {
+    setEditingCourseId(course.id);
+    setCourseEditDrafts((previous) => ({
+      ...previous,
+      [course.id]: {
+        name: course.name,
+        subject: course.subject ?? '',
+        gradeLevel: course.gradeLevel ?? ''
+      }
+    }));
+  };
+
+  const updateCourseDraft = (courseId: string, patch: Partial<CourseEditDraft>) => {
+    setCourseEditDrafts((previous) => ({
+      ...previous,
+      [courseId]: {
+        ...(previous[courseId] ?? { name: '', subject: '', gradeLevel: '' }),
+        ...patch
+      }
+    }));
+  };
+
+  const saveCourseEdit = async (courseId: string) => {
+    const draft = courseEditDrafts[courseId];
+    if (!draft?.name.trim()) {
+      setError('Course name is required.');
+      return;
+    }
+
+    try {
+      setBusy(true);
+      updateFromDetail(
+        await api.updateCourse(courseId, {
+          name: draft.name.trim(),
+          subject: toNullable(draft.subject),
+          gradeLevel: toNullable(draft.gradeLevel)
+        })
+      );
+      setEditingCourseId(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update course');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const toggleMeetingDay = (day: (typeof meetingDays)[number]) => {
     setSelectedMeetingDays((previous) => {
       if (previous.includes(day)) {
@@ -440,6 +531,22 @@ export function ManagementPage() {
   const parsedClassKey = (parsedClass: ParsedScheduleClass) =>
     `${parsedClass.name}-${parsedClass.period}-${parsedClass.time ?? 'time'}-${parsedClass.room ?? 'room'}`;
 
+  const parsedClassFromDraft = (parsedClass: ParsedScheduleClass) => {
+    const key = parsedClassKey(parsedClass);
+    return draftToParsedClass(parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass));
+  };
+
+  const updateParsedClassDraft = (parsedClass: ParsedScheduleClass, patch: Partial<ParsedClassEditDraft>) => {
+    const key = parsedClassKey(parsedClass);
+    setParsedClassEditDrafts((previous) => ({
+      ...previous,
+      [key]: {
+        ...(previous[key] ?? parsedClassToDraft(parsedClass)),
+        ...patch
+      }
+    }));
+  };
+
   const startScheduleUpload = async () => {
     if (!scheduleImportText.trim() && !scheduleImportFileDataUrl) {
       setError('Paste schedule text or upload an image/PDF first.');
@@ -458,6 +565,9 @@ export function ManagementPage() {
         fileMimeType: scheduleImportFileMimeType || undefined
       });
       setScheduleImportOutput(parsed);
+      setParsedClassEditDrafts(
+        Object.fromEntries(parsed.classes.map((parsedClass) => [parsedClassKey(parsedClass), parsedClassToDraft(parsedClass)]))
+      );
       setAddedParsedClassKeys([]);
       setError(null);
     } catch (err) {
@@ -635,6 +745,12 @@ export function ManagementPage() {
                 const depth = courseDepth(course);
                 const attachedSections = courseSections(course, sections);
                 const isSelected = selectedCourse?.id === course.id;
+                const isEditing = editingCourseId === course.id;
+                const editDraft = courseEditDrafts[course.id] ?? {
+                  name: course.name,
+                  subject: course.subject ?? '',
+                  gradeLevel: course.gradeLevel ?? ''
+                };
                 return (
                   <article key={course.id} className={isSelected ? 'course-summary-card selected' : 'course-summary-card'}>
                     <div className="section-heading">
@@ -644,6 +760,28 @@ export function ManagementPage() {
                       </div>
                       <span className="status-pill upcoming">{isSelected ? 'Selected' : 'Course'}</span>
                     </div>
+                    {isEditing ? (
+                      <div className="course-inline-edit">
+                        <input
+                          className="input"
+                          value={editDraft.name}
+                          onChange={(event) => updateCourseDraft(course.id, { name: event.target.value })}
+                          placeholder="Course name"
+                        />
+                        <input
+                          className="input"
+                          value={editDraft.subject}
+                          onChange={(event) => updateCourseDraft(course.id, { subject: event.target.value })}
+                          placeholder="Subject"
+                        />
+                        <input
+                          className="input"
+                          value={editDraft.gradeLevel}
+                          onChange={(event) => updateCourseDraft(course.id, { gradeLevel: event.target.value })}
+                          placeholder="Grade level"
+                        />
+                      </div>
+                    ) : null}
                     <div className="mini-stats">
                       <span>{depth.units} units</span>
                       <span>{depth.lessons} lessons</span>
@@ -675,32 +813,20 @@ export function ManagementPage() {
                       <button className="secondary" type="button" onClick={() => selectCourse(course.id, 'schedule')}>
                         Add Period
                       </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const nextName = window.prompt('Course name', course.name);
-                          if (nextName === null || !nextName.trim()) return;
-                          const nextSubject = window.prompt('Subject', course.subject ?? '');
-                          const nextGrade = window.prompt('Grade level', course.gradeLevel ?? '');
-                          try {
-                            setBusy(true);
-                            updateFromDetail(
-                              await api.updateCourse(course.id, {
-                                name: nextName.trim(),
-                                subject: toNullable(nextSubject ?? ''),
-                                gradeLevel: toNullable(nextGrade ?? '')
-                              })
-                            );
-                            setError(null);
-                          } catch (err) {
-                            setError(err instanceof ApiError ? err.message : 'Failed to update course');
-                          } finally {
-                            setBusy(false);
-                          }
-                        }}
-                      >
-                        Edit Course
-                      </button>
+                      {isEditing ? (
+                        <>
+                          <button type="button" disabled={busy || !editDraft.name.trim()} onClick={() => void saveCourseEdit(course.id)}>
+                            Save
+                          </button>
+                          <button className="secondary" type="button" onClick={() => setEditingCourseId(null)}>
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" onClick={() => beginCourseEdit(course)}>
+                          Edit Course
+                        </button>
+                      )}
                     </div>
                   </article>
                 );
@@ -793,6 +919,7 @@ export function ManagementPage() {
                   setScheduleImportJobId(null);
                   setScheduleImportJob(null);
                   setScheduleImportOutput(null);
+                  setParsedClassEditDrafts({});
                   setAddedParsedClassKeys([]);
                 }}
               >
@@ -866,27 +993,77 @@ export function ManagementPage() {
                 <div className="parsed-class-list">
                   {scheduleImportOutput.classes.map((parsedClass) => {
                     const key = parsedClassKey(parsedClass);
-                    const matchingCourse = findCourseForParsedClass(parsedClass);
+                    const editedClass = parsedClassFromDraft(parsedClass);
+                    const draft = parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
+                    const matchingCourse = findCourseForParsedClass(editedClass);
                     const isAdded = addedParsedClassKeys.includes(key);
                     return (
                       <article key={key} className="parsed-class-card">
-                        <div>
-                          <strong>{parsedClass.period}</strong>
-                          <span>{parsedClass.name}</span>
+                        <div className="parsed-class-fields">
+                          <label>
+                            Period
+                            <input
+                              className="input"
+                              value={draft.period}
+                              onChange={(event) => updateParsedClassDraft(parsedClass, { period: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Course
+                            <input
+                              className="input"
+                              value={draft.name}
+                              onChange={(event) => updateParsedClassDraft(parsedClass, { name: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Subject
+                            <input
+                              className="input"
+                              value={draft.subject}
+                              onChange={(event) => updateParsedClassDraft(parsedClass, { subject: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Days
+                            <input
+                              className="input"
+                              value={draft.days}
+                              onChange={(event) => updateParsedClassDraft(parsedClass, { days: event.target.value })}
+                              placeholder="Monday, Wednesday, Friday"
+                            />
+                          </label>
+                          <label>
+                            Time
+                            <input
+                              className="input"
+                              type="time"
+                              value={draft.time}
+                              onChange={(event) => updateParsedClassDraft(parsedClass, { time: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Room
+                            <input
+                              className="input"
+                              value={draft.room}
+                              onChange={(event) => updateParsedClassDraft(parsedClass, { room: event.target.value })}
+                            />
+                          </label>
                         </div>
                         <p>
-                          {parsedClass.days.join(', ')} at {parsedClass.time ?? 'TBD'}
-                          {parsedClass.room ? `, ${parsedClass.room}` : ''}
+                          {editedClass.days.join(', ')} at {editedClass.time ?? 'TBD'}
+                          {editedClass.room ? `, ${editedClass.room}` : ''}
                         </p>
                         <p className="muted">
                           {matchingCourse
                             ? `Will attach to ${matchingCourse.name}.`
-                            : `Will create ${parsedClass.name} first.`}
+                            : `Will create ${editedClass.name} first.`}
                         </p>
                         <button
                           type="button"
-                          disabled={busy || isAdded}
-                          onClick={() => void addParsedClassToSchedule(parsedClass)}
+                          disabled={busy || isAdded || !editedClass.name || !editedClass.period}
+                          onClick={() => void addParsedClassToSchedule(editedClass)}
                         >
                           {isAdded ? 'Added' : matchingCourse ? 'Add period' : 'Create course + period'}
                         </button>
