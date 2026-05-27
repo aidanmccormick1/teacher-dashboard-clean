@@ -31,6 +31,20 @@ type LocalScheduleParseResult = ParseScheduleResponse & {
   confidence: number;
   warnings: string[];
 };
+type YearPlanTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  units: Array<{
+    title: string;
+    description: string;
+    lessons: Array<{
+      title: string;
+      minutes: number;
+      segments: Array<{ title: string; minutes: number }>;
+    }>;
+  }>;
+};
 type ParsedClassEditDraft = {
   name: string;
   period: string;
@@ -56,6 +70,103 @@ const tabs: Array<{ id: ManagementTab; label: string }> = [
 
 const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'] as const;
 const maxScheduleUploadBytes = 10 * 1024 * 1024;
+const yearPlanTemplates: YearPlanTemplate[] = [
+  {
+    id: 'starter-4-week',
+    name: '4-week starter',
+    description: 'A simple first unit with reusable lesson rhythm.',
+    units: [
+      {
+        title: 'Unit 1: Foundations',
+        description: 'Introduce core routines, vocabulary, and baseline skills.',
+        lessons: [
+          {
+            title: 'Course launch and expectations',
+            minutes: 45,
+            segments: [
+              { title: 'Welcome and routine setup', minutes: 10 },
+              { title: 'Course map walkthrough', minutes: 15 },
+              { title: 'Student reflection', minutes: 15 },
+              { title: 'Exit ticket', minutes: 5 }
+            ]
+          },
+          {
+            title: 'Core vocabulary and prior knowledge',
+            minutes: 45,
+            segments: [
+              { title: 'Warm-up', minutes: 5 },
+              { title: 'Vocabulary preview', minutes: 15 },
+              { title: 'Partner practice', minutes: 20 },
+              { title: 'Check for understanding', minutes: 5 }
+            ]
+          },
+          {
+            title: 'First skill practice',
+            minutes: 45,
+            segments: [
+              { title: 'Model', minutes: 10 },
+              { title: 'Guided practice', minutes: 15 },
+              { title: 'Independent attempt', minutes: 15 },
+              { title: 'Wrap-up', minutes: 5 }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 'unit-project',
+    name: 'Project unit',
+    description: 'A flexible unit with launch, work days, feedback, and presentation.',
+    units: [
+      {
+        title: 'Project Unit',
+        description: 'Build toward a student-created product or performance task.',
+        lessons: [
+          {
+            title: 'Project launch',
+            minutes: 50,
+            segments: [
+              { title: 'Essential question', minutes: 10 },
+              { title: 'Rubric walkthrough', minutes: 15 },
+              { title: 'Planning time', minutes: 20 },
+              { title: 'Next-step check', minutes: 5 }
+            ]
+          },
+          {
+            title: 'Research and build day',
+            minutes: 50,
+            segments: [
+              { title: 'Goal setting', minutes: 5 },
+              { title: 'Work block', minutes: 35 },
+              { title: 'Teacher conferences', minutes: 5 },
+              { title: 'Progress log', minutes: 5 }
+            ]
+          },
+          {
+            title: 'Peer feedback',
+            minutes: 50,
+            segments: [
+              { title: 'Feedback norms', minutes: 8 },
+              { title: 'Peer review rounds', minutes: 30 },
+              { title: 'Revision plan', minutes: 10 },
+              { title: 'Exit ticket', minutes: 2 }
+            ]
+          },
+          {
+            title: 'Present and reflect',
+            minutes: 50,
+            segments: [
+              { title: 'Presentation setup', minutes: 5 },
+              { title: 'Presentations', minutes: 35 },
+              { title: 'Reflection', minutes: 10 }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+];
 const dayAliases: Record<string, (typeof meetingDays)[number]> = {
   m: 'Monday',
   mon: 'Monday',
@@ -406,6 +517,7 @@ export function ManagementPage() {
   const [unitTitle, setUnitTitle] = useState('');
   const [unitDescription, setUnitDescription] = useState('');
   const [unitOrder, setUnitOrder] = useState('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState(yearPlanTemplates[0]?.id ?? '');
   const [lessonDrafts, setLessonDrafts] = useState<Record<string, LessonDraft>>({});
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, SegmentDraft>>({});
 
@@ -693,6 +805,54 @@ export function ManagementPage() {
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to remove period');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyYearPlanTemplate = async () => {
+    if (!selectedCourse) return;
+    const template = yearPlanTemplates.find((item) => item.id === selectedTemplateId) ?? yearPlanTemplates[0];
+    if (!template) return;
+
+    try {
+      setBusy(true);
+      let detail: CourseDetailResponse | null = null;
+      for (const [unitIndex, templateUnit] of template.units.entries()) {
+        detail = await api.createUnit(selectedCourse.id, {
+          title: templateUnit.title,
+          description: templateUnit.description,
+          orderIndex: selectedCourse.units.length + unitIndex + 1
+        });
+        const createdUnit = detail.course.units.find((unit) => unit.title === templateUnit.title);
+        if (!createdUnit) continue;
+
+        for (const [lessonIndex, templateLesson] of templateUnit.lessons.entries()) {
+          detail = await api.createLesson(createdUnit.id, {
+            title: templateLesson.title,
+            description: null,
+            estimatedDurationMinutes: templateLesson.minutes,
+            orderIndex: lessonIndex + 1
+          });
+          const latestUnit = detail.course.units.find((unit) => unit.id === createdUnit.id);
+          const createdLesson = latestUnit?.lessons.find((lesson) => lesson.title === templateLesson.title);
+          if (!createdLesson) continue;
+
+          for (const [segmentIndex, templateSegment] of templateLesson.segments.entries()) {
+            detail = await api.createSegment(createdLesson.id, {
+              title: templateSegment.title,
+              description: null,
+              durationMinutes: templateSegment.minutes,
+              orderIndex: segmentIndex + 1
+            });
+          }
+        }
+      }
+
+      if (detail) updateFromDetail(detail);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to apply starter year plan');
     } finally {
       setBusy(false);
     }
@@ -1687,6 +1847,37 @@ export function ManagementPage() {
 
           {selectedCourse && selectedYearPlanView === 'outline' ? (
             <article className="card stack curriculum-builder">
+              <section className="template-picker">
+                <div>
+                  <p className="eyebrow">Starter plans</p>
+                  <h3>Build a first outline quickly</h3>
+                  <p className="muted">Templates create real units, lessons, and segments. You can edit everything after it lands.</p>
+                </div>
+                <div className="template-picker-controls">
+                  <select
+                    className="input"
+                    value={selectedTemplateId}
+                    onChange={(event) => setSelectedTemplateId(event.target.value)}
+                  >
+                    {yearPlanTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" disabled={busy || !selectedCourse} onClick={() => void applyYearPlanTemplate()}>
+                    Add starter plan
+                  </button>
+                </div>
+                <div className="template-preview-list">
+                  {(yearPlanTemplates.find((template) => template.id === selectedTemplateId) ?? yearPlanTemplates[0])?.units.map((unit) => (
+                    <div key={unit.title}>
+                      <strong>{unit.title}</strong>
+                      <span>{unit.lessons.length} lessons</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
               <div className="management-editor-grid">
                 <div className="soft-panel stack">
                   <h3>Add unit</h3>

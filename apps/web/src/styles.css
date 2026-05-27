@@ -752,6 +752,48 @@ button.danger {
   margin: 0;
 }
 
+.template-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.45fr);
+  gap: 16px;
+  align-items: center;
+  border: 1px solid rgba(71, 108, 88, 0.25);
+  border-radius: 6px;
+  padding: 16px;
+  background: #eef4e9;
+}
+
+.template-picker h3,
+.template-picker p {
+  margin: 0;
+}
+
+.template-picker-controls,
+.template-preview-list {
+  display: grid;
+  gap: 10px;
+}
+
+.template-preview-list {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.template-preview-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(71, 108, 88, 0.18);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: #fffdf7;
+}
+
+.template-preview-list span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .local-parse-summary {
   display: grid;
   gap: 6px;
@@ -1843,6 +1885,8 @@ progress::-webkit-progress-value {
   .management-setup-grid,
   .management-snapshot,
   .parsed-class-fields,
+  .template-picker,
+  .template-preview-list,
   .schedule-upload-grid,
   .parsed-class-list,
   .section-roster,
