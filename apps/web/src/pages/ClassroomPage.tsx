@@ -13,6 +13,10 @@ export function ClassroomPage() {
   const [resume, setResume] = useState<ClassroomResumeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const completedCount = resume?.state?.completedSegmentIds.length ?? 0;
+  const totalSegments = resume?.lesson?.segments.length ?? 0;
+  const stoppedSegment = resume?.lesson?.segments.find((segment) => segment.id === resume.state?.stoppedAtSegmentId);
+  const nextSegment = resume?.lesson?.segments.find((segment) => !resume.state?.completedSegmentIds.includes(segment.id));
 
   useEffect(() => {
     void (async () => {
@@ -55,9 +59,12 @@ export function ClassroomPage() {
           `Time: ${currentClass.meetingTime ?? 'TBD'}`,
           `Room: ${currentClass.room ?? 'TBD'}`,
           `Lesson: ${resume?.lesson?.title ?? 'No lesson ready'}`,
-          resume?.lesson?.segments.length
-            ? `Progress: ${resume.state?.completedSegmentIds.length ?? 0}/${resume.lesson.segments.length} segments complete`
+          totalSegments
+            ? `Progress: ${completedCount}/${totalSegments} segments complete`
             : 'Progress: no segments yet',
+          `Next: ${nextSegment?.title ?? (resume?.lesson ? 'Lesson complete' : 'No lesson ready')}`,
+          `Stopped at: ${stoppedSegment?.title ?? 'Not set'}`,
+          `Last taught: ${resume?.state?.lastTaughtDate ?? 'Not saved yet'}`,
           `Carry-over: ${resume?.state?.carryOverNote ?? resume?.lastNote?.content ?? 'None'}`
         ]
       : [
@@ -91,15 +98,32 @@ export function ClassroomPage() {
               <div className="soft-panel">
                 <strong>{resume.lesson.title}</strong>
                 <p className="muted">
-                  {resume.lesson.segments.length
-                    ? `${resume.state?.completedSegmentIds.length ?? 0}/${resume.lesson.segments.length} segments complete`
+                  {totalSegments
+                    ? `${completedCount}/${totalSegments} segments complete`
                     : 'No segments yet'}
                 </p>
+                <div className="classroom-context-grid">
+                  <div>
+                    <span>Next up</span>
+                    <strong>{nextSegment?.title ?? 'Lesson complete'}</strong>
+                  </div>
+                  <div>
+                    <span>Stopped at</span>
+                    <strong>{stoppedSegment?.title ?? 'Not set'}</strong>
+                  </div>
+                  <div>
+                    <span>Last taught</span>
+                    <strong>{resume.state?.lastTaughtDate ?? 'Not saved yet'}</strong>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="soft-panel">
                 <strong>No lesson ready yet</strong>
                 <p className="muted">Build a Year Plan in Management, then Classroom can resume the right lesson.</p>
+                <button className="secondary" type="button" onClick={() => openManagementTab('curriculum')}>
+                  Open Year Plan
+                </button>
               </div>
             )}
             {resume?.state?.carryOverNote ? (

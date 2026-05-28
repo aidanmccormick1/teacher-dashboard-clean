@@ -562,6 +562,15 @@ function sectionPercent(resume: ClassroomResumeResponse | undefined): number {
   return Math.round(((resume.state?.completedSegmentIds.length ?? 0) / resume.lesson.segments.length) * 100);
 }
 
+function resumeStopLabel(resume: ClassroomResumeResponse | undefined): string {
+  if (!resume?.lesson) return 'No lesson started';
+  const stoppedSegment = resume.lesson.segments.find((segment) => segment.id === resume.state?.stoppedAtSegmentId);
+  const nextSegment = resume.lesson.segments.find((segment) => !resume.state?.completedSegmentIds.includes(segment.id));
+  if (stoppedSegment) return `Stopped at ${stoppedSegment.title}`;
+  if (nextSegment) return `Next: ${nextSegment.title}`;
+  return 'Lesson complete';
+}
+
 function segmentStatusLabel(resume: ClassroomResumeResponse | undefined, segmentId: string): string {
   if (resume?.state?.completedSegmentIds.includes(segmentId)) return 'Completed';
   if (resume?.state?.currentSegmentId === segmentId || resume?.state?.stoppedAtSegmentId === segmentId) {
@@ -1028,6 +1037,27 @@ export function ManagementPage() {
     ].join('\n');
     await navigator.clipboard?.writeText(summary).catch(() => undefined);
     flashCopyStatus('Import summary copied.');
+  };
+
+  const copyProgressSummary = async () => {
+    const lines = [
+      'Section progress summary',
+      '',
+      ...state.courseDetails.flatMap((course) => {
+        const attachedSections = courseSections(course, sections);
+        return [
+          course.name,
+          ...(attachedSections.length
+            ? attachedSections.map((section) => {
+                const resume = state.resumesBySectionId[section.sectionId];
+                return `- ${section.sectionName}: ${resume?.lesson?.title ?? 'No lesson'} / ${sectionPercent(resume)}% / ${resumeStopLabel(resume)} / last taught ${resume?.state?.lastTaughtDate ?? 'not saved'}`;
+              })
+            : ['- No periods'])
+        ];
+      })
+    ].join('\n');
+    await navigator.clipboard?.writeText(lines).catch(() => undefined);
+    flashCopyStatus('Progress summary copied.');
   };
 
   const selectCourse = (courseId: string, nextTab?: ManagementTab) => {
@@ -2983,6 +3013,9 @@ export function ManagementPage() {
             <button className="secondary" type="button" onClick={() => navigate('/classroom')}>
               Open Classroom
             </button>
+            <button className="secondary" type="button" onClick={() => void copyProgressSummary()}>
+              Copy progress
+            </button>
           </div>
 
           <div className="progress-course-grid">
@@ -3016,6 +3049,8 @@ export function ManagementPage() {
                               <div>
                                 <strong>{section.sectionName}</strong>
                                 <span>{resume?.lesson?.title ?? 'No lesson started'}</span>
+                                <small>{resumeStopLabel(resume)}</small>
+                                <small>Last taught: {resume?.state?.lastTaughtDate ?? 'Not saved yet'}</small>
                               </div>
                               <progress max={100} value={percent} />
                               <span className={status === 'Missing lesson' ? 'status-pill needs-work' : 'status-pill upcoming'}>

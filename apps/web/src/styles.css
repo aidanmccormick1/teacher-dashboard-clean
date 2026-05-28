@@ -910,6 +910,11 @@ button.button-link {
   gap: 3px;
 }
 
+.progress-section-row small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .status-pill.needs-work {
   background: #fff2d8;
   color: #7a4b13;
@@ -2085,6 +2090,30 @@ button.button-link {
 .next-class-card p,
 .soft-panel p {
   margin: 6px 0 0;
+}
+
+.classroom-context-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.classroom-context-grid > div {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px;
+  background: #fffaf0;
+}
+
+.classroom-context-grid span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .status-pill {
