@@ -4,7 +4,7 @@ import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { aiJobs, db, pool, users } from '@teacheros/db';
+import { aiJobs, auditEvents, db, pool, users } from '@teacheros/db';
 
 import { createApp } from './app.js';
 import type { AppConfig } from './config.js';
@@ -393,6 +393,55 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
 
     expect(retriedJob?.status).toBe('queued');
     expect(retriedJob?.cancelRequested).toBe(false);
+    });
+  });
+
+  describe('v1 feedback', () => {
+    it('persists teacher feedback as an audit event', async () => {
+      const onboarding = await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: onboardingBody
+      });
+      expect(onboarding.statusCode).toBe(200);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/feedback',
+        headers: teacherHeaders,
+        payload: {
+          type: 'Confusing',
+          page: '/management',
+          message: 'The schedule import review needs clearer labels.',
+          userAgent: 'vitest'
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = response.json<{ feedbackId: string; saved: true }>();
+      expect(payload.saved).toBe(true);
+      expect(payload.feedbackId).toMatch(/[0-9a-f-]{36}/);
+
+      const [event] = await db
+        .select({
+          eventType: auditEvents.eventType,
+          entityType: auditEvents.entityType,
+          metadata: auditEvents.metadata
+        })
+        .from(auditEvents)
+        .where(eq(auditEvents.id, payload.feedbackId))
+        .limit(1);
+
+      expect(event?.eventType).toBe('teacher_feedback_submitted');
+      expect(event?.entityType).toBe('feedback');
+      expect(event?.metadata).toMatchObject({
+        type: 'Confusing',
+        page: '/management',
+        message: 'The schedule import review needs clearer labels.',
+        userAgent: 'vitest',
+        email: teacherHeaders['x-dev-user-email']
+      });
     });
   });
 });
