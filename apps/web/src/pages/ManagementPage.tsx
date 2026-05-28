@@ -11,7 +11,7 @@ import type {
 
 import { ApiError, useApiClient } from '../lib/api.js';
 
-type ManagementTab = 'courses' | 'schedule' | 'curriculum';
+type ManagementTab = 'start' | 'courses' | 'periods' | 'weekly' | 'curriculum' | 'progress' | 'import';
 type YearPlanView = 'outline' | 'timeline';
 type CourseDetail = CourseDetailResponse['course'];
 type CourseSummary = CourseListResponse['courses'][number];
@@ -63,6 +63,19 @@ type ParsedClassEditDraft = {
   time: string;
   room: string;
 };
+type NewCourseDraft = {
+  name: string;
+  subject: string;
+  grade: string;
+  periods: string;
+};
+type AddPeriodDraft = {
+  courseId: string;
+  sectionName: string;
+  meetingDays: Array<(typeof meetingDays)[number]>;
+  time: string;
+  room: string;
+};
 
 type ManagementState = {
   courses: CourseSummary[];
@@ -72,14 +85,22 @@ type ManagementState = {
 };
 
 const tabs: Array<{ id: ManagementTab; label: string }> = [
+  { id: 'start', label: 'Start' },
   { id: 'courses', label: 'Courses' },
-  { id: 'schedule', label: 'Schedule' },
-  { id: 'curriculum', label: 'Year Plan' }
+  { id: 'periods', label: 'Periods' },
+  { id: 'weekly', label: 'Weekly Schedule' },
+  { id: 'curriculum', label: 'Year Plan' },
+  { id: 'progress', label: 'Progress' },
+  { id: 'import', label: 'Import' }
 ];
 
 const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'] as const;
 const maxScheduleUploadBytes = 10 * 1024 * 1024;
 const schoolYearStorageKey = 'teacheros_school_year_settings';
+const walkthroughStorageKey = 'teacheros_management_walkthrough_v1';
+const newCourseDraftStorageKey = 'teacheros_management_new_course_draft_v1';
+const addPeriodDraftStorageKey = 'teacheros_management_add_period_draft_v1';
+const activeTabStorageKey = 'teacheros_management_active_tab_v1';
 const yearPlanTemplates: YearPlanTemplate[] = [
   {
     id: 'starter-4-week',
@@ -204,6 +225,63 @@ const dayAliases: Record<string, (typeof meetingDays)[number]> = {
 
 function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
+}
+
+function readManagementActiveTab(): ManagementTab {
+  try {
+    const saved = window.localStorage.getItem(activeTabStorageKey);
+    const matchingTab = tabs.find((tab) => tab.id === saved);
+    return matchingTab?.id ?? 'start';
+  } catch {
+    return 'start';
+  }
+}
+
+function readStringList(key: string): string[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) ?? '[]') as string[];
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStringList(key: string, value: string[]) {
+  window.localStorage.setItem(key, JSON.stringify([...new Set(value)]));
+}
+
+function readNewCourseDraft(): NewCourseDraft {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(newCourseDraftStorageKey) ?? '{}') as Partial<NewCourseDraft>;
+    return {
+      name: parsed.name ?? '',
+      subject: parsed.subject ?? '',
+      grade: parsed.grade ?? '',
+      periods: parsed.periods ?? ''
+    };
+  } catch {
+    return { name: '', subject: '', grade: '', periods: '' };
+  }
+}
+
+function readAddPeriodDraft(): AddPeriodDraft {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(addPeriodDraftStorageKey) ?? '{}') as Partial<AddPeriodDraft>;
+    const savedDays = Array.isArray(parsed.meetingDays)
+      ? parsed.meetingDays.filter((day): day is (typeof meetingDays)[number] =>
+          meetingDays.includes(day)
+        )
+      : [];
+    return {
+      courseId: parsed.courseId ?? '',
+      sectionName: parsed.sectionName ?? '',
+      meetingDays: savedDays.length ? savedDays : ['Monday'],
+      time: parsed.time ?? '',
+      room: parsed.room ?? ''
+    };
+  } catch {
+    return { courseId: '', sectionName: '', meetingDays: ['Monday'], time: '', room: '' };
+  }
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -510,7 +588,7 @@ function promptForState(state: ManagementState, selectedCourse: CourseDetail | n
       id: 'add-periods',
       title: 'Add the periods that teach this course',
       body: 'Periods share the same course plan, but each period tracks progress separately.',
-      tab: 'schedule' as ManagementTab
+      tab: 'periods' as ManagementTab
     };
   }
   if (!hasMeetingTimes) {
@@ -518,7 +596,7 @@ function promptForState(state: ManagementState, selectedCourse: CourseDetail | n
       id: 'add-times',
       title: 'Add meeting days and times',
       body: 'Schedule data lets the app know what class is current and what comes next.',
-      tab: 'schedule' as ManagementTab
+      tab: 'weekly' as ManagementTab
     };
   }
   if (!hasLessons) {
@@ -539,7 +617,9 @@ function promptForState(state: ManagementState, selectedCourse: CourseDetail | n
 
 export function ManagementPage() {
   const api = useApiClient();
-  const [activeTab, setActiveTab] = useState<ManagementTab>('courses');
+  const [savedNewCourseDraft] = useState(readNewCourseDraft);
+  const [savedAddPeriodDraft] = useState(readAddPeriodDraft);
+  const [activeTab, setActiveTab] = useState<ManagementTab>(readManagementActiveTab);
   const [state, setState] = useState<ManagementState>({
     courses: [],
     courseDetails: [],
@@ -556,20 +636,20 @@ export function ManagementPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [newCourseName, setNewCourseName] = useState('');
-  const [newCourseSubject, setNewCourseSubject] = useState('');
-  const [newCourseGrade, setNewCourseGrade] = useState('');
-  const [newCoursePeriods, setNewCoursePeriods] = useState('');
+  const [newCourseName, setNewCourseName] = useState(savedNewCourseDraft.name);
+  const [newCourseSubject, setNewCourseSubject] = useState(savedNewCourseDraft.subject);
+  const [newCourseGrade, setNewCourseGrade] = useState(savedNewCourseDraft.grade);
+  const [newCoursePeriods, setNewCoursePeriods] = useState(savedNewCourseDraft.periods);
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
   const [courseEditDrafts, setCourseEditDrafts] = useState<Record<string, CourseEditDraft>>({});
   const [quickCourseName, setQuickCourseName] = useState('');
   const [quickCourseSubject, setQuickCourseSubject] = useState('');
 
-  const [selectedCourseForSchedule, setSelectedCourseForSchedule] = useState('');
-  const [sectionName, setSectionName] = useState('');
-  const [selectedMeetingDays, setSelectedMeetingDays] = useState<Array<(typeof meetingDays)[number]>>(['Monday']);
-  const [meetingTime, setMeetingTime] = useState('');
-  const [meetingRoom, setMeetingRoom] = useState('');
+  const [selectedCourseForSchedule, setSelectedCourseForSchedule] = useState(savedAddPeriodDraft.courseId);
+  const [sectionName, setSectionName] = useState(savedAddPeriodDraft.sectionName);
+  const [selectedMeetingDays, setSelectedMeetingDays] = useState<Array<(typeof meetingDays)[number]>>(savedAddPeriodDraft.meetingDays);
+  const [meetingTime, setMeetingTime] = useState(savedAddPeriodDraft.time);
+  const [meetingRoom, setMeetingRoom] = useState(savedAddPeriodDraft.room);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [sectionEditDrafts, setSectionEditDrafts] = useState<Record<string, SectionEditDraft>>({});
   const [scheduleImportText, setScheduleImportText] = useState('');
@@ -582,6 +662,8 @@ export function ManagementPage() {
   const [localScheduleParse, setLocalScheduleParse] = useState<LocalScheduleParseResult | null>(null);
   const [parsedClassEditDrafts, setParsedClassEditDrafts] = useState<Record<string, ParsedClassEditDraft>>({});
   const [addedParsedClassKeys, setAddedParsedClassKeys] = useState<string[]>([]);
+  const [completedWalkthroughIds, setCompletedWalkthroughIds] = useState<string[]>(() => readStringList(walkthroughStorageKey));
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   const [unitTitle, setUnitTitle] = useState('');
   const [unitDescription, setUnitDescription] = useState('');
@@ -649,6 +731,39 @@ export function ManagementPage() {
     void loadManagement(true);
     setSchoolYearSettings(readSchoolYearSettings());
   }, [loadManagement]);
+
+  useEffect(() => {
+    window.localStorage.setItem(activeTabStorageKey, activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      newCourseDraftStorageKey,
+      JSON.stringify({
+        name: newCourseName,
+        subject: newCourseSubject,
+        grade: newCourseGrade,
+        periods: newCoursePeriods
+      })
+    );
+  }, [newCourseGrade, newCourseName, newCoursePeriods, newCourseSubject]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      addPeriodDraftStorageKey,
+      JSON.stringify({
+        courseId: selectedCourseForSchedule,
+        sectionName,
+        meetingDays: selectedMeetingDays,
+        time: meetingTime,
+        room: meetingRoom
+      })
+    );
+  }, [meetingRoom, meetingTime, sectionName, selectedCourseForSchedule, selectedMeetingDays]);
+
+  useEffect(() => {
+    writeStringList(walkthroughStorageKey, completedWalkthroughIds);
+  }, [completedWalkthroughIds]);
 
   useEffect(() => {
     if (!scheduleImportJobId) return;
@@ -751,6 +866,50 @@ export function ManagementPage() {
       value: state.courseDetails.reduce((count, course) => count + courseDepth(course).lessons, 0)
     }
   ];
+  const weeklySchedule = meetingDays.map((day) => ({
+    day,
+    sections: sections.filter((section) => section.meetings.some((meeting) => meeting.day === day))
+  }));
+  const hasMeetingGaps = sections.some((section) =>
+    !section.meetings.length || section.meetings.some((meeting) => !meeting.time || !meeting.room)
+  );
+  const walkthroughSteps = [
+    {
+      id: 'course',
+      title: 'Create your first course',
+      body: 'Name what you teach once. Periods can share it.',
+      tab: 'courses' as ManagementTab,
+      done: state.courseDetails.length > 0
+    },
+    {
+      id: 'periods',
+      title: 'Add class periods',
+      body: 'Add the real groups of students you see each day.',
+      tab: 'periods' as ManagementTab,
+      done: sections.length > 0
+    },
+    {
+      id: 'schedule',
+      title: 'Add meeting days and times',
+      body: 'This lets the dashboard know what is happening today.',
+      tab: 'weekly' as ManagementTab,
+      done: sections.some((section) => section.meetings.length > 0)
+    },
+    {
+      id: 'year-plan',
+      title: 'Build a starter year plan',
+      body: 'Add units, lessons, and segments so Classroom has a path.',
+      tab: 'curriculum' as ManagementTab,
+      done: state.courseDetails.some((course) => courseDepth(course).lessons > 0)
+    },
+    {
+      id: 'classroom',
+      title: 'Open Classroom',
+      body: 'Use it during class to keep each period in the right place.',
+      tab: 'progress' as ManagementTab,
+      done: Object.values(state.resumesBySectionId).some((resume) => Boolean(resume.lesson))
+    }
+  ];
 
   const updateFromDetail = (detail: CourseDetailResponse) => {
     const nextCourse = detail.course;
@@ -783,6 +942,90 @@ export function ManagementPage() {
     setSelectedCourseId(detail.course.id);
     setSelectedCourseForSchedule(detail.course.id);
     return detail.course;
+  };
+
+  const flashCopyStatus = (message: string) => {
+    setCopyStatus(message);
+    window.setTimeout(() => setCopyStatus(null), 1800);
+  };
+
+  const markWalkthroughStep = (stepId: string) => {
+    setCompletedWalkthroughIds((previous) => [...new Set([...previous, stepId])]);
+  };
+
+  const copyNewCourseDraft = async () => {
+    const summary = [
+      'New course draft',
+      `Course: ${newCourseName.trim() || 'Untitled'}`,
+      `Subject: ${newCourseSubject.trim() || 'Not set'}`,
+      `Grade: ${newCourseGrade.trim() || 'Not set'}`,
+      `Periods: ${newCoursePeriods.trim() || 'Not set'}`
+    ].join('\n');
+    await navigator.clipboard?.writeText(summary).catch(() => undefined);
+    flashCopyStatus('Course draft copied.');
+  };
+
+  const clearNewCourseDraft = () => {
+    setNewCourseName('');
+    setNewCourseSubject('');
+    setNewCourseGrade('');
+    setNewCoursePeriods('');
+    window.localStorage.removeItem(newCourseDraftStorageKey);
+    flashCopyStatus('Course draft cleared.');
+  };
+
+  const copyAddPeriodDraft = async () => {
+    const selectedCourseName = state.courses.find((course) => course.id === selectedCourseForSchedule)?.name ?? 'Not selected';
+    const summary = [
+      'Class period draft',
+      `Course: ${selectedCourseName}`,
+      `Period: ${sectionName.trim() || 'Untitled'}`,
+      `Days: ${selectedMeetingDays.join(', ')}`,
+      `Time: ${meetingTime || 'Not set'}`,
+      `Room: ${meetingRoom.trim() || 'Not set'}`
+    ].join('\n');
+    await navigator.clipboard?.writeText(summary).catch(() => undefined);
+    flashCopyStatus('Period draft copied.');
+  };
+
+  const clearAddPeriodDraft = () => {
+    setSectionName('');
+    setSelectedMeetingDays(['Monday']);
+    setMeetingTime('');
+    setMeetingRoom('');
+    window.localStorage.removeItem(addPeriodDraftStorageKey);
+    flashCopyStatus('Period draft cleared.');
+  };
+
+  const copyYearPlanSummary = async () => {
+    if (!selectedCourse) return;
+    const depth = courseDepth(selectedCourse);
+    const summary = [
+      `${selectedCourse.name} Year Plan`,
+      `${depth.units} units / ${depth.lessons} lessons / ${depth.segments} segments`,
+      '',
+      ...selectedCourse.units.flatMap((unit) => [
+        `Unit ${unit.orderIndex}: ${unit.title}`,
+        ...unit.lessons.map((lesson) => `- ${lesson.title} (${lesson.segments.length} segments)`)
+      ])
+    ].join('\n');
+    await navigator.clipboard?.writeText(summary).catch(() => undefined);
+    flashCopyStatus('Year plan copied.');
+  };
+
+  const copyImportSummary = async () => {
+    if (!scheduleImportOutput) return;
+    const summary = [
+      'Schedule import review',
+      `${scheduleImportOutput.classes.length} classes found`,
+      '',
+      ...scheduleImportOutput.classes.map((parsedClass) => {
+        const editedClass = parsedClassFromDraft(parsedClass);
+        return `${editedClass.period}: ${editedClass.name} / ${editedClass.days.join(', ')} / ${editedClass.time ?? 'Time TBD'} / ${editedClass.room ?? 'Room TBD'}`;
+      })
+    ].join('\n');
+    await navigator.clipboard?.writeText(summary).catch(() => undefined);
+    flashCopyStatus('Import summary copied.');
   };
 
   const selectCourse = (courseId: string, nextTab?: ManagementTab) => {
@@ -1146,13 +1389,14 @@ export function ManagementPage() {
       setScheduleImportJobId(null);
       setScheduleImportJob(null);
       setScheduleImportOutput(null);
-      const parsed = await api.importSchedule({
+      const job = await api.enqueueParseSchedule({
         text: scheduleImportText.trim() || undefined,
         fileBase64: scheduleImportFileDataUrl || undefined,
         fileName: scheduleImportFileName || undefined,
         fileMimeType: scheduleImportFileMimeType || undefined
       });
-      applyScheduleParseResult(parsed);
+      setScheduleImportJobId(job.jobId);
+      setScheduleImportJob(null);
       setLocalScheduleParse(null);
       setError(null);
     } catch (err) {
@@ -1217,6 +1461,7 @@ export function ManagementPage() {
       </section>
 
       {error ? <p className="notice warning">{error}</p> : null}
+      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
       {loading ? <p className="muted">Loading...</p> : null}
       {showPrompt ? (
         <section className="smart-prompt">
@@ -1240,6 +1485,73 @@ export function ManagementPage() {
         </section>
       ) : null}
 
+      {activeTab === 'start' ? (
+        <section className="management-panel stack">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Start</p>
+              <h2>Set up the year in small steps.</h2>
+              <p className="muted">Use one step at a time. Nothing here blocks the rest of the app.</p>
+            </div>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => {
+                setCompletedWalkthroughIds(walkthroughSteps.map((step) => step.id));
+                flashCopyStatus('Walkthrough marked complete.');
+              }}
+            >
+              Mark complete
+            </button>
+          </div>
+
+          <div className="walkthrough-step-grid">
+            {walkthroughSteps.map((step, index) => {
+              const done = step.done || completedWalkthroughIds.includes(step.id);
+              return (
+                <article key={step.id} className={done ? 'walkthrough-step-card done' : 'walkthrough-step-card'}>
+                  <span>{done ? 'Done' : `Step ${index + 1}`}</span>
+                  <h3>{step.title}</h3>
+                  <p>{step.body}</p>
+                  <div className="profile-actions">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        markWalkthroughStep(step.id);
+                        setActiveTab(step.tab);
+                      }}
+                    >
+                      Go
+                    </button>
+                    {!done ? (
+                      <button className="secondary" type="button" onClick={() => markWalkthroughStep(step.id)}>
+                        Mark done
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <article className="card stack">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Simple menu</p>
+                <h3>Where things live</h3>
+              </div>
+            </div>
+            <div className="management-menu-grid">
+              {tabs.filter((tab) => tab.id !== 'start').map((tab) => (
+                <button key={tab.id} className="secondary" type="button" onClick={() => setActiveTab(tab.id)}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </article>
+        </section>
+      ) : null}
+
       {activeTab === 'courses' ? (
         <section className="management-panel stack">
           <div className="section-heading">
@@ -1254,7 +1566,20 @@ export function ManagementPage() {
 
           {isNewCourseOpen ? (
             <article className="card stack compact-create-card">
-              <h3>Create course</h3>
+              <div className="section-heading">
+                <div>
+                  <h3>Create course</h3>
+                  <p className="muted">Draft saves on this device while you decide what to add.</p>
+                </div>
+                <div className="profile-actions">
+                  <button className="secondary" type="button" onClick={() => void copyNewCourseDraft()}>
+                    Copy draft
+                  </button>
+                  <button className="secondary" type="button" onClick={clearNewCourseDraft}>
+                    Clear
+                  </button>
+                </div>
+              </div>
               <div className="inline-editor">
                 <input
                   className="input"
@@ -1305,8 +1630,9 @@ export function ManagementPage() {
                       setNewCourseSubject('');
                       setNewCourseGrade('');
                       setNewCoursePeriods('');
+                      window.localStorage.removeItem(newCourseDraftStorageKey);
                       setIsNewCourseOpen(false);
-                      setActiveTab('schedule');
+                      setActiveTab('periods');
                       setError(null);
                     } catch (err) {
                       setError(err instanceof ApiError ? err.message : 'Failed to create course');
@@ -1395,7 +1721,7 @@ export function ManagementPage() {
                       <button className="secondary" type="button" onClick={() => selectCourse(course.id, 'curriculum')}>
                         Open Year Plan
                       </button>
-                      <button className="secondary" type="button" onClick={() => selectCourse(course.id, 'schedule')}>
+                      <button className="secondary" type="button" onClick={() => selectCourse(course.id, 'periods')}>
                         Add Period
                       </button>
                       {isEditing ? (
@@ -1426,13 +1752,13 @@ export function ManagementPage() {
         </section>
       ) : null}
 
-      {activeTab === 'schedule' ? (
+      {activeTab === 'import' ? (
         <section className="management-panel stack">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Schedule</p>
-              <h2>When do my periods meet?</h2>
-              <p className="muted">Class periods share the same course plan, but each period tracks progress separately.</p>
+              <p className="eyebrow">Import</p>
+              <h2>Import Schedule</h2>
+              <p className="muted">Use local import first, or use the enhanced reader when a file is messy.</p>
             </div>
           </div>
 
@@ -1597,6 +1923,9 @@ export function ManagementPage() {
                     <p className="eyebrow">Review before saving</p>
                     <h3>{scheduleImportOutput.classes.length} classes found</h3>
                   </div>
+                  <button className="secondary" type="button" onClick={() => void copyImportSummary()}>
+                    Copy import summary
+                  </button>
                 </div>
                 <div className="parsed-class-list">
                   {scheduleImportOutput.classes.map((parsedClass) => {
@@ -1693,7 +2022,18 @@ export function ManagementPage() {
               </div>
             ) : null}
           </article>
+        </section>
+      ) : null}
 
+      {activeTab === 'periods' ? (
+        <section className="management-panel stack">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Periods</p>
+              <h2>Which class periods do I teach?</h2>
+              <p className="muted">Periods share a course plan, but each one keeps its own progress.</p>
+            </div>
+          </div>
           {state.courses.length === 0 ? (
             <article className="card stack compact-create-card">
               <h3>Create a course first</h3>
@@ -1735,7 +2075,20 @@ export function ManagementPage() {
           ) : (
             <div className="management-editor-grid">
               <article className="card stack">
-                <h3>Add class period</h3>
+                <div className="section-heading">
+                  <div>
+                    <h3>Add class period</h3>
+                    <p className="muted">Draft saves on this device until the period is added.</p>
+                  </div>
+                  <div className="profile-actions">
+                    <button className="secondary" type="button" onClick={() => void copyAddPeriodDraft()}>
+                      Copy draft
+                    </button>
+                    <button className="secondary" type="button" onClick={clearAddPeriodDraft}>
+                      Clear
+                    </button>
+                  </div>
+                </div>
                 <select
                   className="input"
                   value={selectedCourseForSchedule}
@@ -1798,6 +2151,7 @@ export function ManagementPage() {
                       setSectionName('');
                       setMeetingTime('');
                       setMeetingRoom('');
+                      window.localStorage.removeItem(addPeriodDraftStorageKey);
                       setError(null);
                     } catch (err) {
                       setError(err instanceof ApiError ? err.message : 'Failed to create section');
@@ -1952,6 +2306,59 @@ export function ManagementPage() {
         </section>
       ) : null}
 
+      {activeTab === 'weekly' ? (
+        <section className="management-panel stack">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Weekly Schedule</p>
+              <h2>When do my periods meet?</h2>
+              <p className="muted">Grouped by day so missing times and rooms are easy to spot.</p>
+            </div>
+            <button className="secondary" type="button" onClick={() => setActiveTab('periods')}>
+              Add or edit periods
+            </button>
+          </div>
+
+          {hasMeetingGaps ? (
+            <p className="notice warning">Some periods are missing days, times, or rooms. Open Periods to fill them in.</p>
+          ) : null}
+
+          <div className="weekly-schedule-grid">
+            {weeklySchedule.map(({ day, sections: daySections }) => (
+              <article key={day} className="weekly-day-card">
+                <div className="section-heading">
+                  <h3>{day}</h3>
+                  <span className="status-pill upcoming">{daySections.length} periods</span>
+                </div>
+                {daySections.length ? (
+                  daySections.map((section) => {
+                    const meeting = section.meetings.find((item) => item.day === day);
+                    return (
+                      <button
+                        key={`${section.sectionId}-${day}`}
+                        type="button"
+                        className="weekly-period-row"
+                        onClick={() => {
+                          setSelectedCourseId(section.courseId);
+                          setSelectedSectionId(section.sectionId);
+                          setActiveTab('periods');
+                        }}
+                      >
+                        <strong>{meeting?.time ?? 'Time missing'}</strong>
+                        <span>{section.sectionName}</span>
+                        <small>{section.courseName} / {meeting?.room ?? 'Room missing'}</small>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p className="muted">No periods on this day.</p>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {activeTab === 'curriculum' ? (
         <section className="management-panel stack">
           <div className="year-plan-header card stack">
@@ -1960,29 +2367,34 @@ export function ManagementPage() {
                 <p className="eyebrow">Year Plan</p>
                 <h2>{selectedCourse ? `${selectedCourse.name} Year Plan` : 'Select a course'}</h2>
               </div>
-              <div className="management-tabs small-tabs" aria-label="Year plan view">
-                <button
-                  className={selectedYearPlanView === 'outline' ? 'active' : ''}
-                  type="button"
-                  disabled={!selectedCourse}
-                  onClick={() => {
-                    if (!selectedCourse) return;
-                    setYearPlanViewByCourseId((previous) => ({ ...previous, [selectedCourse.id]: 'outline' }));
-                  }}
-                >
-                  Outline
+              <div className="profile-actions">
+                <button className="secondary" type="button" disabled={!selectedCourse} onClick={() => void copyYearPlanSummary()}>
+                  Copy summary
                 </button>
-                <button
-                  className={selectedYearPlanView === 'timeline' ? 'active' : ''}
-                  type="button"
-                  disabled={!selectedCourse}
-                  onClick={() => {
-                    if (!selectedCourse) return;
-                    setYearPlanViewByCourseId((previous) => ({ ...previous, [selectedCourse.id]: 'timeline' }));
-                  }}
-                >
-                  Year Timeline
-                </button>
+                <div className="management-tabs small-tabs" aria-label="Year plan view">
+                  <button
+                    className={selectedYearPlanView === 'outline' ? 'active' : ''}
+                    type="button"
+                    disabled={!selectedCourse}
+                    onClick={() => {
+                      if (!selectedCourse) return;
+                      setYearPlanViewByCourseId((previous) => ({ ...previous, [selectedCourse.id]: 'outline' }));
+                    }}
+                  >
+                    Outline
+                  </button>
+                  <button
+                    className={selectedYearPlanView === 'timeline' ? 'active' : ''}
+                    type="button"
+                    disabled={!selectedCourse}
+                    onClick={() => {
+                      if (!selectedCourse) return;
+                      setYearPlanViewByCourseId((previous) => ({ ...previous, [selectedCourse.id]: 'timeline' }));
+                    }}
+                  >
+                    Year Timeline
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -2555,6 +2967,98 @@ export function ManagementPage() {
               </div>
             </article>
           ) : null}
+        </section>
+      ) : null}
+
+      {activeTab === 'progress' ? (
+        <section className="management-panel stack">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Progress</p>
+              <h2>Where is each period right now?</h2>
+              <p className="muted">Compare periods that share the same course plan.</p>
+            </div>
+            <button className="secondary" type="button" onClick={() => { window.location.href = '/classroom'; }}>
+              Open Classroom
+            </button>
+          </div>
+
+          <div className="progress-course-grid">
+            {state.courseDetails.length ? (
+              state.courseDetails.map((course) => {
+                const attachedSections = courseSections(course, sections);
+                const depth = courseDepth(course);
+                return (
+                  <article key={course.id} className="card stack">
+                    <div className="section-heading">
+                      <div>
+                        <p className="eyebrow">{course.subject ?? 'Course'}</p>
+                        <h3>{course.name}</h3>
+                      </div>
+                      <span className="status-pill upcoming">{depth.lessons} lessons</span>
+                    </div>
+                    {attachedSections.length ? (
+                      <div className="progress-section-list">
+                        {attachedSections.map((section) => {
+                          const resume = state.resumesBySectionId[section.sectionId];
+                          const percent = sectionPercent(resume);
+                          const status = !resume?.lesson
+                            ? 'Missing lesson'
+                            : percent >= 100
+                              ? 'Complete'
+                              : percent > 0
+                                ? 'In progress'
+                                : 'Not started';
+                          return (
+                            <div key={section.sectionId} className="progress-section-row">
+                              <div>
+                                <strong>{section.sectionName}</strong>
+                                <span>{resume?.lesson?.title ?? 'No lesson started'}</span>
+                              </div>
+                              <progress max={100} value={percent} />
+                              <span className={status === 'Missing lesson' ? 'status-pill needs-work' : 'status-pill upcoming'}>
+                                {status}
+                              </span>
+                              {resume?.lesson ? (
+                                <button
+                                  className="secondary"
+                                  type="button"
+                                  onClick={() => {
+                                    window.location.href = `/sections/${section.sectionId}/lessons/${resume.lesson?.id}`;
+                                  }}
+                                >
+                                  Open tracker
+                                </button>
+                              ) : (
+                                <button
+                                  className="secondary"
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCourseId(course.id);
+                                    setSelectedSectionId(section.sectionId);
+                                    setActiveTab('curriculum');
+                                  }}
+                                >
+                                  Add lesson
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="muted">No periods use this course yet.</p>
+                    )}
+                  </article>
+                );
+              })
+            ) : (
+              <article className="card stack">
+                <h3>No courses yet</h3>
+                <p className="muted">Create a course and period before comparing progress.</p>
+              </article>
+            )}
+          </div>
         </section>
       ) : null}
     </div>
