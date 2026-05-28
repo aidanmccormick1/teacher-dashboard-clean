@@ -363,6 +363,11 @@ button.danger {
   gap: 32px;
 }
 
+.school-page {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
 .guide-page {
   max-width: 1440px;
   margin: 0 auto;
@@ -1689,6 +1694,33 @@ button.danger {
   font-weight: 900;
 }
 
+.school-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.85fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.holiday-list {
+  display: grid;
+  gap: 8px;
+}
+
+.holiday-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: #fffdf7;
+}
+
+.holiday-list span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .dashboard-grid {
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.8fr);
   align-items: start;
@@ -2075,6 +2107,7 @@ progress::-webkit-progress-value {
   .template-picker,
   .template-preview-list,
   .setup-readiness-grid,
+  .school-grid,
   .schedule-upload-grid,
   .parsed-class-list,
   .section-roster,
