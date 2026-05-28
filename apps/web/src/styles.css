@@ -521,11 +521,16 @@ button.button-link {
 
 .dashboard-page,
 .profile-page,
-.management-page {
+.management-page,
+.onboarding-page {
   display: grid;
   gap: 24px;
   max-width: 1440px;
   margin: 0 auto;
+}
+
+.onboarding-page {
+  max-width: 1040px;
 }
 
 .profile-page {
