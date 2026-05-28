@@ -6,10 +6,47 @@ import type { CourseListResponse } from '@teacheros/contracts';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 type CourseRow = CourseListResponse['courses'][number];
+type CourseDraft = {
+  name: string;
+  subject: string;
+  gradeLevel: string;
+};
+
+const COURSE_DRAFT_KEY = 'teacheros_curriculum_course_draft_v1';
+
+const emptyCourseDraft: CourseDraft = {
+  name: '',
+  subject: '',
+  gradeLevel: ''
+};
 
 function toNullable(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function loadCourseDraft(): CourseDraft {
+  try {
+    const raw = window.localStorage.getItem(COURSE_DRAFT_KEY);
+    return raw ? { ...emptyCourseDraft, ...(JSON.parse(raw) as Partial<CourseDraft>) } : emptyCourseDraft;
+  } catch {
+    return emptyCourseDraft;
+  }
+}
+
+function buildCourseListSummary(courses: CourseRow[]): string {
+  return [
+    'TeacherOS courses',
+    '',
+    courses.length
+      ? courses
+          .map(
+            (course, index) =>
+              `${index + 1}. ${course.name}\n   Subject: ${course.subject ?? 'Not set'}\n   Grade: ${course.gradeLevel ?? 'Not set'}`
+          )
+          .join('\n\n')
+      : 'No courses yet.'
+  ].join('\n');
 }
 
 export function CurriculumPage() {
@@ -18,9 +55,9 @@ export function CurriculumPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [subject, setSubject] = useState('');
-  const [gradeLevel, setGradeLevel] = useState('');
+  const [courseDraft, setCourseDraft] = useState<CourseDraft>(() => loadCourseDraft());
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editSubject, setEditSubject] = useState('');
@@ -43,54 +80,88 @@ export function CurriculumPage() {
     void loadCourses();
   }, [loadCourses]);
 
+  useEffect(() => {
+    window.localStorage.setItem(COURSE_DRAFT_KEY, JSON.stringify(courseDraft));
+  }, [courseDraft]);
+
+  const updateCourseDraft = (patch: Partial<CourseDraft>) => {
+    setCourseDraft((previous) => ({ ...previous, ...patch }));
+  };
+
+  const saveCourseDraft = () => {
+    window.localStorage.setItem(COURSE_DRAFT_KEY, JSON.stringify(courseDraft));
+    setSavedAt(new Date().toLocaleTimeString());
+    setError(null);
+  };
+
+  const copyCourseSummary = async () => {
+    await navigator.clipboard?.writeText(buildCourseListSummary(courses)).catch(() => undefined);
+    setCopyStatus('Course list copied.');
+    window.setTimeout(() => setCopyStatus(null), 1800);
+  };
+
   return (
     <div className="stack">
       <div className="editor-topbar">
         <div>
-          <p className="eyebrow">Editor</p>
-          <h1>Curriculum</h1>
+          <p className="eyebrow">Year Plan</p>
+          <h1>Courses and curriculum</h1>
         </div>
-        <Link className="button-link secondary" to="/management">
-          Back to Management
-        </Link>
+        <div className="profile-actions">
+          <button className="button-link secondary" type="button" onClick={() => void copyCourseSummary()}>
+            Copy course list
+          </button>
+          <Link className="button-link secondary" to="/management">
+            Back to Management
+          </Link>
+        </div>
       </div>
-      {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
+      {error ? <p className="notice warning">{error}</p> : null}
+      {savedAt ? <p className="notice success">Course draft saved at {savedAt}.</p> : null}
+      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
 
       <div className="card stack">
-        <h3>Create course</h3>
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Course</p>
+            <h3>Create course</h3>
+          </div>
+          <button className="secondary" type="button" onClick={saveCourseDraft}>
+            Save draft
+          </button>
+        </div>
         <div className="stack">
           <input
             className="input"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
+            value={courseDraft.name}
+            onChange={(event) => updateCourseDraft({ name: event.target.value })}
             placeholder="Course name (required)"
           />
           <input
             className="input"
-            value={subject}
-            onChange={(event) => setSubject(event.target.value)}
+            value={courseDraft.subject}
+            onChange={(event) => updateCourseDraft({ subject: event.target.value })}
             placeholder="Subject (optional)"
           />
           <input
             className="input"
-            value={gradeLevel}
-            onChange={(event) => setGradeLevel(event.target.value)}
+            value={courseDraft.gradeLevel}
+            onChange={(event) => updateCourseDraft({ gradeLevel: event.target.value })}
             placeholder="Grade level (optional)"
           />
           <button
             type="button"
-            disabled={saving || !name.trim()}
+            disabled={saving || !courseDraft.name.trim()}
             onClick={async () => {
               try {
                 setSaving(true);
                 await api.createCourse({
-                  name: name.trim(),
-                  subject: toNullable(subject),
-                  gradeLevel: toNullable(gradeLevel)
+                  name: courseDraft.name.trim(),
+                  subject: toNullable(courseDraft.subject),
+                  gradeLevel: toNullable(courseDraft.gradeLevel)
                 });
-                setName('');
-                setSubject('');
-                setGradeLevel('');
+                setCourseDraft(emptyCourseDraft);
+                window.localStorage.removeItem(COURSE_DRAFT_KEY);
                 await loadCourses();
               } catch (err) {
                 setError(err instanceof ApiError ? err.message : 'Failed to create course');
