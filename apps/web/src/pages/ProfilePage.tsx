@@ -92,6 +92,37 @@ function roleLabel(role: ProfileForm['role']) {
   return 'Teacher';
 }
 
+function buildProfileSummary(form: ProfileForm): string {
+  return [
+    'Teacher profile',
+    `Name: ${form.fullName || 'Not set'}`,
+    `Preferred name: ${form.preferredName || 'Not set'}`,
+    `Role: ${roleLabel(form.role)}`,
+    `Email: ${form.workEmail || 'Not set'}`,
+    `Phone: ${form.phone || 'Not set'}`,
+    '',
+    'School',
+    `School: ${form.schoolName || 'Not set'}`,
+    `District: ${form.district || 'Not set'}`,
+    `State: ${form.state || 'Not set'}`,
+    '',
+    'Classes',
+    `Subjects: ${form.subjects || 'Not set'}`,
+    `Grades: ${form.grades || 'Not set'}`,
+    `Default class length: ${form.defaultClassLength || 'Not set'} minutes`,
+    '',
+    'Preferences',
+    `Prep style: ${form.prepStyle}`,
+    `Teaching style: ${form.teachingStyle || 'Not set'}`,
+    `Daily digest: ${form.emailDigest ? 'Yes' : 'No'}`,
+    `Carry-over reminder: ${form.saveCarryOverReminder ? 'Yes' : 'No'}`,
+    `Advanced tools: ${form.showAdvancedTools ? 'Show by default' : 'Keep simple by default'}`,
+    '',
+    'Planning notes',
+    form.planningNotes || 'None yet'
+  ].join('\n');
+}
+
 function mergeApiProfile(current: ProfileForm, profile: ProfileResponse): ProfileForm {
   return {
     ...current,
@@ -116,6 +147,7 @@ export function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [loadedFromApi, setLoadedFromApi] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(form));
@@ -153,6 +185,12 @@ export function ProfilePage() {
     form.schoolName.trim().length > 0 &&
     (!form.workEmail.trim() || form.workEmail.includes('@'));
 
+  const copyProfileSummary = async () => {
+    await navigator.clipboard?.writeText(buildProfileSummary(form)).catch(() => undefined);
+    setCopyStatus('Profile summary copied.');
+    window.setTimeout(() => setCopyStatus(null), 1800);
+  };
+
   return (
     <div className="profile-page stack">
       <section className="paper-hero profile-hero">
@@ -169,6 +207,7 @@ export function ProfilePage() {
 
       {error ? <p className="notice warning">{error}</p> : null}
       {savedAt ? <p className="notice success">Saved profile draft at {savedAt}.</p> : null}
+      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
 
       <section className="profile-grid">
         <div className="card stack profile-section">
@@ -435,6 +474,9 @@ export function ProfilePage() {
               }}
             >
               Save draft
+            </button>
+            <button className="secondary" type="button" onClick={() => void copyProfileSummary()}>
+              Copy profile summary
             </button>
             <button
               className="secondary"
