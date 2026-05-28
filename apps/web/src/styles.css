@@ -1822,6 +1822,7 @@ button.danger {
 
 .holiday-list > div {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   border: 1px solid var(--line);
@@ -1830,9 +1831,19 @@ button.danger {
   background: #fffdf7;
 }
 
+.holiday-list > div > div {
+  display: grid;
+  gap: 3px;
+}
+
 .holiday-list span {
   color: var(--muted);
   font-weight: 800;
+}
+
+.holiday-list button {
+  padding: 8px 10px;
+  white-space: nowrap;
 }
 
 .dashboard-grid {

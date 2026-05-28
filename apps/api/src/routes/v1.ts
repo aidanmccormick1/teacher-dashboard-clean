@@ -170,6 +170,7 @@ const UnitParamsSchema = z.object({ unitId: UuidSchema });
 const LessonParamsSchema = z.object({ lessonId: UuidSchema });
 const SegmentParamsSchema = z.object({ segmentId: UuidSchema });
 const SectionParamsSchema = z.object({ sectionId: UuidSchema });
+const HolidayParamsSchema = z.object({ holidayId: UuidSchema });
 const AiJobParamsSchema = z.object({ jobId: UuidSchema });
 
 async function findOwnedCourse(userId: string, courseId: string) {
@@ -1590,6 +1591,37 @@ export async function v1Routes(app: FastifyInstance) {
         });
 
       return { count: body.holidays.length };
+    }
+  );
+
+  app.delete(
+    '/v1/holidays/:holidayId',
+    {
+      schema: {
+        params: HolidayParamsSchema,
+        response: {
+          200: DeleteEntityResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const schoolId = await loadTeacherSchoolId(user.id);
+      const params = HolidayParamsSchema.parse(request.params);
+
+      const [deleted] = await db
+        .delete(schoolHolidays)
+        .where(and(eq(schoolHolidays.id, params.holidayId), eq(schoolHolidays.schoolId, schoolId)))
+        .returning({ id: schoolHolidays.id });
+
+      if (!deleted) {
+        (reply as any).code(404);
+        return { error: 'No-school day not found', requestId: request.id };
+      }
+
+      return { deleted: true };
     }
   );
 

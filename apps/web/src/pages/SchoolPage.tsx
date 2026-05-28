@@ -39,6 +39,7 @@ export function SchoolPage() {
   const [settings, setSettings] = useState<SchoolYearSettings>(defaultSchoolYearSettings);
   const [holidayDate, setHolidayDate] = useState('');
   const [holidayName, setHolidayName] = useState('');
+  const [removingHolidayId, setRemovingHolidayId] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -106,6 +107,24 @@ export function SchoolPage() {
       window.setTimeout(() => setSaved(false), 1600);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to save no-school day');
+    }
+  };
+
+  const removeHoliday = async (holidayId: string, holidayNameToRemove: string) => {
+    const shouldRemove = window.confirm(`Remove "${holidayNameToRemove}" from no-school days?`);
+    if (!shouldRemove) return;
+
+    try {
+      setRemovingHolidayId(holidayId);
+      await api.deleteHoliday(holidayId);
+      setSchedule(await api.getSchedule());
+      setError(null);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1600);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to remove no-school day');
+    } finally {
+      setRemovingHolidayId(null);
     }
   };
 
@@ -203,8 +222,18 @@ export function SchoolPage() {
             <div className="holiday-list">
               {schedule.holidays.map((holiday) => (
                 <div key={holiday.id}>
-                  <strong>{holiday.date}</strong>
-                  <span>{holiday.name}</span>
+                  <div>
+                    <strong>{holiday.date}</strong>
+                    <span>{holiday.name}</span>
+                  </div>
+                  <button
+                    className="secondary danger"
+                    type="button"
+                    disabled={removingHolidayId === holiday.id}
+                    onClick={() => void removeHoliday(holiday.id, holiday.name)}
+                  >
+                    {removingHolidayId === holiday.id ? 'Removing...' : 'Remove'}
+                  </button>
                 </div>
               ))}
             </div>

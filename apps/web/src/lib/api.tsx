@@ -205,6 +205,8 @@ export function useApiClient() {
         request<AiJobControlResponse>(`/v1/ai/jobs/${jobId}/retry`, { method: 'POST' }, auth),
       upsertHolidays: (body: HolidaysUpsertRequest) =>
         request<HolidaysUpsertResponse>('/v1/holidays', { method: 'POST', body: JSON.stringify(body) }, auth),
+      deleteHoliday: (holidayId: string) =>
+        request<DeleteEntityResponse>(`/v1/holidays/${holidayId}`, { method: 'DELETE' }, auth),
       submitFeedback: (body: FeedbackSubmitRequest) =>
         request<FeedbackSubmitResponse>('/v1/feedback', { method: 'POST', body: JSON.stringify(body) }, auth),
       upsertLessonProgress: (body: LessonProgressUpsertRequest) =>
