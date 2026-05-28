@@ -4,14 +4,18 @@ import { useNavigate } from 'react-router-dom';
 
 import { useAppAuth } from '../lib/auth.js';
 
+const PILOT_EMAIL = 'teacher.test@example.com';
+const PILOT_PASSWORD = 'TeacherTest2026!';
+
 export function LoginPage() {
   const auth = useAppAuth();
   const navigate = useNavigate();
   const [devUserId, setDevUserId] = useState('teacher-dev-1');
   const [devEmail, setDevEmail] = useState('teacher@example.com');
-  const [pilotEmail, setPilotEmail] = useState('teacher.test@example.com');
+  const [pilotEmail, setPilotEmail] = useState(PILOT_EMAIL);
   const [pilotPassword, setPilotPassword] = useState('');
   const [pilotError, setPilotError] = useState<string | null>(null);
+  const [pilotStatus, setPilotStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (auth.isSignedIn) navigate('/');
@@ -35,8 +39,9 @@ export function LoginPage() {
             className="pilot-login-card"
             onSubmit={(event) => {
               event.preventDefault();
-              if (pilotEmail.trim().toLowerCase() !== 'teacher.test@example.com' || pilotPassword !== 'TeacherTest2026!') {
+              if (pilotEmail.trim().toLowerCase() !== PILOT_EMAIL || pilotPassword !== PILOT_PASSWORD) {
                 setPilotError('Use the temporary teacher test credentials.');
+                setPilotStatus(null);
                 return;
               }
 
@@ -47,6 +52,32 @@ export function LoginPage() {
             <div>
               <strong>Temporary teacher test login</strong>
               <p className="muted">Use this while Clerk email verification is being finalized.</p>
+            </div>
+            <div className="pilot-credential-actions">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  setPilotEmail(PILOT_EMAIL);
+                  setPilotPassword(PILOT_PASSWORD);
+                  setPilotError(null);
+                  setPilotStatus('Test login filled.');
+                }}
+              >
+                Fill test login
+              </button>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard
+                    ?.writeText(`Email: ${PILOT_EMAIL}\nPassword: ${PILOT_PASSWORD}`)
+                    .catch(() => undefined);
+                  setPilotStatus('Test credentials copied.');
+                }}
+              >
+                Copy credentials
+              </button>
             </div>
             <label>
               Email
@@ -62,6 +93,7 @@ export function LoginPage() {
               />
             </label>
             {pilotError ? <p className="notice warning">{pilotError}</p> : null}
+            {pilotStatus ? <p className="notice success">{pilotStatus}</p> : null}
             <button type="submit" className="secondary">
               Use temporary login
             </button>

@@ -147,6 +147,16 @@ a {
   font-weight: 700;
 }
 
+.pilot-credential-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pilot-credential-actions button {
+  padding: 8px 10px;
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
