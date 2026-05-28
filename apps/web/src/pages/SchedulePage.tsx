@@ -10,8 +10,17 @@ function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
 }
 
 const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'] as const;
+const ADD_SECTION_DRAFT_KEY = 'teacheros_schedule_add_section_draft_v1';
 type MeetingDay = (typeof meetingDays)[number];
 type ScheduleSection = GetScheduleResponse['sections'][number];
+
+type AddSectionDraft = {
+  courseId: string;
+  sectionName: string;
+  meetingDay: MeetingDay;
+  meetingTime: string;
+  meetingRoom: string;
+};
 
 type SectionEditDraft = {
   sectionName: string;
@@ -19,6 +28,31 @@ type SectionEditDraft = {
   time: string;
   room: string;
 };
+
+function loadAddSectionDraft(): AddSectionDraft {
+  if (typeof window === 'undefined') {
+    return { courseId: '', sectionName: '', meetingDay: 'Monday', meetingTime: '', meetingRoom: '' };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(ADD_SECTION_DRAFT_KEY);
+    if (!raw) {
+      return { courseId: '', sectionName: '', meetingDay: 'Monday', meetingTime: '', meetingRoom: '' };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<AddSectionDraft>;
+    const meetingDay = meetingDays.includes(parsed.meetingDay as MeetingDay) ? (parsed.meetingDay as MeetingDay) : 'Monday';
+    return {
+      courseId: parsed.courseId ?? '',
+      sectionName: parsed.sectionName ?? '',
+      meetingDay,
+      meetingTime: parsed.meetingTime ?? '',
+      meetingRoom: parsed.meetingRoom ?? ''
+    };
+  } catch {
+    return { courseId: '', sectionName: '', meetingDay: 'Monday', meetingTime: '', meetingRoom: '' };
+  }
+}
 
 function sectionToDraft(section: ScheduleSection): SectionEditDraft {
   return {
@@ -40,13 +74,14 @@ function parseMeetingDays(value: string): MeetingDay[] {
 
 export function SchedulePage() {
   const api = useApiClient();
+  const [savedAddSectionDraft] = useState(loadAddSectionDraft);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
   const [courses, setCourses] = useState<CourseListResponse['courses']>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState('');
-  const [sectionName, setSectionName] = useState('');
-  const [meetingDay, setMeetingDay] = useState<(typeof meetingDays)[number]>('Monday');
-  const [meetingTime, setMeetingTime] = useState('');
-  const [meetingRoom, setMeetingRoom] = useState('');
+  const [selectedCourseId, setSelectedCourseId] = useState(savedAddSectionDraft.courseId);
+  const [sectionName, setSectionName] = useState(savedAddSectionDraft.sectionName);
+  const [meetingDay, setMeetingDay] = useState<MeetingDay>(savedAddSectionDraft.meetingDay);
+  const [meetingTime, setMeetingTime] = useState(savedAddSectionDraft.meetingTime);
+  const [meetingRoom, setMeetingRoom] = useState(savedAddSectionDraft.meetingRoom);
   const [importText, setImportText] = useState('');
   const [segmentLessonTitle, setSegmentLessonTitle] = useState('');
   const [segmentObjective, setSegmentObjective] = useState('');
@@ -56,6 +91,7 @@ export function SchedulePage() {
   const [continuityLastNote, setContinuityLastNote] = useState('');
   const [continuitySummary, setContinuitySummary] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [activeJob, setActiveJob] = useState<AiJobStatusResponse | null>(null);
@@ -86,6 +122,19 @@ export function SchedulePage() {
     void loadSchedule();
     void loadCourses();
   }, [loadCourses, loadSchedule]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      ADD_SECTION_DRAFT_KEY,
+      JSON.stringify({
+        courseId: selectedCourseId,
+        sectionName,
+        meetingDay,
+        meetingTime,
+        meetingRoom
+      })
+    );
+  }, [meetingDay, meetingRoom, meetingTime, sectionName, selectedCourseId]);
 
   useEffect(() => {
     if (!activeJobId) return;
@@ -178,6 +227,31 @@ export function SchedulePage() {
     }
   };
 
+  const copyAddSectionDraft = async () => {
+    const selectedCourse = courses.find((course) => course.id === selectedCourseId);
+    const summary = [
+      'Class section draft',
+      `Course: ${selectedCourse?.name ?? 'Not selected'}`,
+      `Section: ${sectionName.trim() || 'Untitled'}`,
+      `Meets: ${meetingDay}`,
+      `Time: ${meetingTime || 'Not set'}`,
+      `Room: ${meetingRoom.trim() || 'Not set'}`
+    ].join('\n');
+    await navigator.clipboard?.writeText(summary).catch(() => undefined);
+    setCopyStatus('Section draft copied.');
+    window.setTimeout(() => setCopyStatus(null), 1800);
+  };
+
+  const clearAddSectionDraft = () => {
+    setSectionName('');
+    setMeetingDay('Monday');
+    setMeetingTime('');
+    setMeetingRoom('');
+    window.localStorage.removeItem(ADD_SECTION_DRAFT_KEY);
+    setCopyStatus('Section draft cleared.');
+    window.setTimeout(() => setCopyStatus(null), 1800);
+  };
+
   return (
     <div className="stack">
       <div className="editor-topbar">
@@ -190,9 +264,23 @@ export function SchedulePage() {
         </Link>
       </div>
       {error ? <p className="notice warning">{error}</p> : null}
+      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
 
       <div className="card stack">
-        <h3>Add class section</h3>
+        <div className="split">
+          <div>
+            <h3>Add class section</h3>
+            <p className="muted">Drafts save on this device while you set up real class periods.</p>
+          </div>
+          <div className="row">
+            <button className="button-link secondary" type="button" onClick={() => void copyAddSectionDraft()}>
+              Copy draft
+            </button>
+            <button className="button-link secondary" type="button" onClick={clearAddSectionDraft}>
+              Clear
+            </button>
+          </div>
+        </div>
         {courses.length === 0 ? (
           <p className="muted">Create a course in Curriculum before adding scheduled sections.</p>
         ) : null}
@@ -260,6 +348,7 @@ export function SchedulePage() {
               setSectionName('');
               setMeetingTime('');
               setMeetingRoom('');
+              window.localStorage.removeItem(ADD_SECTION_DRAFT_KEY);
               setError(null);
             } catch (err) {
               setError(err instanceof ApiError ? err.message : 'Failed to create class section');
