@@ -275,6 +275,56 @@ export function DashboardPage() {
   }, [state.schedule]);
 
   const readinessScore = buildReadinessScore(state, currentResume, scheduleGaps);
+  const hasCourses = state.courses.length > 0;
+  const hasSections = Boolean(state.schedule?.sections.length);
+  const hasMeetingTimes = Boolean(state.schedule?.sections.some((section) => section.meetings.some((meeting) => meeting.time)));
+  const hasLessons = summary.lessonCount > 0;
+  const hasSegments = summary.segmentCount > 0;
+  const hasClassroomResume = Object.values(state.resumesBySectionId).some((resume) => resume.lesson);
+  const setupSteps = [
+    {
+      title: 'Create a course',
+      body: 'Name what you teach.',
+      done: hasCourses,
+      to: '/management',
+      action: hasCourses ? 'Review courses' : 'Start here'
+    },
+    {
+      title: 'Add periods',
+      body: 'Attach real class periods to a course.',
+      done: hasSections,
+      to: '/management',
+      action: hasSections ? 'Review periods' : 'Add periods'
+    },
+    {
+      title: 'Add meeting times',
+      body: 'Tell the app when each period meets.',
+      done: hasMeetingTimes,
+      to: '/management',
+      action: hasMeetingTimes ? 'Check schedule' : 'Set times'
+    },
+    {
+      title: 'Build Year Plan',
+      body: 'Add lessons or apply a starter plan.',
+      done: hasLessons,
+      to: '/management',
+      action: hasLessons ? 'Review plan' : 'Add starter plan'
+    },
+    {
+      title: 'Add segments',
+      body: 'Break lessons into teachable chunks.',
+      done: hasSegments,
+      to: '/management',
+      action: hasSegments ? 'Review segments' : 'Add segments'
+    },
+    {
+      title: 'Try Classroom',
+      body: 'Resume from the right stopping point.',
+      done: hasClassroomResume,
+      to: '/classroom',
+      action: 'Open classroom'
+    }
+  ];
 
   const smartPrompts = useMemo(() => {
     const prompts = [];
@@ -452,6 +502,26 @@ export function DashboardPage() {
         <div className="metric-card">
           <span>{summary.segmentCount}</span>
           <p>lesson segments</p>
+        </div>
+      </section>
+
+      <section className="card stack setup-readiness-card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Setup path</p>
+            <h2>What still needs to be ready?</h2>
+          </div>
+          <Link to="/management">Open Management</Link>
+        </div>
+        <div className="setup-readiness-grid">
+          {setupSteps.map((step, index) => (
+            <Link key={step.title} to={step.to} className={step.done ? 'setup-readiness-step done' : 'setup-readiness-step'}>
+              <span>{step.done ? 'Done' : `Step ${index + 1}`}</span>
+              <strong>{step.title}</strong>
+              <p>{step.body}</p>
+              <em>{step.action}</em>
+            </Link>
+          ))}
         </div>
       </section>
 

@@ -1637,6 +1637,58 @@ button.danger {
   font-weight: 700;
 }
 
+.setup-readiness-card {
+  gap: 18px;
+}
+
+.setup-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.setup-readiness-step {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 14px;
+  background: #fffdf7;
+}
+
+.setup-readiness-step.done {
+  border-color: rgba(71, 108, 88, 0.28);
+  background: #eef4e9;
+}
+
+.setup-readiness-step span {
+  color: var(--amber);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.setup-readiness-step.done span {
+  color: var(--green);
+}
+
+.setup-readiness-step strong {
+  color: var(--ink);
+}
+
+.setup-readiness-step p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.setup-readiness-step em {
+  color: var(--blue);
+  font-style: normal;
+  font-weight: 900;
+}
+
 .dashboard-grid {
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.8fr);
   align-items: start;
@@ -1952,6 +2004,7 @@ progress::-webkit-progress-value {
   .parsed-class-fields,
   .template-picker,
   .template-preview-list,
+  .setup-readiness-grid,
   .schedule-upload-grid,
   .parsed-class-list,
   .section-roster,
