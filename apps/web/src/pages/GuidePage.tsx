@@ -106,9 +106,21 @@ function loadProgress(): string[] {
   }
 }
 
+function buildWelcomeProgressSummary(completedIds: string[]): string {
+  return [
+    'TeacherOS welcome progress',
+    '',
+    ...steps.map((step, index) => {
+      const status = completedIds.includes(step.id) ? 'done' : 'not done';
+      return `${index + 1}. ${step.title}: ${status}\n   Task: ${step.task}\n   Result: ${step.result}`;
+    })
+  ].join('\n');
+}
+
 export function GuidePage() {
   const [completedIds, setCompletedIds] = useState<string[]>(() => loadProgress());
   const [showDetail, setShowDetail] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(GUIDE_STORAGE_KEY, JSON.stringify(completedIds));
@@ -118,6 +130,22 @@ export function GuidePage() {
     () => Math.round((completedIds.length / steps.length) * 100),
     [completedIds.length]
   );
+
+  const markAllComplete = () => {
+    setCompletedIds(steps.map((step) => step.id));
+  };
+
+  const resetProgress = () => {
+    const shouldReset = window.confirm('Reset welcome checklist progress?');
+    if (!shouldReset) return;
+    setCompletedIds([]);
+  };
+
+  const copyProgress = async () => {
+    await navigator.clipboard?.writeText(buildWelcomeProgressSummary(completedIds)).catch(() => undefined);
+    setCopyStatus('Welcome progress copied.');
+    window.setTimeout(() => setCopyStatus(null), 1800);
+  };
 
   return (
     <div className="guide-page stack">
@@ -133,6 +161,8 @@ export function GuidePage() {
         </div>
       </section>
 
+      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
+
       <section className="guide-grid">
         <div className="card stack">
           <div className="section-heading">
@@ -146,6 +176,17 @@ export function GuidePage() {
               onClick={() => setShowDetail((current) => !current)}
             >
               {showDetail ? 'Hide detail' : 'Show detail'}
+            </button>
+          </div>
+          <div className="profile-actions">
+            <button className="secondary" type="button" onClick={markAllComplete}>
+              Mark all done
+            </button>
+            <button className="secondary" type="button" onClick={() => void copyProgress()}>
+              Copy progress
+            </button>
+            <button className="secondary danger" type="button" disabled={!completedIds.length} onClick={resetProgress}>
+              Reset checklist
             </button>
           </div>
 
