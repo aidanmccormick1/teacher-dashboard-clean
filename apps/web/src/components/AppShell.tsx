@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { ApiError, useApiClient } from '../lib/api.js';
@@ -13,6 +13,7 @@ type FeedbackEntry = {
 };
 
 const feedbackStorageKey = 'teacheros_feedback_notes';
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
 
 const links = [
   { path: '/', label: 'Dashboard' },
@@ -50,6 +51,28 @@ export function AppShell() {
   const [feedbackSaved, setFeedbackSaved] = useState(false);
   const [feedbackApiStatus, setFeedbackApiStatus] = useState<string | null>(null);
   const [feedbackEntries, setFeedbackEntries] = useState<FeedbackEntry[]>([]);
+  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkApi = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/health/liveness`, { cache: 'no-store' });
+        if (!cancelled) setApiStatus(response.ok ? 'online' : 'offline');
+      } catch {
+        if (!cancelled) setApiStatus('offline');
+      }
+    };
+
+    void checkApi();
+    const timer = window.setInterval(() => void checkApi(), 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const openFeedback = () => {
     setFeedbackEntries(readFeedbackEntries());
@@ -104,6 +127,10 @@ export function AppShell() {
       <aside className="sidebar">
         <h2>TeacherOS v2</h2>
         <p className="muted">{auth.email ?? auth.userId ?? 'Signed in'}</p>
+        <div className={`api-status ${apiStatus}`}>
+          <span />
+          {apiStatus === 'checking' ? 'Checking backend' : apiStatus === 'online' ? 'Backend online' : 'Backend offline'}
+        </div>
         <nav>
           {links.map((link) => (
             <NavLink key={link.path} to={link.path}>
