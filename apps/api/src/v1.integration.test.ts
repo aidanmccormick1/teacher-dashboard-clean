@@ -4,7 +4,7 @@ import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { aiJobs, auditEvents, db, pool, users } from '@teacheros/db';
+import { aiJobs, auditEvents, db, pool, schoolHolidays, users } from '@teacheros/db';
 
 import { createApp } from './app.js';
 import type { AppConfig } from './config.js';
@@ -393,6 +393,87 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
 
     expect(retriedJob?.status).toBe('queued');
     expect(retriedJob?.cancelRequested).toBe(false);
+    });
+  });
+
+  describe('v1 holidays', () => {
+    it('supports adding, listing, ownership checks, and removing no-school days', async () => {
+      const onboarding = await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: onboardingBody
+      });
+      expect(onboarding.statusCode).toBe(200);
+
+      const otherOnboarding = await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: otherTeacherHeaders,
+        payload: {
+          ...onboardingBody,
+          fullName: 'Teacher Two',
+          workEmail: 'teacher2@example.com',
+          schoolName: 'Other Integration School'
+        }
+      });
+      expect(otherOnboarding.statusCode).toBe(200);
+
+      const upsert = await app.inject({
+        method: 'POST',
+        url: '/v1/holidays',
+        headers: teacherHeaders,
+        payload: {
+          holidays: [{ date: '2026-11-25', name: 'Fall Break' }]
+        }
+      });
+      expect(upsert.statusCode).toBe(200);
+      expect(upsert.json()).toEqual({ count: 1 });
+
+      const schedule = await app.inject({
+        method: 'GET',
+        url: '/v1/schedule',
+        headers: teacherHeaders
+      });
+      expect(schedule.statusCode).toBe(200);
+      const schedulePayload = schedule.json<{ holidays: Array<{ id: string; date: string; name: string }> }>();
+      expect(schedulePayload.holidays).toHaveLength(1);
+      expect(schedulePayload.holidays[0]).toMatchObject({
+        date: '2026-11-25',
+        name: 'Fall Break'
+      });
+      const holidayId = schedulePayload.holidays[0]?.id ?? '';
+      expect(holidayId).not.toBe('');
+
+      const forbiddenDelete = await app.inject({
+        method: 'DELETE',
+        url: `/v1/holidays/${holidayId}`,
+        headers: otherTeacherHeaders
+      });
+      expect(forbiddenDelete.statusCode).toBe(404);
+
+      const stillExists = await db
+        .select({ id: schoolHolidays.id })
+        .from(schoolHolidays)
+        .where(eq(schoolHolidays.id, holidayId))
+        .limit(1);
+      expect(stillExists).toHaveLength(1);
+
+      const deleteHoliday = await app.inject({
+        method: 'DELETE',
+        url: `/v1/holidays/${holidayId}`,
+        headers: teacherHeaders
+      });
+      expect(deleteHoliday.statusCode).toBe(200);
+      expect(deleteHoliday.json()).toEqual({ deleted: true });
+
+      const afterDelete = await app.inject({
+        method: 'GET',
+        url: '/v1/schedule',
+        headers: teacherHeaders
+      });
+      expect(afterDelete.statusCode).toBe(200);
+      expect(afterDelete.json<{ holidays: unknown[] }>().holidays).toEqual([]);
     });
   });
 
