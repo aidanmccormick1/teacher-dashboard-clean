@@ -1944,6 +1944,9 @@ button.button-link {
   border-radius: 5px;
   padding: 14px;
   background: #fffdf7;
+  color: var(--ink);
+  text-align: left;
+  box-shadow: none;
 }
 
 .setup-readiness-step.done {
@@ -2326,6 +2329,9 @@ progress::-webkit-progress-value {
   border-radius: 4px;
   background: #fffdf7;
   padding: 16px;
+  color: var(--ink);
+  text-align: left;
+  box-shadow: none;
 }
 
 .action-card:hover,
