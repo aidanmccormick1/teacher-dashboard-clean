@@ -4,8 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import type { ClassroomResumeResponse, DashboardTodayResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
-
-const managementActiveTabStorageKey = 'teacheros_management_active_tab_v1';
+import { rememberManagementTab, type ManagementTabTarget } from '../lib/management-tabs.js';
 
 export function ClassroomPage() {
   const api = useApiClient();
@@ -41,8 +40,8 @@ export function ClassroomPage() {
     })();
   }, [api, data?.currentClass]);
 
-  const openManagementTab = (tab: 'periods' | 'weekly' | 'curriculum') => {
-    window.localStorage.setItem(managementActiveTabStorageKey, tab);
+  const openManagementTab = (tab: ManagementTabTarget) => {
+    rememberManagementTab(tab);
     navigate('/management');
   };
 
@@ -117,7 +116,7 @@ export function ClassroomPage() {
               >
                 {resume?.lesson ? 'Start class tracker' : 'No lesson ready'}
               </button>
-              <button className="secondary" type="button" onClick={() => navigate('/management')}>
+              <button className="secondary" type="button" onClick={() => openManagementTab('progress')}>
                 Open Management
               </button>
               <button className="secondary" type="button" onClick={() => void copyClassBrief()}>

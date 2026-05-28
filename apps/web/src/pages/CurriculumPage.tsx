@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import type { CourseListResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { rememberManagementTab } from '../lib/management-tabs.js';
 
 type CourseRow = CourseListResponse['courses'][number];
 type CourseDraft = {
@@ -111,7 +112,7 @@ export function CurriculumPage() {
           <button className="button-link secondary" type="button" onClick={() => void copyCourseSummary()}>
             Copy course list
           </button>
-          <Link className="button-link secondary" to="/management">
+          <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('curriculum')}>
             Back to Management
           </Link>
         </div>

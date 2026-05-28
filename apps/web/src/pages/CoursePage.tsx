@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { CourseDetailResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { rememberManagementTab } from '../lib/management-tabs.js';
 
 type LessonDraft = { title: string; description: string; duration: string };
 type SegmentDraft = { title: string; description: string; duration: string };
@@ -150,10 +151,10 @@ export function CoursePage() {
           <h1>Course Detail</h1>
         </div>
         <div className="profile-actions">
-          <Link className="button-link secondary" to="/curriculum">
-            Back to Curriculum
+          <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('curriculum')}>
+            Back to Year Plan
           </Link>
-          <Link className="button-link secondary" to="/management">
+          <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('courses')}>
             Back to Management
           </Link>
           <button className="button-link secondary" type="button" disabled={!course} onClick={() => void copyCourseOutline()}>

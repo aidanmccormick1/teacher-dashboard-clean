@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
+import { rememberManagementTab } from '../lib/management-tabs.js';
 import type { ProfileResponse } from '@teacheros/contracts';
 
 type ProfileForm = {
@@ -343,7 +344,7 @@ export function ProfilePage() {
               <p className="eyebrow">Classes</p>
               <h2>Subjects and grade levels</h2>
             </div>
-            <Link to="/curriculum">Curriculum</Link>
+            <Link to="/management" onClick={() => rememberManagementTab('courses')}>Courses</Link>
           </div>
           <div className="profile-form-grid">
             <label>

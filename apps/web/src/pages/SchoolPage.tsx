@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import type { GetScheduleResponse, ProfileResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { rememberManagementTab } from '../lib/management-tabs.js';
 
 type SchoolYearSettings = {
   startDate: string;
@@ -212,7 +213,7 @@ export function SchoolPage() {
               <button className="secondary danger" type="button" onClick={resetSchoolYearSettings}>
                 Reset rhythm
               </button>
-              <Link to="/management">Management</Link>
+              <Link to="/management" onClick={() => rememberManagementTab('weekly')}>Weekly Schedule</Link>
             </div>
           </div>
           <div className="profile-form-grid">

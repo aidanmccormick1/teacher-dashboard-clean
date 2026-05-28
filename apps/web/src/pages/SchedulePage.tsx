@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import type { AiJobStatusResponse, CourseListResponse, GetScheduleResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { rememberManagementTab } from '../lib/management-tabs.js';
 
 function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
@@ -259,7 +260,7 @@ export function SchedulePage() {
           <p className="eyebrow">Editor</p>
           <h1>Schedule</h1>
         </div>
-        <Link className="button-link secondary" to="/management">
+        <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('weekly')}>
           Back to Management
         </Link>
       </div>

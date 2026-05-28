@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { rememberManagementTab } from '../lib/management-tabs.js';
+
 type GuideStep = {
   id: string;
   title: string;
@@ -237,7 +239,7 @@ export function GuidePage() {
               <li>One section.</li>
               <li>One carry-over note.</li>
             </ol>
-            <Link className="button-link" to="/management">
+            <Link className="button-link" to="/management" onClick={() => rememberManagementTab('start')}>
               Open Management
             </Link>
           </div>
@@ -259,9 +261,9 @@ export function GuidePage() {
             <p className="eyebrow">Advanced path</p>
             <h2>Go deeper</h2>
             <div className="mini-link-list">
-              <Link to="/management">Management hub</Link>
-              <Link to="/schedule">Schedule tools</Link>
-              <Link to="/curriculum">Curriculum builder</Link>
+              <Link to="/management" onClick={() => rememberManagementTab('start')}>Management hub</Link>
+              <Link to="/management" onClick={() => rememberManagementTab('import')}>Import schedule</Link>
+              <Link to="/management" onClick={() => rememberManagementTab('curriculum')}>Year Plan</Link>
               <Link to="/classroom">Classroom tracker</Link>
             </div>
           </div>

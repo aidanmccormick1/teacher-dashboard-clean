@@ -10,6 +10,7 @@ import type {
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { rememberManagementTab, type ManagementTabTarget } from '../lib/management-tabs.js';
 
 type CourseSummary = CourseListResponse['courses'][number];
 type CourseDetail = CourseDetailResponse['course'];
@@ -30,9 +31,6 @@ const CHECKLIST_ITEMS = [
   'Check next class materials',
   'Capture end-of-class note'
 ];
-const managementActiveTabStorageKey = 'teacheros_management_active_tab_v1';
-type ManagementTabTarget = 'start' | 'courses' | 'periods' | 'weekly' | 'curriculum' | 'progress' | 'import';
-
 function minutesFromTime(time: string | null): number | null {
   if (!time) return null;
   const parts = time.split(':').map(Number);
@@ -533,7 +531,7 @@ export function DashboardPage() {
   };
 
   const openManagementTab = (tab: ManagementTabTarget) => {
-    window.localStorage.setItem(managementActiveTabStorageKey, tab);
+    rememberManagementTab(tab);
     navigate('/management');
   };
 
