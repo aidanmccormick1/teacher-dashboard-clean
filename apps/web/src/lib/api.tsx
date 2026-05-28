@@ -44,6 +44,7 @@ import type {
 import { useAppAuth } from './auth.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
+const API_REQUEST_TIMEOUT_MS = 25_000;
 
 export class ApiError extends Error {
   constructor(
@@ -70,14 +71,32 @@ async function request<TResponse>(
     if (auth.email) headers.set('x-dev-user-email', auth.email);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers,
+      signal: controller.signal
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new ApiError('The backend is taking too long to respond. It may be waking up; try again in a moment.', 408);
+    }
+    throw new ApiError('Could not reach the backend. Check the backend status indicator and try again.', 0);
+  } finally {
+    window.clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new ApiError(payload?.error ?? `Request failed (${response.status})`, response.status);
+    const fallback =
+      response.status >= 500
+        ? 'The backend hit an error. Try again, and send feedback if it repeats.'
+        : `Request failed (${response.status})`;
+    throw new ApiError(payload?.error ?? fallback, response.status);
   }
 
   return (await response.json()) as TResponse;
