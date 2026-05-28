@@ -243,6 +243,32 @@ a {
   margin: 0;
 }
 
+.feedback-history {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid rgba(216, 200, 170, 0.78);
+  padding-top: 14px;
+}
+
+.feedback-history-card {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: #fffdf7;
+}
+
+.feedback-history-card strong {
+  color: var(--navy);
+}
+
+.feedback-history-card span,
+.feedback-history-card p {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .main {
   min-width: 0;
   padding: 34px;
