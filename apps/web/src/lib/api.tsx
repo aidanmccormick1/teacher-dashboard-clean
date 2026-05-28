@@ -13,6 +13,8 @@ import type {
   CourseUpdateRequest,
   DashboardTodayResponse,
   DeleteEntityResponse,
+  FeedbackSubmitRequest,
+  FeedbackSubmitResponse,
   GenerateContinuityRequest,
   GenerateContinuityResponse,
   GenerateSegmentsRequest,
@@ -184,6 +186,8 @@ export function useApiClient() {
         request<AiJobControlResponse>(`/v1/ai/jobs/${jobId}/retry`, { method: 'POST' }, auth),
       upsertHolidays: (body: HolidaysUpsertRequest) =>
         request<HolidaysUpsertResponse>('/v1/holidays', { method: 'POST', body: JSON.stringify(body) }, auth),
+      submitFeedback: (body: FeedbackSubmitRequest) =>
+        request<FeedbackSubmitResponse>('/v1/feedback', { method: 'POST', body: JSON.stringify(body) }, auth),
       upsertLessonProgress: (body: LessonProgressUpsertRequest) =>
         request<LessonProgressUpsertResponse>(
           '/v1/lesson-progress/upsert',

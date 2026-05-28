@@ -19,6 +19,8 @@ import {
   CourseUpdateRequestSchema,
   DashboardTodayResponseSchema,
   DeleteEntityResponseSchema,
+  FeedbackSubmitRequestSchema,
+  FeedbackSubmitResponseSchema,
   GenerateContinuityRequestSchema,
   GenerateContinuityResponseSchema,
   GenerateSegmentsRequestSchema,
@@ -49,6 +51,7 @@ import {
 import {
   aiJobs,
   aiOutputs,
+  auditEvents,
   classNotes,
   courses,
   db,
@@ -1587,6 +1590,47 @@ export async function v1Routes(app: FastifyInstance) {
         });
 
       return { count: body.holidays.length };
+    }
+  );
+
+  app.post(
+    '/v1/feedback',
+    {
+      schema: {
+        body: FeedbackSubmitRequestSchema,
+        response: {
+          200: FeedbackSubmitResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const body = FeedbackSubmitRequestSchema.parse(request.body);
+
+      const [event] = await db
+        .insert(auditEvents)
+        .values({
+          userId: user.id,
+          eventType: 'teacher_feedback_submitted',
+          entityType: 'feedback',
+          entityId: randomUUID(),
+          metadata: {
+            type: body.type,
+            page: body.page,
+            message: body.message,
+            userAgent: body.userAgent ?? null,
+            email: user.email
+          }
+        })
+        .returning({ id: auditEvents.id });
+
+      if (!event) {
+        throw new Error('Feedback could not be saved');
+      }
+
+      return FeedbackSubmitResponseSchema.parse({ feedbackId: event.id, saved: true });
     }
   );
 

@@ -178,6 +178,18 @@ export const HolidaysUpsertResponseSchema = z.object({
   count: z.number().int().nonnegative()
 });
 
+export const FeedbackSubmitRequestSchema = z.object({
+  type: z.enum(['Confusing', 'Broken', 'Missing feature', 'Nice to have']),
+  page: z.string().min(1),
+  message: z.string().min(1),
+  userAgent: z.string().nullable().optional()
+});
+
+export const FeedbackSubmitResponseSchema = z.object({
+  feedbackId: UuidSchema,
+  saved: z.literal(true)
+});
+
 export const LessonProgressStatusSchema = z.enum([
   'not_started',
   'in_progress',
@@ -447,6 +459,8 @@ export type ScheduleImportRequest = z.infer<typeof ScheduleImportRequestSchema>;
 export type ScheduleImportResponse = z.infer<typeof ScheduleImportResponseSchema>;
 export type HolidaysUpsertRequest = z.infer<typeof HolidaysUpsertRequestSchema>;
 export type HolidaysUpsertResponse = z.infer<typeof HolidaysUpsertResponseSchema>;
+export type FeedbackSubmitRequest = z.infer<typeof FeedbackSubmitRequestSchema>;
+export type FeedbackSubmitResponse = z.infer<typeof FeedbackSubmitResponseSchema>;
 export type LessonProgressUpsertRequest = z.infer<typeof LessonProgressUpsertRequestSchema>;
 export type LessonProgressUpsertResponse = z.infer<typeof LessonProgressUpsertResponseSchema>;
 export type ClassNotesUpsertRequest = z.infer<typeof ClassNotesUpsertRequestSchema>;

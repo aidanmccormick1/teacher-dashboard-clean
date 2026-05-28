@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
+import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
 
 type FeedbackEntry = {
@@ -42,10 +43,12 @@ function formatFeedbackEntry(entry: FeedbackEntry): string {
 
 export function AppShell() {
   const auth = useAppAuth();
+  const api = useApiClient();
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [feedbackType, setFeedbackType] = useState('Confusing');
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSaved, setFeedbackSaved] = useState(false);
+  const [feedbackApiStatus, setFeedbackApiStatus] = useState<string | null>(null);
   const [feedbackEntries, setFeedbackEntries] = useState<FeedbackEntry[]>([]);
 
   const openFeedback = () => {
@@ -65,6 +68,21 @@ export function AppShell() {
     window.localStorage.setItem(feedbackStorageKey, JSON.stringify(nextEntries));
     setFeedbackEntries(nextEntries);
     setFeedbackSaved(true);
+    try {
+      await api.submitFeedback({
+        type: entry.type as 'Confusing' | 'Broken' | 'Missing feature' | 'Nice to have',
+        page: entry.page,
+        message: entry.text,
+        userAgent: window.navigator.userAgent
+      });
+      setFeedbackApiStatus('Saved to backend and copied.');
+    } catch (err) {
+      setFeedbackApiStatus(
+        err instanceof ApiError
+          ? `Saved locally. Backend did not accept it yet: ${err.message}`
+          : 'Saved locally. Backend feedback save failed.'
+      );
+    }
     await navigator.clipboard?.writeText(`TeacherOS feedback\n${formatFeedbackEntry(entry)}`).catch(() => undefined);
     setFeedbackText('');
   };
@@ -135,6 +153,7 @@ export function AppShell() {
               onChange={(event) => {
                 setFeedbackText(event.target.value);
                 setFeedbackSaved(false);
+                setFeedbackApiStatus(null);
               }}
               placeholder="What happened? What did you expect?"
             />
@@ -142,6 +161,7 @@ export function AppShell() {
               Save and copy
             </button>
             {feedbackSaved ? <p className="notice success">Feedback saved locally and copied.</p> : null}
+            {feedbackApiStatus ? <p className="muted">{feedbackApiStatus}</p> : null}
             <div className="feedback-history">
               <div className="section-heading">
                 <div>
