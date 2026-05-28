@@ -1,9 +1,37 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 import type { ClassroomResumeResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { rememberManagementTab } from '../lib/management-tabs.js';
+
+type LessonTrackerDraft = {
+  note: string;
+  completedSegmentIds: string[];
+  stoppedAtSegmentId: string | null;
+  updatedAt: string;
+};
+
+function trackerDraftKey(sectionId: string, lessonId: string): string {
+  return `teacheros_lesson_tracker_draft_${sectionId}_${lessonId}`;
+}
+
+function readTrackerDraft(sectionId: string, lessonId: string): LessonTrackerDraft | null {
+  try {
+    const raw = window.localStorage.getItem(trackerDraftKey(sectionId, lessonId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LessonTrackerDraft>;
+    return {
+      note: parsed.note ?? '',
+      completedSegmentIds: Array.isArray(parsed.completedSegmentIds) ? parsed.completedSegmentIds : [],
+      stoppedAtSegmentId: parsed.stoppedAtSegmentId ?? null,
+      updatedAt: parsed.updatedAt ?? ''
+    };
+  } catch {
+    return null;
+  }
+}
 
 export function LessonTrackerPage() {
   const api = useApiClient();
@@ -16,23 +44,31 @@ export function LessonTrackerPage() {
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [trackerLoaded, setTrackerLoaded] = useState(false);
 
   useEffect(() => {
     if (!sectionId) return;
+    setTrackerLoaded(false);
 
     void (async () => {
       try {
         const response = await api.getClassroomResume(sectionId);
+        const effectiveLessonId = response.lesson?.id ?? lessonId;
+        const localDraft = effectiveLessonId ? readTrackerDraft(sectionId, effectiveLessonId) : null;
         setResume(response);
-        setNote(response.state?.carryOverNote ?? response.lastNote?.content ?? '');
-        setCompletedSegmentIds(response.state?.completedSegmentIds ?? []);
-        setStoppedAtSegmentId(response.state?.stoppedAtSegmentId ?? null);
+        setNote(localDraft?.note ?? response.state?.carryOverNote ?? response.lastNote?.content ?? '');
+        setCompletedSegmentIds(localDraft?.completedSegmentIds ?? response.state?.completedSegmentIds ?? []);
+        setStoppedAtSegmentId(localDraft?.stoppedAtSegmentId ?? response.state?.stoppedAtSegmentId ?? null);
+        setDraftStatus(localDraft ? `Local draft restored${localDraft.updatedAt ? ` from ${localDraft.updatedAt}` : ''}.` : null);
+        setTrackerLoaded(true);
         setError(null);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Failed to load lesson tracker');
+        setTrackerLoaded(true);
       }
     })();
-  }, [api, sectionId]);
+  }, [api, lessonId, sectionId]);
 
   const lesson = resume?.lesson;
   const hasRouteMismatch = Boolean(lesson && lesson.id !== lessonId);
@@ -49,6 +85,27 @@ export function LessonTrackerPage() {
     '',
     note.trim() || 'No carry-over note.'
   ].join('\n');
+
+  useEffect(() => {
+    const effectiveLessonId = lesson?.id ?? lessonId;
+    if (!trackerLoaded || !sectionId || !effectiveLessonId) return;
+    window.localStorage.setItem(
+      trackerDraftKey(sectionId, effectiveLessonId),
+      JSON.stringify({
+        note,
+        completedSegmentIds,
+        stoppedAtSegmentId,
+        updatedAt: new Date().toLocaleTimeString()
+      } satisfies LessonTrackerDraft)
+    );
+  }, [completedSegmentIds, lesson?.id, lessonId, note, sectionId, stoppedAtSegmentId, trackerLoaded]);
+
+  const clearLocalDraft = () => {
+    const effectiveLessonId = lesson?.id ?? lessonId;
+    if (!sectionId || !effectiveLessonId) return;
+    window.localStorage.removeItem(trackerDraftKey(sectionId, effectiveLessonId));
+    setDraftStatus('Local draft cleared.');
+  };
 
   const saveProgress = async (options?: { completeLesson?: boolean; stoppedAtSegmentId?: string | null; carryOverNote?: string }) => {
     if (!lesson) return;
@@ -80,6 +137,8 @@ export function LessonTrackerPage() {
       });
       setCompletedSegmentIds(nextCompletedSegmentIds);
       setStoppedAtSegmentId(nextStoppedAtSegmentId);
+      window.localStorage.removeItem(trackerDraftKey(sectionId, lesson.id));
+      setDraftStatus(null);
       setSavedAt(new Date().toLocaleTimeString());
       setError(null);
     } catch (err) {
@@ -102,12 +161,21 @@ export function LessonTrackerPage() {
           <p className="eyebrow">Classroom</p>
           <h1>Lesson Tracker</h1>
         </div>
-        <div className="progress-stack compact">
-          <span>{progressPercent}%</span>
-          <progress max={100} value={progressPercent} />
+        <div className="profile-actions">
+          <Link className="button-link secondary" to="/classroom">
+            Back to Classroom
+          </Link>
+          <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('progress')}>
+            Progress
+          </Link>
+          <div className="progress-stack compact">
+            <span>{progressPercent}%</span>
+            <progress max={100} value={progressPercent} />
+          </div>
         </div>
       </div>
       {error ? <p className="notice warning">{error}</p> : null}
+      {draftStatus ? <p className={draftStatus.includes('cleared') ? 'notice success' : 'notice warning'}>{draftStatus}</p> : null}
       <div className="card stack">
         <p>
           Section:{' '}
@@ -220,8 +288,11 @@ export function LessonTrackerPage() {
           <button className="secondary" type="button" onClick={() => void copySummary()}>
             Copy class summary
           </button>
+          <button className="secondary" type="button" disabled={!lesson} onClick={clearLocalDraft}>
+            Clear local draft
+          </button>
         </div>
-        {savedAt ? <p className="muted">Saved at {savedAt}</p> : null}
+        {savedAt ? <p className="notice success">Saved at {savedAt}</p> : null}
         {stoppedAtSegmentId ? (
           <p className="muted">
             Stopped at: {stoppedSegment?.title ?? stoppedAtSegmentId}{' '}
