@@ -1786,10 +1786,52 @@ button.danger {
   color: var(--amber);
 }
 
+.classroom-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.classroom-focus-card h2 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  letter-spacing: -0.055em;
+}
+
+.mini-timeline {
+  display: grid;
+  gap: 8px;
+}
+
+.mini-timeline > div {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px;
+  background: #fffdf7;
+}
+
+.mini-timeline > div.active {
+  border-color: rgba(71, 108, 88, 0.35);
+  background: #eef4e9;
+}
+
+.mini-timeline span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .progress-stack {
   min-width: 160px;
   display: grid;
   gap: 6px;
+}
+
+.progress-stack.compact {
+  min-width: 130px;
 }
 
 .progress-stack span {
@@ -1825,6 +1867,33 @@ progress::-webkit-progress-value {
   padding: 16px 18px;
   color: #654210;
   font-weight: 700;
+}
+
+.tracker-segment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.tracker-segment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 12px;
+  background: #fffdf7;
+}
+
+.tracker-segment.stopped {
+  border-color: rgba(138, 90, 36, 0.35);
+  background: #fff3dd;
+}
+
+.tracker-segment label {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 .next-class-card > span {
@@ -1991,6 +2060,7 @@ progress::-webkit-progress-value {
     flex-direction: column;
   }
   .dashboard-hero,
+  .classroom-grid,
   .paper-hero,
   .walkthrough-callout,
   .guide-grid,

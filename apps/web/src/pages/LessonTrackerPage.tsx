@@ -34,10 +34,23 @@ export function LessonTrackerPage() {
 
   const lesson = resume?.lesson;
   const hasRouteMismatch = Boolean(lesson && lesson.id !== lessonId);
+  const stoppedSegment = lesson?.segments.find((segment) => segment.id === stoppedAtSegmentId);
+  const progressPercent = lesson?.segments.length
+    ? Math.round((completedSegmentIds.length / lesson.segments.length) * 100)
+    : 0;
 
   return (
-    <div className="stack">
-      <h1>Lesson Tracker</h1>
+    <div className="stack lesson-tracker-page">
+      <div className="editor-topbar">
+        <div>
+          <p className="eyebrow">Classroom</p>
+          <h1>Lesson Tracker</h1>
+        </div>
+        <div className="progress-stack compact">
+          <span>{progressPercent}%</span>
+          <progress max={100} value={progressPercent} />
+        </div>
+      </div>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
       <div className="card stack">
         <p>
@@ -58,25 +71,28 @@ export function LessonTrackerPage() {
         {lesson?.segments.length ? (
           <div className="stack">
             <h3>Segments</h3>
+            <div className="tracker-segment-list">
             {lesson.segments.map((segment) => {
               const isCompleted = completedSegmentIds.includes(segment.id);
               return (
-                <label key={segment.id} className="row">
-                  <input
-                    type="checkbox"
-                    checked={isCompleted}
-                    onChange={(event) => {
-                      setCompletedSegmentIds((previous) =>
-                        event.target.checked
-                          ? [...new Set([...previous, segment.id])]
-                          : previous.filter((id) => id !== segment.id)
-                      );
-                    }}
-                  />
-                  <span>
-                    {segment.title}
-                    {segment.durationMinutes ? ` (${segment.durationMinutes} min)` : ''}
-                  </span>
+                <div key={segment.id} className={stoppedAtSegmentId === segment.id ? 'tracker-segment stopped' : 'tracker-segment'}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={isCompleted}
+                      onChange={(event) => {
+                        setCompletedSegmentIds((previous) =>
+                          event.target.checked
+                            ? [...new Set([...previous, segment.id])]
+                            : previous.filter((id) => id !== segment.id)
+                        );
+                      }}
+                    />
+                    <span>
+                      <strong>{segment.title}</strong>
+                      {segment.durationMinutes ? ` / ${segment.durationMinutes} min` : ''}
+                    </span>
+                  </label>
                   <button
                     className="secondary"
                     type="button"
@@ -84,9 +100,10 @@ export function LessonTrackerPage() {
                   >
                     Stop here
                   </button>
-                </label>
+                </div>
               );
             })}
+            </div>
           </div>
         ) : (
           <p className="muted">No lesson segments yet. You can still save a carry-over note.</p>
@@ -134,7 +151,7 @@ export function LessonTrackerPage() {
           Save progress
         </button>
         {savedAt ? <p className="muted">Saved at {savedAt}</p> : null}
-        {stoppedAtSegmentId ? <p className="muted">Stopped at segment: {stoppedAtSegmentId}</p> : null}
+        {stoppedAtSegmentId ? <p className="muted">Stopped at: {stoppedSegment?.title ?? stoppedAtSegmentId}</p> : null}
       </div>
     </div>
   );
