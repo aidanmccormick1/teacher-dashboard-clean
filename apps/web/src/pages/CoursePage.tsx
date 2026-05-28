@@ -29,6 +29,53 @@ function parseOptionalOrder(value: string): number | undefined {
   return parsed;
 }
 
+function buildCourseOutline(course: CourseDetailResponse['course']): string {
+  const lines = [
+    course.name,
+    [course.subject, course.gradeLevel].filter(Boolean).join(' / ') || 'Course outline',
+    ''
+  ];
+
+  if (!course.units.length) {
+    lines.push('No units yet.');
+    return lines.join('\n');
+  }
+
+  course.units.forEach((unit) => {
+    lines.push(`Unit ${unit.orderIndex}: ${unit.title}`);
+    if (unit.description) lines.push(`  ${unit.description}`);
+
+    if (!unit.lessons.length) {
+      lines.push('  - No lessons yet');
+    }
+
+    unit.lessons.forEach((lesson) => {
+      lines.push(
+        `  Lesson ${lesson.orderIndex}: ${lesson.title}${
+          lesson.estimatedDurationMinutes ? ` (${lesson.estimatedDurationMinutes} min)` : ''
+        }`
+      );
+      if (lesson.description) lines.push(`    ${lesson.description}`);
+
+      if (!lesson.segments.length) {
+        lines.push('    - No segments yet');
+      }
+
+      lesson.segments.forEach((segment) => {
+        lines.push(
+          `    - ${segment.orderIndex}. ${segment.title}${
+            segment.durationMinutes ? ` (${segment.durationMinutes} min)` : ''
+          }`
+        );
+      });
+    });
+
+    lines.push('');
+  });
+
+  return lines.join('\n').trim();
+}
+
 export function CoursePage() {
   const api = useApiClient();
   const navigate = useNavigate();
@@ -38,6 +85,7 @@ export function CoursePage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   const [courseName, setCourseName] = useState('');
   const [courseSubject, setCourseSubject] = useState('');
@@ -79,6 +127,13 @@ export function CoursePage() {
     setCourseGradeLevel(detail.course.gradeLevel ?? '');
   };
 
+  const copyCourseOutline = async () => {
+    if (!course) return;
+    await navigator.clipboard?.writeText(buildCourseOutline(course)).catch(() => undefined);
+    setCopyStatus('Course outline copied.');
+    window.setTimeout(() => setCopyStatus(null), 1800);
+  };
+
   if (!courseId) {
     return (
       <div className="stack">
@@ -101,9 +156,16 @@ export function CoursePage() {
           <Link className="button-link secondary" to="/management">
             Back to Management
           </Link>
+          <button className="button-link secondary" type="button" disabled={!course} onClick={() => void copyCourseOutline()}>
+            Copy outline
+          </button>
+          <button className="button-link secondary print-only-control" type="button" disabled={!course} onClick={() => window.print()}>
+            Print
+          </button>
         </div>
       </div>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
+      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
       {loading && !course ? <p className="muted">Loading course...</p> : null}
 
       {course ? (
