@@ -23,6 +23,12 @@ type CourseEditDraft = { name: string; subject: string; gradeLevel: string };
 type UnitEditDraft = { title: string; description: string; order: string };
 type LessonEditDraft = { title: string; description: string; duration: string; order: string };
 type SegmentEditDraft = { title: string; description: string; duration: string; order: string };
+type SchoolYearSettings = {
+  startDate: string;
+  endDate: string;
+  meetingDays: string[];
+  bellScheduleType: 'weekly' | 'block' | 'ab' | 'rotating';
+};
 type SectionEditDraft = {
   courseId: string;
   sectionName: string;
@@ -73,6 +79,7 @@ const tabs: Array<{ id: ManagementTab; label: string }> = [
 
 const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'] as const;
 const maxScheduleUploadBytes = 10 * 1024 * 1024;
+const schoolYearStorageKey = 'teacheros_school_year_settings';
 const yearPlanTemplates: YearPlanTemplate[] = [
   {
     id: 'starter-4-week',
@@ -398,6 +405,36 @@ function segmentToDraft(
   };
 }
 
+function readSchoolYearSettings(): SchoolYearSettings | null {
+  const raw = window.localStorage.getItem(schoolYearStorageKey);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<SchoolYearSettings>;
+    if (!parsed.startDate || !parsed.endDate) return null;
+    return {
+      startDate: parsed.startDate,
+      endDate: parsed.endDate,
+      meetingDays: parsed.meetingDays ?? [],
+      bellScheduleType: parsed.bellScheduleType ?? 'weekly'
+    };
+  } catch {
+    return null;
+  }
+}
+
+function schoolYearProgress(settings: SchoolYearSettings | null) {
+  if (!settings) return null;
+  const start = new Date(`${settings.startDate}T12:00:00`);
+  const end = new Date(`${settings.endDate}T12:00:00`);
+  const today = new Date();
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null;
+  const total = end.getTime() - start.getTime();
+  const elapsed = Math.min(Math.max(today.getTime() - start.getTime(), 0), total);
+  const percent = Math.round((elapsed / total) * 100);
+  const remainingDays = Math.max(0, Math.ceil((end.getTime() - today.getTime()) / 86_400_000));
+  return { percent, remainingDays };
+}
+
 function courseDepth(course: CourseDetail) {
   const lessons = course.units.reduce((count, unit) => count + unit.lessons.length, 0);
   const segments = course.units.reduce(
@@ -512,6 +549,7 @@ export function ManagementPage() {
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [yearPlanViewByCourseId, setYearPlanViewByCourseId] = useState<Record<string, YearPlanView>>({});
+  const [schoolYearSettings, setSchoolYearSettings] = useState<SchoolYearSettings | null>(null);
   const [dismissedPromptIds, setDismissedPromptIds] = useState<string[]>([]);
   const [isNewCourseOpen, setIsNewCourseOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -609,6 +647,7 @@ export function ManagementPage() {
 
   useEffect(() => {
     void loadManagement(true);
+    setSchoolYearSettings(readSchoolYearSettings());
   }, [loadManagement]);
 
   useEffect(() => {
@@ -662,6 +701,7 @@ export function ManagementPage() {
     [selectedSectionId, selectedSections]
   );
   const selectedYearPlanView = selectedCourse ? yearPlanViewByCourseId[selectedCourse.id] ?? 'outline' : 'outline';
+  const schoolProgress = schoolYearProgress(schoolYearSettings);
 
   useEffect(() => {
     const firstCourse = state.courseDetails[0];
@@ -2460,10 +2500,40 @@ export function ManagementPage() {
                   <p className="eyebrow">Year Timeline</p>
                   <h2>{selectedCourse.name}</h2>
                 </div>
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => setSchoolYearSettings(readSchoolYearSettings())}
+                >
+                  Refresh school dates
+                </button>
               </div>
-              <p className="notice warning">Add school-year dates to unlock exact pacing. Showing unit timeline for now.</p>
+              {schoolYearSettings && schoolProgress ? (
+                <div className="timeline-pacing-summary">
+                  <div>
+                    <strong>{schoolYearSettings.startDate}</strong>
+                    <span>Start</span>
+                  </div>
+                  <div>
+                    <strong>{schoolProgress.percent}%</strong>
+                    <span>Year elapsed</span>
+                  </div>
+                  <div>
+                    <strong>{schoolProgress.remainingDays}</strong>
+                    <span>Days remaining</span>
+                  </div>
+                  <div>
+                    <strong>{schoolYearSettings.bellScheduleType.toUpperCase()}</strong>
+                    <span>{schoolYearSettings.meetingDays.join(', ') || 'No rhythm set'}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="notice warning">Add school-year dates on the School page to unlock exact pacing. Showing unit timeline for now.</p>
+              )}
               <div className="year-timeline">
-                <div className="today-marker">Today</div>
+                <div className="today-marker">
+                  Today{schoolProgress ? ` / ${schoolProgress.percent}% through year` : ''}
+                </div>
                 {selectedCourse.units.map((unit) => (
                   <section key={unit.id} className="timeline-unit">
                     <strong>{unit.title}</strong>

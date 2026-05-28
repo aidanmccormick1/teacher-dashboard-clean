@@ -951,6 +951,31 @@ button.danger {
   font-weight: 900;
 }
 
+.timeline-pacing-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.timeline-pacing-summary > div {
+  display: grid;
+  gap: 3px;
+  border: 1px solid rgba(216, 200, 170, 0.78);
+  border-radius: 4px;
+  padding: 12px;
+  background: #fffdf7;
+}
+
+.timeline-pacing-summary strong {
+  color: var(--navy);
+  font-size: 1.15rem;
+}
+
+.timeline-pacing-summary span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .timeline-unit {
   display: grid;
   gap: 12px;
@@ -2107,6 +2132,7 @@ progress::-webkit-progress-value {
   .template-picker,
   .template-preview-list,
   .setup-readiness-grid,
+  .timeline-pacing-summary,
   .school-grid,
   .schedule-upload-grid,
   .parsed-class-list,
