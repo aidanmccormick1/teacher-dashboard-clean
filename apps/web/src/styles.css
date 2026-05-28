@@ -2075,6 +2075,33 @@ progress::-webkit-progress-value {
   font-weight: 700;
 }
 
+.tracker-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tracker-summary-grid > div {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 12px;
+  background: #fffdf7;
+}
+
+.tracker-summary-grid span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tracker-summary-grid strong {
+  color: var(--navy);
+}
+
 .tracker-segment-list {
   display: grid;
   gap: 10px;
@@ -2100,6 +2127,23 @@ progress::-webkit-progress-value {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.tracker-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.link-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--navy);
+  font: inherit;
+  font-weight: 900;
+  text-decoration: underline;
+  box-shadow: none;
 }
 
 .next-class-card > span {
@@ -2291,7 +2335,8 @@ progress::-webkit-progress-value {
   .profile-account-card,
   .dashboard-grid,
   .metric-grid,
-  .profile-form-grid {
+  .profile-form-grid,
+  .tracker-summary-grid {
     grid-template-columns: 1fr;
   }
   .callout-actions {
