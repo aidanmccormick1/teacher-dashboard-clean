@@ -884,6 +884,34 @@ export function ManagementPage() {
   const hasMeetingGaps = sections.some((section) =>
     !section.meetings.length || section.meetings.some((meeting) => !meeting.time || !meeting.room)
   );
+  const scheduleGapItems = sections.flatMap((section) => {
+    if (!section.meetings.length) {
+      return [
+        {
+          id: `${section.sectionId}-no-meetings`,
+          section,
+          title: `${section.sectionName} has no meeting days`,
+          detail: `${section.courseName} needs days, time, and room.`
+        }
+      ];
+    }
+
+    return section.meetings.flatMap((meeting) => {
+      const missing = [
+        meeting.time ? null : 'time',
+        meeting.room ? null : 'room'
+      ].filter((item): item is string => Boolean(item));
+      if (!missing.length) return [];
+      return [
+        {
+          id: `${section.sectionId}-${meeting.day}-${missing.join('-')}`,
+          section,
+          title: `${section.sectionName} is missing ${missing.join(' and ')}`,
+          detail: `${meeting.day} / ${section.courseName}`
+        }
+      ];
+    });
+  });
   const walkthroughSteps = [
     {
       id: 'course',
@@ -1058,6 +1086,29 @@ export function ManagementPage() {
     ].join('\n');
     await navigator.clipboard?.writeText(lines).catch(() => undefined);
     flashCopyStatus('Progress summary copied.');
+  };
+
+  const copyWeeklyScheduleSummary = async () => {
+    const lines = [
+      'Weekly schedule',
+      '',
+      ...weeklySchedule.flatMap(({ day, sections: daySections }) => [
+        day,
+        ...(daySections.length
+          ? daySections.map((section) => {
+              const meeting = section.meetings.find((item) => item.day === day);
+              return `- ${meeting?.time ?? 'Time TBD'} / ${section.sectionName} / ${section.courseName} / ${meeting?.room ?? 'Room TBD'}`;
+            })
+          : ['- No periods'])
+      ]),
+      '',
+      'Setup gaps',
+      ...(scheduleGapItems.length
+        ? scheduleGapItems.map((gap) => `- ${gap.title}: ${gap.detail}`)
+        : ['- No missing times or rooms'])
+    ].join('\n');
+    await navigator.clipboard?.writeText(lines).catch(() => undefined);
+    flashCopyStatus('Weekly schedule copied.');
   };
 
   const selectCourse = (courseId: string, nextTab?: ManagementTab) => {
@@ -2423,13 +2474,45 @@ export function ManagementPage() {
               <h2>When do my periods meet?</h2>
               <p className="muted">Grouped by day so missing times and rooms are easy to spot.</p>
             </div>
-            <button className="secondary" type="button" onClick={() => setActiveTab('periods')}>
-              Add or edit periods
-            </button>
+            <div className="profile-actions">
+              <button className="secondary" type="button" onClick={() => void copyWeeklyScheduleSummary()}>
+                Copy weekly schedule
+              </button>
+              <button className="secondary" type="button" onClick={() => setActiveTab('periods')}>
+                Add or edit periods
+              </button>
+            </div>
           </div>
 
           {hasMeetingGaps ? (
-            <p className="notice warning">Some periods are missing days, times, or rooms. Open Periods to fill them in.</p>
+            <article className="schedule-gap-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Needs setup</p>
+                  <h3>{scheduleGapItems.length} schedule {scheduleGapItems.length === 1 ? 'gap' : 'gaps'}</h3>
+                </div>
+                <button className="secondary" type="button" onClick={() => setActiveTab('periods')}>
+                  Fix in Periods
+                </button>
+              </div>
+              <div className="schedule-gap-list">
+                {scheduleGapItems.map((gap) => (
+                  <button
+                    key={gap.id}
+                    type="button"
+                    className="schedule-gap-row"
+                    onClick={() => {
+                      setSelectedCourseId(gap.section.courseId);
+                      setSelectedSectionId(gap.section.sectionId);
+                      setActiveTab('periods');
+                    }}
+                  >
+                    <strong>{gap.title}</strong>
+                    <span>{gap.detail}</span>
+                  </button>
+                ))}
+              </div>
+            </article>
           ) : null}
 
           <div className="weekly-schedule-grid">

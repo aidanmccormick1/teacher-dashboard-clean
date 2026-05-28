@@ -878,6 +878,41 @@ button.button-link {
   align-content: start;
 }
 
+.schedule-gap-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(163, 101, 27, 0.34);
+  border-radius: 6px;
+  padding: 16px;
+  background:
+    linear-gradient(90deg, rgba(244, 234, 213, 0.78), rgba(255, 253, 247, 0.92)),
+    #fffdf7;
+}
+
+.schedule-gap-list {
+  display: grid;
+  gap: 8px;
+}
+
+.schedule-gap-row {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 1px solid rgba(216, 200, 170, 0.86);
+  border-radius: 4px;
+  padding: 12px;
+  background: #fffaf0;
+  color: var(--ink);
+  text-align: left;
+  box-shadow: none;
+}
+
+.schedule-gap-row span {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 850;
+}
+
 .weekly-period-row,
 .progress-section-row {
   width: 100%;
