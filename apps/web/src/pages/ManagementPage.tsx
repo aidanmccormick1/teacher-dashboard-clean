@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import type {
   AiJobStatusResponse,
@@ -617,6 +618,7 @@ function promptForState(state: ManagementState, selectedCourse: CourseDetail | n
 
 export function ManagementPage() {
   const api = useApiClient();
+  const navigate = useNavigate();
   const [savedNewCourseDraft] = useState(readNewCourseDraft);
   const [savedAddPeriodDraft] = useState(readAddPeriodDraft);
   const [activeTab, setActiveTab] = useState<ManagementTab>(readManagementActiveTab);
@@ -2260,7 +2262,7 @@ export function ManagementPage() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  window.location.href = `/sections/${section.sectionId}/lessons/${resumeLessonId}`;
+                                  navigate(`/sections/${section.sectionId}/lessons/${resumeLessonId}`);
                                 }}
                               >
                                 Open class
@@ -2978,7 +2980,7 @@ export function ManagementPage() {
               <h2>Where is each period right now?</h2>
               <p className="muted">Compare periods that share the same course plan.</p>
             </div>
-            <button className="secondary" type="button" onClick={() => { window.location.href = '/classroom'; }}>
+            <button className="secondary" type="button" onClick={() => navigate('/classroom')}>
               Open Classroom
             </button>
           </div>
@@ -3024,7 +3026,7 @@ export function ManagementPage() {
                                   className="secondary"
                                   type="button"
                                   onClick={() => {
-                                    window.location.href = `/sections/${section.sectionId}/lessons/${resume.lesson?.id}`;
+                                    navigate(`/sections/${section.sectionId}/lessons/${resume.lesson?.id}`);
                                   }}
                                 >
                                   Open tracker

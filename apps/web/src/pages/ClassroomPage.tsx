@@ -5,12 +5,15 @@ import type { ClassroomResumeResponse, DashboardTodayResponse } from '@teacheros
 
 import { ApiError, useApiClient } from '../lib/api.js';
 
+const managementActiveTabStorageKey = 'teacheros_management_active_tab_v1';
+
 export function ClassroomPage() {
   const api = useApiClient();
   const navigate = useNavigate();
   const [data, setData] = useState<DashboardTodayResponse | null>(null);
   const [resume, setResume] = useState<ClassroomResumeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -38,10 +41,43 @@ export function ClassroomPage() {
     })();
   }, [api, data?.currentClass]);
 
+  const openManagementTab = (tab: 'periods' | 'weekly' | 'curriculum') => {
+    window.localStorage.setItem(managementActiveTabStorageKey, tab);
+    navigate('/management');
+  };
+
+  const copyClassBrief = async () => {
+    const currentClass = data?.currentClass;
+    const lines = currentClass
+      ? [
+          'Classroom brief',
+          `Class: ${currentClass.courseName}`,
+          `Period: ${currentClass.sectionName}`,
+          `Time: ${currentClass.meetingTime ?? 'TBD'}`,
+          `Room: ${currentClass.room ?? 'TBD'}`,
+          `Lesson: ${resume?.lesson?.title ?? 'No lesson ready'}`,
+          resume?.lesson?.segments.length
+            ? `Progress: ${resume.state?.completedSegmentIds.length ?? 0}/${resume.lesson.segments.length} segments complete`
+            : 'Progress: no segments yet',
+          `Carry-over: ${resume?.state?.carryOverNote ?? resume?.lastNote?.content ?? 'None'}`
+        ]
+      : [
+          'Classroom brief',
+          'No class detected right now',
+          `Classes today: ${data?.todaySchedule.length ?? 0}`,
+          data?.nextClass ? `Next: ${data.nextClass.courseName} / ${data.nextClass.sectionName}` : 'Next: none scheduled'
+        ];
+
+    await navigator.clipboard?.writeText(lines.join('\n')).catch(() => undefined);
+    setCopyStatus('Class brief copied.');
+    window.setTimeout(() => setCopyStatus(null), 1600);
+  };
+
   return (
     <div className="stack">
       <h1>Classroom</h1>
       {error ? <p className="notice warning">{error}</p> : null}
+      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
       {!data ? <p className="muted">Loading active class...</p> : null}
       {data?.currentClass ? (
         <div className="classroom-grid">
@@ -84,6 +120,9 @@ export function ClassroomPage() {
               <button className="secondary" type="button" onClick={() => navigate('/management')}>
                 Open Management
               </button>
+              <button className="secondary" type="button" onClick={() => void copyClassBrief()}>
+                Copy class brief
+              </button>
             </div>
           </section>
 
@@ -116,11 +155,17 @@ export function ClassroomPage() {
           <h2>No class detected right now</h2>
           <p className="muted">Open Management to add meeting times, or use Dashboard to see what is next today.</p>
           <div className="profile-actions">
-            <button type="button" onClick={() => navigate('/management')}>
-              Manage schedule
+            <button type="button" onClick={() => openManagementTab('weekly')}>
+              Open Weekly Schedule
+            </button>
+            <button className="secondary" type="button" onClick={() => openManagementTab('periods')}>
+              Add periods
             </button>
             <button className="secondary" type="button" onClick={() => navigate('/')}>
               Back to dashboard
+            </button>
+            <button className="secondary" type="button" onClick={() => void copyClassBrief()}>
+              Copy brief
             </button>
           </div>
         </div>
