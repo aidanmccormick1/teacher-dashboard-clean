@@ -10,6 +10,33 @@ function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
 }
 
 const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'] as const;
+type MeetingDay = (typeof meetingDays)[number];
+type ScheduleSection = GetScheduleResponse['sections'][number];
+
+type SectionEditDraft = {
+  sectionName: string;
+  days: string;
+  time: string;
+  room: string;
+};
+
+function sectionToDraft(section: ScheduleSection): SectionEditDraft {
+  return {
+    sectionName: section.sectionName,
+    days: section.meetings.map((meeting) => meeting.day).join(', ') || 'Monday',
+    time: section.meetings[0]?.time ?? '',
+    room: section.meetings[0]?.room ?? ''
+  };
+}
+
+function parseMeetingDays(value: string): MeetingDay[] {
+  const validDays = new Set<string>(meetingDays);
+  const parsed = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item): item is MeetingDay => validDays.has(item));
+  return [...new Set(parsed)];
+}
 
 export function SchedulePage() {
   const api = useApiClient();
@@ -33,6 +60,8 @@ export function SchedulePage() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [activeJob, setActiveJob] = useState<AiJobStatusResponse | null>(null);
   const [jobOutput, setJobOutput] = useState<string | null>(null);
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [sectionDrafts, setSectionDrafts] = useState<Record<string, SectionEditDraft>>({});
 
   const loadSchedule = useCallback(async () => {
     try {
@@ -95,6 +124,59 @@ export function SchedulePage() {
       setError(`AI job failed: ${activeJob.error}`);
     }
   }, [activeJob]);
+
+  const beginSectionEdit = (section: ScheduleSection) => {
+    setEditingSectionId(section.sectionId);
+    setSectionDrafts((previous) => ({
+      ...previous,
+      [section.sectionId]: previous[section.sectionId] ?? sectionToDraft(section)
+    }));
+  };
+
+  const updateSectionDraft = (sectionId: string, patch: Partial<SectionEditDraft>) => {
+    setSectionDrafts((previous) => ({
+      ...previous,
+      [sectionId]: {
+        ...(previous[sectionId] ?? { sectionName: '', days: 'Monday', time: '', room: '' }),
+        ...patch
+      }
+    }));
+  };
+
+  const saveSectionEdit = async (section: ScheduleSection) => {
+    const draft = sectionDrafts[section.sectionId] ?? sectionToDraft(section);
+    const days = parseMeetingDays(draft.days);
+
+    if (!draft.sectionName.trim()) {
+      setError('Section name is required.');
+      return;
+    }
+
+    if (!days.length) {
+      setError('Use meeting days like Monday, Wednesday, Friday, A-Day, or B-Day.');
+      return;
+    }
+
+    try {
+      setBusy(true);
+      setSchedule(
+        await api.updateSection(section.sectionId, {
+          sectionName: draft.sectionName.trim(),
+          meetings: days.map((day) => ({
+            day,
+            time: draft.time || null,
+            room: draft.room.trim() || null
+          }))
+        })
+      );
+      setEditingSectionId(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update section');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="stack">
@@ -191,7 +273,7 @@ export function SchedulePage() {
       </div>
 
       <div className="card stack">
-        <h3>AI: Parse Schedule</h3>
+        <h3>Schedule reader</h3>
         <textarea
           rows={6}
           value={importText}
@@ -216,12 +298,12 @@ export function SchedulePage() {
             }
           }}
         >
-          {busy ? 'Starting...' : 'Queue parse job'}
+          {busy ? 'Starting...' : 'Read schedule'}
         </button>
       </div>
 
       <div className="card stack">
-        <h3>AI: Generate Lesson Segments</h3>
+        <h3>Lesson segment helper</h3>
         <input
           className="input"
           value={segmentLessonTitle}
@@ -273,7 +355,7 @@ export function SchedulePage() {
       </div>
 
       <div className="card stack">
-        <h3>AI: Continuity Suggestions</h3>
+        <h3>Continuity helper</h3>
         <input
           className="input"
           value={continuityLessonTitle}
@@ -327,7 +409,7 @@ export function SchedulePage() {
 
       {activeJobId ? (
         <div className="card stack">
-          <h3>AI Job Status</h3>
+          <h3>Job Status</h3>
           <p>
             <strong>Job:</strong> {activeJobId}
           </p>
@@ -411,62 +493,91 @@ export function SchedulePage() {
           <div className="stack">
             {schedule.sections.map((section) => (
               <div key={section.sectionId} className="card stack">
-                <div className="row">
-                  <strong>
-                    {section.courseName} - {section.sectionName}
-                  </strong>
-                  <button
-                    className="secondary"
-                    type="button"
-                    onClick={async () => {
-                      const nextName = window.prompt('Section name', section.sectionName);
-                      if (nextName === null || !nextName.trim()) return;
-                      try {
-                        setBusy(true);
-                        setSchedule(
-                          await api.updateSection(section.sectionId, {
-                            sectionName: nextName.trim()
-                          })
-                        );
-                        setError(null);
-                      } catch (err) {
-                        setError(err instanceof ApiError ? err.message : 'Failed to update section');
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!window.confirm(`Delete section "${section.sectionName}"?`)) return;
-                      try {
-                        setBusy(true);
-                        await api.deleteSection(section.sectionId);
-                        await loadSchedule();
-                      } catch (err) {
-                        setError(err instanceof ApiError ? err.message : 'Failed to delete section');
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-                {section.meetings.length ? (
-                  <ul>
-                    {section.meetings.map((meeting) => (
-                      <li key={`${meeting.day}-${meeting.time ?? 'none'}-${meeting.room ?? 'none'}`}>
-                        {meeting.day} at {meeting.time ?? 'TBD'}
-                        {meeting.room ? ` in ${meeting.room}` : ''}
-                      </li>
-                    ))}
-                  </ul>
+                {editingSectionId === section.sectionId ? (
+                  <div className="section-inline-edit">
+                    <label>
+                      Period name
+                      <input
+                        className="input"
+                        value={(sectionDrafts[section.sectionId] ?? sectionToDraft(section)).sectionName}
+                        onChange={(event) => updateSectionDraft(section.sectionId, { sectionName: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Days
+                      <input
+                        className="input"
+                        value={(sectionDrafts[section.sectionId] ?? sectionToDraft(section)).days}
+                        onChange={(event) => updateSectionDraft(section.sectionId, { days: event.target.value })}
+                        placeholder="Monday, Wednesday, Friday"
+                      />
+                    </label>
+                    <label>
+                      Time
+                      <input
+                        className="input"
+                        type="time"
+                        value={(sectionDrafts[section.sectionId] ?? sectionToDraft(section)).time}
+                        onChange={(event) => updateSectionDraft(section.sectionId, { time: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Room
+                      <input
+                        className="input"
+                        value={(sectionDrafts[section.sectionId] ?? sectionToDraft(section)).room}
+                        onChange={(event) => updateSectionDraft(section.sectionId, { room: event.target.value })}
+                      />
+                    </label>
+                    <div className="profile-actions">
+                      <button type="button" disabled={busy} onClick={() => void saveSectionEdit(section)}>
+                        Save section
+                      </button>
+                      <button className="secondary" type="button" onClick={() => setEditingSectionId(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 ) : (
-                  <p className="muted">No meeting times added yet.</p>
+                  <>
+                    <div className="row">
+                      <strong>
+                        {section.courseName} - {section.sectionName}
+                      </strong>
+                      <button className="secondary" type="button" onClick={() => beginSectionEdit(section)}>
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.confirm(`Delete section "${section.sectionName}"?`)) return;
+                          try {
+                            setBusy(true);
+                            await api.deleteSection(section.sectionId);
+                            await loadSchedule();
+                          } catch (err) {
+                            setError(err instanceof ApiError ? err.message : 'Failed to delete section');
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    {section.meetings.length ? (
+                      <ul>
+                        {section.meetings.map((meeting) => (
+                          <li key={`${meeting.day}-${meeting.time ?? 'none'}-${meeting.room ?? 'none'}`}>
+                            {meeting.day} at {meeting.time ?? 'TBD'}
+                            {meeting.room ? ` in ${meeting.room}` : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="muted">No meeting times added yet.</p>
+                    )}
+                  </>
                 )}
               </div>
             ))}
