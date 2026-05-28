@@ -1369,6 +1369,9 @@ export function ManagementPage() {
     );
   };
 
+  const parsedCourseKey = (parsedClass: ParsedScheduleClass) =>
+    (parsedClass.name.trim() || parsedClass.subject.trim()).toLowerCase();
+
   const parsedClassKey = (parsedClass: ParsedScheduleClass) =>
     `${parsedClass.name}-${parsedClass.period}-${parsedClass.time ?? 'time'}-${parsedClass.room ?? 'room'}`;
 
@@ -1438,7 +1441,7 @@ export function ManagementPage() {
     }
   };
 
-  const addParsedClassToSchedule = async (parsedClass: ParsedScheduleClass) => {
+  const addParsedClassToSchedule = async (parsedClass: ParsedScheduleClass, reviewKey = parsedClassKey(parsedClass)) => {
     try {
       setBusy(true);
       const existingCourse = findCourseForParsedClass(parsedClass);
@@ -1459,10 +1462,79 @@ export function ManagementPage() {
       setState((previous) => ({ ...previous, schedule }));
       setSelectedCourseId(course.id);
       setSelectedCourseForSchedule(course.id);
-      setAddedParsedClassKeys((previous) => [...new Set([...previous, parsedClassKey(parsedClass)])]);
+      setAddedParsedClassKeys((previous) => [...new Set([...previous, reviewKey])]);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to add parsed period');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addAllParsedClassesToSchedule = async () => {
+    if (!scheduleImportOutput) return;
+
+    const pendingClasses = scheduleImportOutput.classes
+      .map((parsedClass) => ({
+        edited: parsedClassFromDraft(parsedClass),
+        key: parsedClassKey(parsedClass)
+      }))
+      .filter(({ edited, key }) => !addedParsedClassKeys.includes(key) && edited.name && edited.period);
+
+    if (!pendingClasses.length) {
+      flashCopyStatus('No reviewed classes left to add.');
+      return;
+    }
+
+    try {
+      setBusy(true);
+      const coursesByKey = new Map(
+        state.courses.flatMap((course) => {
+          const keys = [course.name, course.subject ?? '']
+            .map((value) => value.trim().toLowerCase())
+            .filter(Boolean);
+          return keys.map((key) => [key, course] as const);
+        })
+      );
+      const addedKeys: string[] = [];
+      let latestSchedule: GetScheduleResponse | null = null;
+      let lastCourseId = selectedCourseId;
+
+      for (const { edited, key } of pendingClasses) {
+        const lookupKey = parsedCourseKey(edited);
+        const existingCourse = coursesByKey.get(lookupKey) ?? findCourseForParsedClass(edited);
+        const course =
+          existingCourse ??
+          (await createCourse(edited.name, edited.subject, edited.grade ?? ''));
+
+        coursesByKey.set(parsedCourseKey(edited), course);
+        if (course.subject) coursesByKey.set(course.subject.trim().toLowerCase(), course);
+
+        latestSchedule = await api.createSection({
+          courseId: course.id,
+          sectionName: edited.period,
+          meetings: edited.days.map((day) => ({
+            day,
+            time: edited.time,
+            room: edited.room
+          }))
+        });
+        lastCourseId = course.id;
+        addedKeys.push(key);
+      }
+
+      if (latestSchedule) {
+        setState((previous) => ({ ...previous, schedule: latestSchedule }));
+      }
+      if (lastCourseId) {
+        setSelectedCourseId(lastCourseId);
+        setSelectedCourseForSchedule(lastCourseId);
+      }
+      setAddedParsedClassKeys((previous) => [...new Set([...previous, ...addedKeys])]);
+      setError(null);
+      flashCopyStatus(`Added ${addedKeys.length} reviewed ${addedKeys.length === 1 ? 'period' : 'periods'}.`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to add reviewed periods');
     } finally {
       setBusy(false);
     }
@@ -1955,9 +2027,14 @@ export function ManagementPage() {
                     <p className="eyebrow">Review before saving</p>
                     <h3>{scheduleImportOutput.classes.length} classes found</h3>
                   </div>
-                  <button className="secondary" type="button" onClick={() => void copyImportSummary()}>
-                    Copy import summary
-                  </button>
+                  <div className="profile-actions">
+                    <button type="button" disabled={busy} onClick={() => void addAllParsedClassesToSchedule()}>
+                      Add all reviewed
+                    </button>
+                    <button className="secondary" type="button" onClick={() => void copyImportSummary()}>
+                      Copy import summary
+                    </button>
+                  </div>
                 </div>
                 <div className="parsed-class-list">
                   {scheduleImportOutput.classes.map((parsedClass) => {
@@ -2032,7 +2109,7 @@ export function ManagementPage() {
                         <button
                           type="button"
                           disabled={busy || isAdded || !editedClass.name || !editedClass.period}
-                          onClick={() => void addParsedClassToSchedule(editedClass)}
+                          onClick={() => void addParsedClassToSchedule(editedClass, key)}
                         >
                           {isAdded ? 'Added' : matchingCourse ? 'Add period' : 'Create course + period'}
                         </button>
