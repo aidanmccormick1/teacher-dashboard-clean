@@ -468,6 +468,25 @@ button.danger {
   box-shadow: none;
 }
 
+button.button-link {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.inline-status {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 12px;
+  border: 1px solid #c4d7c2;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: #eef4e9;
+  color: var(--green);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
 .dashboard-page,
 .profile-page,
 .management-page {
@@ -2294,5 +2313,40 @@ progress::-webkit-progress-value {
   .lesson-now {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media print {
+  .sidebar,
+  .walkthrough-callout,
+  .setup-readiness-card,
+  .feedback-button,
+  .print-only-control,
+  .button-link {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .app-shell {
+    display: block;
+  }
+
+  .main {
+    padding: 0;
+  }
+
+  .dashboard-page {
+    max-width: none;
+    gap: 14px;
+  }
+
+  .dashboard-hero,
+  .card,
+  .metric-card {
+    box-shadow: none;
+    break-inside: avoid;
   }
 }

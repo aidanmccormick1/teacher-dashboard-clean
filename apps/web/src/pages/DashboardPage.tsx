@@ -151,6 +151,62 @@ function dashboardStorageKey(name: string, date: string | null): string {
   return `teacheros_dashboard_${date ?? 'today'}_${name}`;
 }
 
+function buildDailyBriefing(
+  todayLabel: string,
+  state: DashboardLoadState,
+  focusNote: string,
+  checkedItems: string[]
+): string {
+  const lines = [`Daily Teaching Desk`, todayLabel, ''];
+
+  if (state.today?.holiday) {
+    lines.push(`No school: ${state.today.holiday.name}`, '');
+  }
+
+  if (state.today?.currentClass) {
+    const resume = state.resumesBySectionId[state.today.currentClass.sectionId];
+    lines.push('Current class');
+    lines.push(`- ${state.today.currentClass.courseName} / ${state.today.currentClass.sectionName}`);
+    lines.push(`- Time: ${state.today.currentClass.meetingTime ?? 'TBD'}`);
+    if (state.today.currentClass.room) lines.push(`- Room: ${state.today.currentClass.room}`);
+    lines.push(`- Lesson: ${resume?.lesson?.title ?? 'No lesson attached yet'}`);
+    if (resume?.state?.carryOverNote) lines.push(`- Carry-over: ${resume.state.carryOverNote}`);
+    lines.push('');
+  }
+
+  if (state.today?.nextClass) {
+    const resume = state.resumesBySectionId[state.today.nextClass.sectionId];
+    lines.push('Next class');
+    lines.push(`- ${state.today.nextClass.courseName} / ${state.today.nextClass.sectionName}`);
+    lines.push(`- Time: ${state.today.nextClass.meetingTime ?? 'TBD'}`);
+    lines.push(`- Prep: ${resume?.lesson?.title ?? 'No lesson attached yet'}`);
+    lines.push('');
+  }
+
+  lines.push('Today schedule');
+  if (state.today?.todaySchedule.length) {
+    state.today.todaySchedule.forEach((item) => {
+      const resume = state.resumesBySectionId[item.sectionId];
+      lines.push(
+        `- ${item.meetingTime ?? 'TBD'} ${item.courseName} / ${item.sectionName}${
+          item.room ? ` / Room ${item.room}` : ''
+        } / ${resume?.lesson?.title ?? 'No lesson attached'}`
+      );
+    });
+  } else {
+    lines.push('- No classes scheduled today.');
+  }
+
+  lines.push('', 'Focus note');
+  lines.push(focusNote.trim() || '- None yet');
+  lines.push('', 'Desk checklist');
+  CHECKLIST_ITEMS.forEach((item) => {
+    lines.push(`- ${checkedItems.includes(item) ? '[x]' : '[ ]'} ${item}`);
+  });
+
+  return lines.join('\n');
+}
+
 export function DashboardPage() {
   const api = useApiClient();
   const [state, setState] = useState<DashboardLoadState>({
@@ -164,6 +220,7 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [focusNote, setFocusNote] = useState('');
   const [checkedItems, setCheckedItems] = useState<string[]>([]);
+  const [briefingStatus, setBriefingStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -426,6 +483,17 @@ export function DashboardPage() {
     );
   }, [checkedItems, state.today?.date]);
 
+  const copyDailyBriefing = async () => {
+    const briefing = buildDailyBriefing(todayLabel, state, focusNote, checkedItems);
+    await navigator.clipboard?.writeText(briefing).catch(() => undefined);
+    setBriefingStatus('Daily briefing copied.');
+    window.setTimeout(() => setBriefingStatus(null), 1800);
+  };
+
+  const printDailyBriefing = () => {
+    window.print();
+  };
+
   return (
     <div className="dashboard-page">
       <section className="dashboard-hero">
@@ -448,7 +516,14 @@ export function DashboardPage() {
             <Link className="button-link secondary" to="/schedule">
               Adjust schedule
             </Link>
+            <button className="button-link secondary" type="button" onClick={() => void copyDailyBriefing()}>
+              Copy daily brief
+            </button>
+            <button className="button-link secondary print-only-control" type="button" onClick={printDailyBriefing}>
+              Print
+            </button>
           </div>
+          {briefingStatus ? <p className="inline-status">{briefingStatus}</p> : null}
         </div>
 
         <div className="readiness-card" aria-label={`Readiness score ${readinessScore} percent`}>
