@@ -292,10 +292,40 @@ a {
   color: var(--navy);
 }
 
+.feedback-history-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
 .feedback-history-card span,
-.feedback-history-card p {
+.feedback-history-card p,
+.feedback-history-card small {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.sync-pill {
+  border: 1px solid rgba(38, 56, 77, 0.16);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #fffaf0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.sync-pill.synced {
+  border-color: rgba(71, 108, 88, 0.28);
+  background: #eef4e9;
+  color: var(--green);
+}
+
+.sync-pill.failed {
+  border-color: rgba(141, 61, 50, 0.28);
+  background: #fbede9;
+  color: var(--red);
 }
 
 .main {

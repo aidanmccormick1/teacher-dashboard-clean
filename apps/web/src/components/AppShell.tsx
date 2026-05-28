@@ -10,6 +10,9 @@ type FeedbackEntry = {
   page: string;
   user: string;
   createdAt: string;
+  syncStatus?: 'pending' | 'synced' | 'failed';
+  feedbackId?: string;
+  lastSyncError?: string;
 };
 
 const feedbackStorageKey = 'teacheros_feedback_notes';
@@ -29,6 +32,10 @@ function readFeedbackEntries(): FeedbackEntry[] {
   } catch {
     return [];
   }
+}
+
+function writeFeedbackEntries(entries: FeedbackEntry[]) {
+  window.localStorage.setItem(feedbackStorageKey, JSON.stringify(entries));
 }
 
 function formatFeedbackEntry(entry: FeedbackEntry): string {
@@ -51,6 +58,7 @@ export function AppShell() {
   const [feedbackSaved, setFeedbackSaved] = useState(false);
   const [feedbackApiStatus, setFeedbackApiStatus] = useState<string | null>(null);
   const [feedbackEntries, setFeedbackEntries] = useState<FeedbackEntry[]>([]);
+  const [isSyncingFeedback, setIsSyncingFeedback] = useState(false);
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
 
   useEffect(() => {
@@ -85,21 +93,38 @@ export function AppShell() {
       text: feedbackText.trim(),
       page: window.location.pathname,
       user: auth.email ?? auth.userId ?? 'unknown',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      syncStatus: 'pending'
     };
     const nextEntries = [entry, ...readFeedbackEntries()].slice(0, 25);
-    window.localStorage.setItem(feedbackStorageKey, JSON.stringify(nextEntries));
+    writeFeedbackEntries(nextEntries);
     setFeedbackEntries(nextEntries);
     setFeedbackSaved(true);
     try {
-      await api.submitFeedback({
+      const response = await api.submitFeedback({
         type: entry.type as 'Confusing' | 'Broken' | 'Missing feature' | 'Nice to have',
         page: entry.page,
         message: entry.text,
         userAgent: window.navigator.userAgent
       });
+      const syncedEntries = nextEntries.map((item) =>
+        item.createdAt === entry.createdAt
+          ? { ...item, syncStatus: 'synced' as const, feedbackId: response.feedbackId, lastSyncError: undefined }
+          : item
+      );
+      writeFeedbackEntries(syncedEntries);
+      setFeedbackEntries(syncedEntries);
       setFeedbackApiStatus('Saved to backend and copied.');
     } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? `Backend did not accept it yet: ${err.message}`
+          : 'Backend feedback save failed.';
+      const failedEntries = nextEntries.map((item) =>
+        item.createdAt === entry.createdAt ? { ...item, syncStatus: 'failed' as const, lastSyncError: message } : item
+      );
+      writeFeedbackEntries(failedEntries);
+      setFeedbackEntries(failedEntries);
       setFeedbackApiStatus(
         err instanceof ApiError
           ? `Saved locally. Backend did not accept it yet: ${err.message}`
@@ -108,6 +133,53 @@ export function AppShell() {
     }
     await navigator.clipboard?.writeText(`TeacherOS feedback\n${formatFeedbackEntry(entry)}`).catch(() => undefined);
     setFeedbackText('');
+  };
+
+  const syncUnsentFeedback = async () => {
+    const entries = readFeedbackEntries();
+    const unsentEntries = entries.filter((entry) => entry.syncStatus !== 'synced');
+    if (!unsentEntries.length) {
+      setFeedbackApiStatus('All local feedback has already been sent.');
+      return;
+    }
+
+    setIsSyncingFeedback(true);
+    let sentCount = 0;
+    const nextEntries = [...entries];
+
+    for (const entry of unsentEntries) {
+      const entryIndex = nextEntries.findIndex((item) => item.createdAt === entry.createdAt && item.page === entry.page);
+      if (entryIndex === -1) continue;
+      const currentEntry = nextEntries[entryIndex];
+      if (!currentEntry) continue;
+
+      try {
+        const response = await api.submitFeedback({
+          type: entry.type as 'Confusing' | 'Broken' | 'Missing feature' | 'Nice to have',
+          page: entry.page,
+          message: entry.text,
+          userAgent: window.navigator.userAgent
+        });
+        nextEntries[entryIndex] = {
+          ...currentEntry,
+          syncStatus: 'synced',
+          feedbackId: response.feedbackId,
+          lastSyncError: undefined
+        };
+        sentCount += 1;
+      } catch (err) {
+        nextEntries[entryIndex] = {
+          ...currentEntry,
+          syncStatus: 'failed',
+          lastSyncError: err instanceof ApiError ? err.message : 'Backend feedback save failed.'
+        };
+      }
+    }
+
+    writeFeedbackEntries(nextEntries);
+    setFeedbackEntries(nextEntries);
+    setIsSyncingFeedback(false);
+    setFeedbackApiStatus(sentCount ? `Sent ${sentCount} saved report${sentCount === 1 ? '' : 's'} to the backend.` : 'Could not send saved reports yet.');
   };
 
   const copyAllFeedback = async () => {
@@ -120,7 +192,10 @@ export function AppShell() {
     if (!window.confirm('Clear locally saved feedback notes?')) return;
     window.localStorage.removeItem(feedbackStorageKey);
     setFeedbackEntries([]);
+    setFeedbackApiStatus(null);
   };
+
+  const unsentFeedbackCount = feedbackEntries.filter((entry) => entry.syncStatus !== 'synced').length;
 
   return (
     <div className="app-shell">
@@ -199,6 +274,9 @@ export function AppShell() {
                   <button className="secondary" type="button" onClick={() => void copyAllFeedback()}>
                     Copy all
                   </button>
+                  <button className="secondary" type="button" disabled={!unsentFeedbackCount || isSyncingFeedback} onClick={() => void syncUnsentFeedback()}>
+                    {isSyncingFeedback ? 'Sending...' : `Send unsent${unsentFeedbackCount ? ` (${unsentFeedbackCount})` : ''}`}
+                  </button>
                   <button className="secondary danger" type="button" disabled={!feedbackEntries.length} onClick={clearFeedback}>
                     Clear
                   </button>
@@ -207,9 +285,15 @@ export function AppShell() {
               {feedbackEntries.length ? (
                 feedbackEntries.slice(0, 5).map((entry) => (
                   <article key={`${entry.createdAt}-${entry.page}`} className="feedback-history-card">
-                    <strong>{entry.type}</strong>
+                    <div className="feedback-history-meta">
+                      <strong>{entry.type}</strong>
+                      <span className={`sync-pill ${entry.syncStatus ?? 'pending'}`}>
+                        {entry.syncStatus === 'synced' ? 'Sent' : entry.syncStatus === 'failed' ? 'Needs send' : 'Pending'}
+                      </span>
+                    </div>
                     <span>{entry.page}</span>
                     <p>{entry.text}</p>
+                    {entry.lastSyncError ? <small>{entry.lastSyncError}</small> : null}
                   </article>
                 ))
               ) : (
