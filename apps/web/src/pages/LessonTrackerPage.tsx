@@ -107,7 +107,7 @@ export function LessonTrackerPage() {
           <progress max={100} value={progressPercent} />
         </div>
       </div>
-      {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
+      {error ? <p className="notice warning">{error}</p> : null}
       <div className="card stack">
         <p>
           Section:{' '}

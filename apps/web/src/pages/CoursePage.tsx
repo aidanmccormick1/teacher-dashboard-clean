@@ -137,7 +137,7 @@ export function CoursePage() {
   if (!courseId) {
     return (
       <div className="stack">
-        <p style={{ color: '#b02020' }}>Course id is missing.</p>
+        <p className="notice warning">Course id is missing.</p>
       </div>
     );
   }
@@ -164,7 +164,7 @@ export function CoursePage() {
           </button>
         </div>
       </div>
-      {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
+      {error ? <p className="notice warning">{error}</p> : null}
       {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
       {loading && !course ? <p className="muted">Loading course...</p> : null}
 

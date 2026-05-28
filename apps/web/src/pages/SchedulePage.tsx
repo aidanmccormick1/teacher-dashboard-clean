@@ -121,7 +121,7 @@ export function SchedulePage() {
   useEffect(() => {
     if (!activeJob || !isTerminalStatus(activeJob.status)) return;
     if (activeJob.status === 'failed' && activeJob.error) {
-      setError(`AI job failed: ${activeJob.error}`);
+      setError(`Schedule reader failed: ${activeJob.error}`);
     }
   }, [activeJob]);
 
@@ -189,7 +189,7 @@ export function SchedulePage() {
           Back to Management
         </Link>
       </div>
-      {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
+      {error ? <p className="notice warning">{error}</p> : null}
 
       <div className="card stack">
         <h3>Add class section</h3>
@@ -430,7 +430,7 @@ export function SchedulePage() {
               {activeJob.cancelRequested ? (
                 <p className="muted">Cancellation requested. Waiting for the worker to stop.</p>
               ) : null}
-              {activeJob.error ? <p style={{ color: '#b02020' }}>{activeJob.error}</p> : null}
+              {activeJob.error ? <p className="notice warning">{activeJob.error}</p> : null}
               <div className="row">
                 <button
                   type="button"
@@ -441,7 +441,7 @@ export function SchedulePage() {
                       await api.cancelAiJob(activeJob.jobId);
                       setActiveJob(await api.getAiJobStatus(activeJob.jobId));
                     } catch (err) {
-                      setError(err instanceof ApiError ? err.message : 'Failed to cancel AI job');
+                      setError(err instanceof ApiError ? err.message : 'Failed to cancel schedule reader job');
                     } finally {
                       setBusy(false);
                     }

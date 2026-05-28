@@ -41,7 +41,7 @@ export function ClassroomPage() {
   return (
     <div className="stack">
       <h1>Classroom</h1>
-      {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
+      {error ? <p className="notice warning">{error}</p> : null}
       {!data ? <p className="muted">Loading active class...</p> : null}
       {data?.currentClass ? (
         <div className="classroom-grid">
