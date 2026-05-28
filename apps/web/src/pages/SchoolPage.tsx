@@ -32,6 +32,36 @@ function daysBetween(startDate: string, endDate: string): number | null {
   return Math.ceil((end.getTime() - start.getTime()) / 86_400_000) + 1;
 }
 
+function buildSchoolSetupSummary(
+  profile: ProfileResponse | null,
+  schedule: GetScheduleResponse | null,
+  settings: SchoolYearSettings,
+  schoolDays: number | null
+): string {
+  const holidays = schedule?.holidays ?? [];
+  const sectionsWithMeetings = schedule?.sections.filter((section) => section.meetings.length > 0) ?? [];
+
+  return [
+    'School year setup',
+    `School: ${profile?.school?.name ?? 'Not set'}`,
+    `District: ${profile?.school?.district ?? 'Not set'}`,
+    `State: ${profile?.school?.state ?? 'Not set'}`,
+    '',
+    'Dates and rhythm',
+    `Start date: ${settings.startDate || 'Not set'}`,
+    `End date: ${settings.endDate || 'Not set'}`,
+    `Calendar days: ${schoolDays ?? 'Not available'}`,
+    `Normal meeting days: ${settings.meetingDays.join(', ') || 'Not set'}`,
+    `Bell schedule type: ${settings.bellScheduleType}`,
+    '',
+    'Class meetings',
+    sectionsWithMeetings.length ? sectionsWithMeetings.map((section) => `- ${section.courseName} / ${section.sectionName}`).join('\n') : '- None yet',
+    '',
+    'No-school days',
+    holidays.length ? holidays.map((holiday) => `- ${holiday.date}: ${holiday.name}`).join('\n') : '- None yet'
+  ].join('\n');
+}
+
 export function SchoolPage() {
   const api = useApiClient();
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
@@ -41,6 +71,7 @@ export function SchoolPage() {
   const [holidayName, setHolidayName] = useState('');
   const [removingHolidayId, setRemovingHolidayId] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -128,6 +159,24 @@ export function SchoolPage() {
     }
   };
 
+  const copySchoolSetup = async () => {
+    await navigator.clipboard
+      ?.writeText(buildSchoolSetupSummary(profile, schedule, settings, schoolDays))
+      .catch(() => undefined);
+    setCopyStatus('School setup copied.');
+    window.setTimeout(() => setCopyStatus(null), 1800);
+  };
+
+  const resetSchoolYearSettings = () => {
+    const shouldReset = window.confirm('Reset school-year dates, meeting days, and bell schedule type? Holidays will stay saved.');
+    if (!shouldReset) return;
+    const next = defaultSchoolYearSettings();
+    setSettings(next);
+    window.localStorage.setItem(schoolYearStorageKey, JSON.stringify(next));
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 1600);
+  };
+
   return (
     <div className="school-page stack">
       <section className="paper-hero">
@@ -147,6 +196,7 @@ export function SchoolPage() {
 
       {error ? <p className="notice warning">{error}</p> : null}
       {saved ? <p className="notice success">Saved.</p> : null}
+      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
 
       <section className="school-grid">
         <article className="card stack">
@@ -155,7 +205,15 @@ export function SchoolPage() {
               <p className="eyebrow">School year</p>
               <h2>Dates and rhythm</h2>
             </div>
-            <Link to="/management">Management</Link>
+            <div className="profile-actions">
+              <button className="secondary" type="button" onClick={() => void copySchoolSetup()}>
+                Copy setup
+              </button>
+              <button className="secondary danger" type="button" onClick={resetSchoolYearSettings}>
+                Reset rhythm
+              </button>
+              <Link to="/management">Management</Link>
+            </div>
           </div>
           <div className="profile-form-grid">
             <label>
