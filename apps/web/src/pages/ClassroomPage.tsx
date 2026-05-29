@@ -17,6 +17,7 @@ export function ClassroomPage() {
   const totalSegments = resume?.lesson?.segments.length ?? 0;
   const stoppedSegment = resume?.lesson?.segments.find((segment) => segment.id === resume.state?.stoppedAtSegmentId);
   const nextSegment = resume?.lesson?.segments.find((segment) => !resume.state?.completedSegmentIds.includes(segment.id));
+  const targetClass = data?.currentClass ?? data?.nextClass ?? null;
 
   useEffect(() => {
     void (async () => {
@@ -29,20 +30,19 @@ export function ClassroomPage() {
   }, [api]);
 
   useEffect(() => {
-    const currentClass = data?.currentClass;
-    if (!currentClass) {
+    if (!targetClass) {
       setResume(null);
       return;
     }
 
     void (async () => {
       try {
-        setResume(await api.getClassroomResume(currentClass.sectionId));
+        setResume(await api.getClassroomResume(targetClass.sectionId));
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Failed to load resume lesson');
       }
     })();
-  }, [api, data?.currentClass]);
+  }, [api, targetClass]);
 
   const openManagementTab = (tab: ManagementTabTarget) => {
     rememberManagementTab(tab);
@@ -71,10 +71,13 @@ export function ClassroomPage() {
           'Classroom brief',
           'No class detected right now',
           `Classes today: ${data?.todaySchedule.length ?? 0}`,
-          data?.nextClass ? `Next: ${data.nextClass.courseName} / ${data.nextClass.sectionName}` : 'Next: none scheduled'
+          data?.nextClass ? `Next: ${data.nextClass.courseName} / ${data.nextClass.sectionName}` : 'Next: none scheduled',
+          data?.nextClass ? `Next lesson: ${resume?.lesson?.title ?? 'No lesson ready'}` : null,
+          data?.nextClass ? `Next up: ${nextSegment?.title ?? (resume?.lesson ? 'Lesson complete' : 'No lesson ready')}` : null,
+          data?.nextClass ? `Carry-over: ${resume?.state?.carryOverNote ?? resume?.lastNote?.content ?? 'None'}` : null
         ];
 
-    await navigator.clipboard?.writeText(lines.join('\n')).catch(() => undefined);
+    await navigator.clipboard?.writeText(lines.filter(Boolean).join('\n')).catch(() => undefined);
     setCopyStatus('Class brief copied.');
     window.setTimeout(() => setCopyStatus(null), 1600);
   };
@@ -177,7 +180,46 @@ export function ClassroomPage() {
         <div className="card stack">
           <h2>No class detected right now</h2>
           <p className="muted">Open Management to add meeting times, or use Dashboard to see what is next today.</p>
+          {data?.nextClass ? (
+            <div className="soft-panel">
+              <p className="eyebrow">Up next</p>
+              <strong>{data.nextClass.courseName}</strong>
+              <p className="muted">
+                {data.nextClass.sectionName} / {data.nextClass.meetingTime ?? 'Time TBD'}
+              </p>
+              {resume?.lesson ? (
+                <div className="classroom-context-grid">
+                  <div>
+                    <span>Lesson</span>
+                    <strong>{resume.lesson.title}</strong>
+                  </div>
+                  <div>
+                    <span>Next up</span>
+                    <strong>{nextSegment?.title ?? 'Lesson complete'}</strong>
+                  </div>
+                  <div>
+                    <span>Stopped at</span>
+                    <strong>{stoppedSegment?.title ?? 'Not set'}</strong>
+                  </div>
+                </div>
+              ) : (
+                <p className="muted">No lesson is ready for this period yet.</p>
+              )}
+            </div>
+          ) : null}
           <div className="profile-actions">
+            {data?.nextClass ? (
+              <button
+                type="button"
+                disabled={!resume?.lesson}
+                onClick={() => {
+                  if (!data.nextClass || !resume?.lesson) return;
+                  navigate(`/sections/${data.nextClass.sectionId}/lessons/${resume.lesson.id}`);
+                }}
+              >
+                {resume?.lesson ? 'Prep next class' : 'No lesson ready'}
+              </button>
+            ) : null}
             <button type="button" onClick={() => openManagementTab('weekly')}>
               Open Weekly Schedule
             </button>
