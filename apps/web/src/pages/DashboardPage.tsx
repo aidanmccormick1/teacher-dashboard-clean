@@ -322,7 +322,12 @@ export function DashboardPage() {
     ? state.resumesBySectionId[state.today.currentClass.sectionId]
     : undefined;
   const nextResume = state.today?.nextClass ? state.resumesBySectionId[state.today.nextClass.sectionId] : undefined;
+  const teachingResume = currentResume ?? nextResume;
   const activeLessonProgress = lessonProgress(currentResume);
+  const nextLessonProgress = lessonProgress(nextResume);
+  const nextOpenSegment = nextResume?.lesson?.segments.find(
+    (segment) => !nextResume.state?.completedSegmentIds.includes(segment.id)
+  );
   const todayLabel = formatDateLabel(state.today?.date ?? null);
 
   const summary = useMemo(() => {
@@ -358,7 +363,7 @@ export function DashboardPage() {
     return gaps.slice(0, 4);
   }, [state.schedule]);
 
-  const readinessScore = buildReadinessScore(state, currentResume, scheduleGaps);
+  const readinessScore = buildReadinessScore(state, teachingResume, scheduleGaps);
   const hasCourses = state.courses.length > 0;
   const hasSections = Boolean(state.schedule?.sections.length);
   const hasMeetingTimes = Boolean(state.schedule?.sections.some((section) => section.meetings.some((meeting) => meeting.time)));
@@ -449,6 +454,16 @@ export function DashboardPage() {
       });
     }
 
+    if (!state.today?.currentClass && state.today?.nextClass && nextResume?.lesson) {
+      prompts.push({
+        title: 'Prep the next class',
+        body: `${state.today.nextClass.sectionName} is ready for ${nextResume.lesson.title}.`,
+        to: `/sections/${state.today.nextClass.sectionId}/lessons/${nextResume.lesson.id}`,
+        managementTab: null,
+        action: 'Open tracker'
+      });
+    }
+
     if (currentResume?.state?.carryOverNote) {
       prompts.push({
         title: 'Carry-over needs attention',
@@ -492,10 +507,12 @@ export function DashboardPage() {
     activeLessonProgress.completed,
     activeLessonProgress.total,
     currentResume,
+    nextResume,
     scheduleGaps,
     state.courses.length,
     state.schedule?.sections.length,
     state.today?.currentClass,
+    state.today?.nextClass,
     summary.lessonCount,
     summary.segmentCount
   ]);
@@ -746,11 +763,43 @@ export function DashboardPage() {
                 {state.today.nextClass.sectionName} / {state.today.nextClass.meetingTime ?? 'Time TBD'}
               </p>
               {nextResume?.lesson ? (
-                <p>
-                  Prep: <strong>{nextResume.lesson.title}</strong>
-                </p>
+                <>
+                  <p>
+                    Prep: <strong>{nextResume.lesson.title}</strong>
+                  </p>
+                  <div className="classroom-context-grid">
+                    <div>
+                      <span>Progress</span>
+                      <strong>{nextLessonProgress.completed}/{nextLessonProgress.total || 0} segments</strong>
+                    </div>
+                    <div>
+                      <span>Next up</span>
+                      <strong>{nextOpenSegment?.title ?? 'Lesson complete'}</strong>
+                    </div>
+                    <div>
+                      <span>Carry-over</span>
+                      <strong>{nextResume.state?.carryOverNote ?? nextResume.lastNote?.content ?? 'None'}</strong>
+                    </div>
+                  </div>
+                  <div className="profile-actions">
+                    <Link
+                      className="button-link"
+                      to={`/sections/${state.today.nextClass.sectionId}/lessons/${nextResume.lesson.id}`}
+                    >
+                      Prep next class
+                    </Link>
+                    <button className="secondary" type="button" onClick={() => openManagementTab('progress')}>
+                      Compare progress
+                    </button>
+                  </div>
+                </>
               ) : (
-                <p className="muted">No lesson found yet. Curriculum is the next stop.</p>
+                <>
+                  <p className="muted">No lesson found yet. Year Plan is the next stop.</p>
+                  <button className="secondary" type="button" onClick={() => openManagementTab('curriculum')}>
+                    Open Year Plan
+                  </button>
+                </>
               )}
             </div>
           ) : (
