@@ -25,6 +25,7 @@
   - worker now honors cancel requests and persists retry/fail transitions
 - Production runbook hardening added:
   - `ops/scripts/*` backup/restore and cutover preflight automation
+  - `ops/scripts/production_smoke.sh` for public SPA/API checks, authenticated pilot reads, optional signed-upload verification, and optional queued schedule-reader verification
   - `ops/runbooks/*` for backup/restore, alerts/SLO thresholds, and cutover checklist
 
 ### Foundation Sprint
@@ -44,6 +45,7 @@
 - Deployment scaffolding added:
   - Cloudflare Pages setup guide: `infra/cloudflare-pages.md`
   - Render blueprint: `render.yaml`
+  - Render Blueprint now includes API, BullMQ worker, Postgres, and Redis-compatible key-value service in the Ohio US-East region
 - Health and readiness routes implemented:
   - `GET /health/liveness`
   - `GET /health/readiness`

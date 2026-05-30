@@ -6,6 +6,19 @@ import { db } from '@teacheros/db';
 export async function healthRoutes(app: FastifyInstance) {
   app.get('/health/liveness', async () => ({ ok: true }));
 
+  app.get('/health/capabilities', async () => ({
+    ok: true,
+    database: true,
+    redis: Boolean(app.redis),
+    aiQueue: Boolean(app.aiQueue),
+    openai: Boolean(app.config.OPENAI_API_KEY),
+    s3: Boolean(
+      app.config.S3_BUCKET &&
+        app.config.S3_ACCESS_KEY_ID &&
+        app.config.S3_SECRET_ACCESS_KEY
+    )
+  }));
+
   app.get('/health/readiness', async (_request, reply) => {
     try {
       await db.execute(sql`select 1`);

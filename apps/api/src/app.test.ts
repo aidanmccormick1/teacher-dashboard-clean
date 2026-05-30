@@ -43,4 +43,50 @@ describe('health endpoints', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true });
   });
+
+  it('reports non-sensitive runtime capabilities', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/health/capabilities'
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      database: true,
+      redis: false,
+      aiQueue: false,
+      openai: false,
+      s3: false
+    });
+  });
+});
+
+describe('authentication guard', () => {
+  it('rejects protected routes without an authorization header', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/courses'
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({
+      error: 'Missing Authorization header'
+    });
+  });
+
+  it('fails closed when Clerk verification is not configured', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/courses',
+      headers: {
+        authorization: 'Bearer not-a-real-token'
+      }
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({
+      error: 'Clerk token verification is not configured'
+    });
+  });
 });

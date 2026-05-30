@@ -34,3 +34,21 @@ worker.on('ready', () => {
 worker.on('failed', (job, error) => {
   console.error(`Job ${job?.id ?? 'unknown'} failed`, error);
 });
+
+worker.on('completed', (job) => {
+  console.log(`Job ${job.id ?? 'unknown'} completed`);
+});
+
+const shutdown = async (signal: string) => {
+  console.log(`AI worker shutting down after ${signal}`);
+  await worker.close();
+  process.exit(0);
+};
+
+process.once('SIGTERM', () => {
+  void shutdown('SIGTERM');
+});
+
+process.once('SIGINT', () => {
+  void shutdown('SIGINT');
+});
