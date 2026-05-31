@@ -23,6 +23,7 @@
     "@fastify/swagger": "^9.5.1",
     "@fastify/swagger-ui": "^5.2.2",
     "@sentry/node": "^9.20.0",
+    "@teacheros/ai-worker": "*",
     "@teacheros/contracts": "*",
     "@teacheros/db": "*",
     "bullmq": "^5.53.0",

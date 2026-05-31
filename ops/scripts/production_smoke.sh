@@ -57,9 +57,11 @@ echo "Checking API capabilities                    PASS"
 if [[ "${REQUIRE_AI_CAPABILITIES}" == "1" ]]; then
   redis_enabled="$(printf '%s' "${capabilities_response}" | json_field "redis")"
   queue_enabled="$(printf '%s' "${capabilities_response}" | json_field "aiQueue")"
+  worker_enabled="$(printf '%s' "${capabilities_response}" | json_field "aiWorker")"
   openai_enabled="$(printf '%s' "${capabilities_response}" | json_field "openai")"
   test "${redis_enabled}" == "true"
   test "${queue_enabled}" == "true"
+  test "${worker_enabled}" == "true"
   test "${openai_enabled}" == "true"
   PASS_COUNT=$((PASS_COUNT + 1))
   echo "Checking AI runtime capabilities             PASS"

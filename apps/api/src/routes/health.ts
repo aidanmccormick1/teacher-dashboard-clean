@@ -11,6 +11,7 @@ export async function healthRoutes(app: FastifyInstance) {
     database: true,
     redis: Boolean(app.redis),
     aiQueue: Boolean(app.aiQueue),
+    aiWorker: Boolean(app.embeddedAiWorker),
     openai: Boolean(app.config.OPENAI_API_KEY),
     s3: Boolean(
       app.config.S3_BUCKET &&

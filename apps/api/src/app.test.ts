@@ -16,6 +16,7 @@ beforeAll(async () => {
     OPENAI_MODEL_CONTINUITY: 'gpt-4o',
     OPENAI_MODEL_GENERATE_SEGMENTS: 'gpt-4o',
     OPENAI_MODEL_PARSE_SCHEDULE: 'gpt-4o-mini',
+    RUN_EMBEDDED_AI_WORKER: false,
     REDIS_URL: undefined,
     OPENAI_API_KEY: undefined,
     CLERK_SECRET_KEY: undefined,
@@ -56,6 +57,7 @@ describe('health endpoints', () => {
       database: true,
       redis: false,
       aiQueue: false,
+      aiWorker: false,
       openai: false,
       s3: false
     });

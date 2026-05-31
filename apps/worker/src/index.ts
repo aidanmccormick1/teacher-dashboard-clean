@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 import { z } from 'zod';
 
-import { createAiJobsWorker } from './jobs/ai-jobs.js';
+import { createAiJobsWorker } from '@teacheros/ai-worker';
 
 const EnvSchema = z.object({
   REDIS_URL: z.string().min(1).optional(),

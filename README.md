@@ -6,7 +6,8 @@ This repository contains the v2 rebuild of the Teacher Platform with an API-firs
 
 - `apps/web`: React + Vite SPA (Cloudflare Pages target)
 - `apps/api`: Fastify TypeScript API (Render target)
-- `apps/worker`: BullMQ worker for async AI jobs
+- `apps/worker`: optional standalone BullMQ process for async AI jobs
+- `packages/ai-worker`: shared queued-job processor used by the API pilot mode and standalone worker
 - `packages/db`: Drizzle schema + migrations for Neon Postgres
 - `packages/contracts`: Shared Zod contracts for request/response types
 
@@ -37,8 +38,8 @@ Add the pilot token to verify authenticated teacher reads:
 
 - `PILOT_TOKEN=... npm run ops:smoke:production`
 
-After the Render worker and private S3 bucket are configured, verify the full queued reader and signed-upload paths:
+After the private S3 bucket is configured, verify the full queued reader and signed-upload paths:
 
 - `PILOT_TOKEN=... REQUIRE_AI_CAPABILITIES=1 SMOKE_AI_QUEUE=1 SMOKE_S3_UPLOAD=1 npm run ops:smoke:production`
 
-The checked-in `render.yaml` provisions the API, BullMQ worker, Redis-compatible key-value store, and Postgres in Render's Ohio US-East region. S3 and API keys remain private dashboard variables.
+The checked-in `render.yaml` provisions the API, Redis-compatible key-value store, and Postgres in Render's Ohio US-East region. The free pilot runs the BullMQ processor inside the API process. A standalone `apps/worker` process remains available for a paid production worker later. S3 and API keys remain private dashboard variables.

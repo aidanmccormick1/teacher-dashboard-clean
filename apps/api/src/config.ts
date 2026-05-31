@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+const booleanFromEnv = z.preprocess((value) => {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
+}, z.boolean());
+
 const ConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_PORT: z.preprocess(
@@ -17,6 +23,7 @@ const ConfigSchema = z.object({
   OPENAI_MODEL_PARSE_SCHEDULE: z.string().default('gpt-4o-mini'),
   OPENAI_MODEL_GENERATE_SEGMENTS: z.string().default('gpt-4o'),
   OPENAI_MODEL_CONTINUITY: z.string().default('gpt-4o'),
+  RUN_EMBEDDED_AI_WORKER: booleanFromEnv.default(false),
   S3_REGION: z.string().default('us-east-1'),
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),

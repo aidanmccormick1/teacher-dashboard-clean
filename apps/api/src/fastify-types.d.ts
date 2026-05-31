@@ -1,5 +1,5 @@
 import type { Redis } from 'ioredis';
-import type { Queue } from 'bullmq';
+import type { Queue, Worker } from 'bullmq';
 
 import type { AppConfig } from './config.js';
 
@@ -13,6 +13,7 @@ declare module 'fastify' {
     config: AppConfig;
     redis: Redis | null;
     aiQueue: Queue<{ jobId: string }> | null;
+    embeddedAiWorker: Worker<{ jobId: string }> | null;
   }
 
   interface FastifyRequest {

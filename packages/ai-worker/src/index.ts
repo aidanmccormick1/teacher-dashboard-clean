@@ -6,15 +6,15 @@ import {
   GenerateSegmentsResponseSchema,
   ParseScheduleResponseSchema
 } from '@teacheros/contracts';
-
 import { aiJobs, aiOutputs, db } from '@teacheros/db';
-import { runStructuredPrompt } from '../lib/openai.js';
+
+import { runStructuredPrompt } from './openai.js';
 
 type AiQueuePayload = {
   jobId: string;
 };
 
-type WorkerConfig = {
+export type AiWorkerConfig = {
   redisUrl: string;
   openAiApiKey: string;
   modelParseSchedule: string;
@@ -58,7 +58,7 @@ function scheduleImportUserPrompt(input: ScheduleImportInput): string {
   return 'Parse the uploaded schedule image. Extract teaching classes and assignments. Return JSON only.';
 }
 
-export function createAiJobsWorker(config: WorkerConfig): Worker<AiQueuePayload> {
+export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayload> {
   const { redisUrl, openAiApiKey, modelParseSchedule, modelGenerateSegments, modelContinuity } =
     config;
   const connection = new Redis(redisUrl, {

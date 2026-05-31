@@ -17,7 +17,7 @@
     "dev:worker": "set -a; . ./.env; set +a; npm --workspace @teacheros/worker run dev",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "pretest": "npm --workspace @teacheros/contracts run build && npm --workspace @teacheros/db run build",
+    "pretest": "npm --workspace @teacheros/contracts run build && npm --workspace @teacheros/db run build && npm --workspace @teacheros/ai-worker run build",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "format": "prettier --write .",

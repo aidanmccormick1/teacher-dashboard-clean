@@ -81,6 +81,7 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       OPENAI_MODEL_CONTINUITY: 'gpt-4o',
       OPENAI_MODEL_GENERATE_SEGMENTS: 'gpt-4o',
       OPENAI_MODEL_PARSE_SCHEDULE: 'gpt-4o-mini',
+      RUN_EMBEDDED_AI_WORKER: false,
       REDIS_URL: undefined,
       OPENAI_API_KEY: undefined,
       CLERK_SECRET_KEY: undefined,

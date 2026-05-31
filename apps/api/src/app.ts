@@ -12,6 +12,7 @@ import {
   serializerCompiler,
   validatorCompiler
 } from 'fastify-type-provider-zod';
+import { createAiJobsWorker } from '@teacheros/ai-worker';
 
 import type { AppConfig } from './config.js';
 import { createRedisClient } from './lib/redis.js';
@@ -49,6 +50,29 @@ export async function createApp(config: AppConfig) {
   }
   app.decorate('redis', redis);
   app.decorate('aiQueue', createAiQueue(redis));
+  const embeddedAiWorker =
+    config.RUN_EMBEDDED_AI_WORKER && config.REDIS_URL && config.OPENAI_API_KEY
+      ? createAiJobsWorker({
+          redisUrl: config.REDIS_URL,
+          openAiApiKey: config.OPENAI_API_KEY,
+          modelParseSchedule: config.OPENAI_MODEL_PARSE_SCHEDULE,
+          modelGenerateSegments: config.OPENAI_MODEL_GENERATE_SEGMENTS,
+          modelContinuity: config.OPENAI_MODEL_CONTINUITY
+        })
+      : null;
+  app.decorate('embeddedAiWorker', embeddedAiWorker);
+
+  if (config.RUN_EMBEDDED_AI_WORKER && !embeddedAiWorker) {
+    app.log.warn('Embedded AI worker requested but REDIS_URL or OPENAI_API_KEY is not configured');
+  }
+
+  embeddedAiWorker?.on('ready', () => {
+    app.log.info('Embedded AI worker ready');
+  });
+
+  embeddedAiWorker?.on('failed', (job, error) => {
+    app.log.error({ jobId: job?.id, error }, 'Embedded AI job failed');
+  });
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
@@ -108,11 +132,14 @@ export async function createApp(config: AppConfig) {
   });
 
   app.addHook('onClose', async () => {
-    if (redis) {
-      await redis.quit();
+    if (embeddedAiWorker) {
+      await embeddedAiWorker.close();
     }
     if (app.aiQueue) {
       await app.aiQueue.close();
+    }
+    if (redis) {
+      await redis.quit();
     }
   });
 
