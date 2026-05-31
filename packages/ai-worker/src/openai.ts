@@ -12,6 +12,53 @@ type PromptInput = {
   fileName?: string;
 };
 
+const unsupportedStrictSchemaKeywords = new Set([
+  '$schema',
+  'default',
+  'format',
+  'maxItems',
+  'maxLength',
+  'maximum',
+  'minItems',
+  'minLength',
+  'minimum',
+  'multipleOf',
+  'pattern'
+]);
+
+function normalizeStrictSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeStrictSchema);
+  if (!value || typeof value !== 'object') return value;
+
+  const normalized = Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !unsupportedStrictSchemaKeywords.has(key))
+      .map(([key, child]) => [key, normalizeStrictSchema(child)])
+  );
+
+  if (
+    normalized.type === 'object' &&
+    normalized.properties &&
+    typeof normalized.properties === 'object'
+  ) {
+    normalized.required = Object.keys(normalized.properties);
+  }
+
+  return normalized;
+}
+
+async function openAiErrorMessage(response: Response): Promise<string> {
+  const payload = (await response.json().catch(() => null)) as {
+    error?: { code?: string; message?: string; type?: string };
+  } | null;
+  const apiError = payload?.error;
+  const code = apiError?.code ?? apiError?.type;
+  const detail = apiError?.message;
+  return ['OpenAI request failed', `status ${response.status}`, code, detail]
+    .filter(Boolean)
+    .join(': ');
+}
+
 function buildUserContent(params: PromptInput) {
   if (!params.fileDataUrl) return params.userPrompt;
 
@@ -71,7 +118,9 @@ function extractOutputText(payload: unknown): string {
 }
 
 export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
-  const schemaJson = zodToJsonSchema(params.schema, params.schemaName);
+  const schemaJson = normalizeStrictSchema(
+    zodToJsonSchema(params.schema, { $refStrategy: 'none' })
+  );
 
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
@@ -97,7 +146,7 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI request failed with status ${response.status}`);
+    throw new Error(await openAiErrorMessage(response));
   }
 
   const payload = (await response.json()) as unknown;
