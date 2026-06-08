@@ -120,6 +120,66 @@ a {
   line-height: 1.6;
 }
 
+.login-proof-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.login-proof-list span {
+  border: 1px solid rgba(65, 55, 40, 0.12);
+  border-radius: 999px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.login-workspace-card {
+  display: grid;
+  gap: 16px;
+  align-self: stretch;
+  border: 1px solid rgba(65, 55, 40, 0.12);
+  border-radius: 18px;
+  padding: 16px;
+  background:
+    radial-gradient(circle at 80% 0%, rgba(255, 255, 255, 0.88), transparent 32%),
+    rgba(255, 253, 247, 0.86);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 18px 46px rgba(80, 58, 31, 0.12);
+}
+
+.login-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  border: 1px solid rgba(65, 55, 40, 0.1);
+  border-radius: 999px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.login-mode-tabs button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.login-mode-tabs button.active {
+  background: var(--navy);
+  color: #fffaf3;
+  box-shadow: 0 10px 22px rgba(36, 50, 70, 0.18);
+}
+
 .login-card,
 .login-dev-card {
   width: 100%;
@@ -131,13 +191,31 @@ a {
   place-items: center;
 }
 
+.login-account-note {
+  border: 1px solid rgba(65, 55, 40, 0.1);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(248, 244, 237, 0.7);
+}
+
+.login-account-note strong,
+.login-account-note p {
+  margin: 0;
+}
+
+.login-account-note p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
 .pilot-login-card {
-  grid-column: 2;
   display: grid;
   gap: 12px;
-  padding: 16px;
-  border: 1px dashed rgba(38, 56, 77, 0.28);
-  border-radius: 6px;
+  padding: 18px;
+  border: 1px solid rgba(38, 56, 77, 0.16);
+  border-radius: 16px;
   background: #fffdf7;
 }
 
@@ -3418,8 +3496,9 @@ progress::-webkit-progress-value {
     grid-template-columns: 1fr;
     padding: 22px;
   }
-  .pilot-login-card {
-    grid-column: auto;
+  .login-mode-tabs {
+    grid-template-columns: 1fr;
+    border-radius: 18px;
   }
   .login-intro h1 {
     font-size: clamp(2.2rem, 12vw, 3.8rem);

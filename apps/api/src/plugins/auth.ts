@@ -27,13 +27,6 @@ export const authPlugin = fp(async (app) => {
       return;
     }
 
-    const clerkJwtKey = app.config.CLERK_JWT_KEY;
-
-    if (!app.config.CLERK_SECRET_KEY && !clerkJwtKey) {
-      reply.code(500).send({ error: 'Clerk token verification is not configured', requestId: request.id });
-      return;
-    }
-
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();
     if (!token) {
       reply.code(401).send({ error: 'Invalid Authorization header', requestId: request.id });
@@ -45,6 +38,13 @@ export const authPlugin = fp(async (app) => {
         clerkUserId: 'pilot-teacher-demo',
         email: 'teacher.test@example.com'
       };
+      return;
+    }
+
+    const clerkJwtKey = app.config.CLERK_JWT_KEY;
+
+    if (!app.config.CLERK_SECRET_KEY && !clerkJwtKey) {
+      reply.code(500).send({ error: 'Clerk token verification is not configured', requestId: request.id });
       return;
     }
 

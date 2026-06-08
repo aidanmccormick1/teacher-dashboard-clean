@@ -28,6 +28,9 @@ beforeAll(async () => {
   };
 
   app = await createApp(config);
+  app.get('/test-auth-principal', async (request) => ({
+    principal: request.principal
+  }));
 });
 
 afterAll(async () => {
@@ -89,6 +92,24 @@ describe('authentication guard', () => {
     expect(response.statusCode).toBe(500);
     expect(response.json()).toMatchObject({
       error: 'Clerk token verification is not configured'
+    });
+  });
+
+  it('accepts the pilot account token without Clerk verification', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/test-auth-principal',
+      headers: {
+        authorization: 'Bearer teacher-dashboard-pilot-2026'
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      principal: {
+        clerkUserId: 'pilot-teacher-demo',
+        email: 'teacher.test@example.com'
+      }
     });
   });
 });

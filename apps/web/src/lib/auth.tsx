@@ -34,9 +34,17 @@ const AuthContext = createContext<AuthState | null>(null);
 function DevAuthProvider({ children }: PropsWithChildren) {
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [isPilot, setIsPilot] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
+    const pilotSession = window.localStorage.getItem(PILOT_SESSION_KEY) === 'true';
+    if (pilotSession) {
+      setIsPilot(true);
+      setIsLoaded(true);
+      return;
+    }
+
     const raw = window.localStorage.getItem(DEV_SESSION_KEY);
     if (!raw) {
       setIsLoaded(true);
@@ -58,29 +66,37 @@ function DevAuthProvider({ children }: PropsWithChildren) {
     () => ({
       mode: 'dev',
       isLoaded,
-      isSignedIn: Boolean(userId),
-      isPilot: false,
-      userId,
-      email,
-      getToken: async () => null,
+      isSignedIn: isPilot || Boolean(userId),
+      isPilot,
+      userId: isPilot ? 'pilot-teacher-demo' : userId,
+      email: isPilot ? PILOT_EMAIL : email,
+      getToken: async () => (isPilot ? PILOT_TOKEN : null),
       signOut: async () => {
+        setIsPilot(false);
         setUserId(null);
         setEmail(null);
+        window.localStorage.removeItem(PILOT_SESSION_KEY);
         window.localStorage.removeItem(DEV_SESSION_KEY);
       },
       signInPilot: () => {
-        throw new Error('signInPilot is unavailable in local dev mode');
+        setIsPilot(true);
+        setUserId(null);
+        setEmail(null);
+        window.localStorage.setItem(PILOT_SESSION_KEY, 'true');
+        window.localStorage.removeItem(DEV_SESSION_KEY);
       },
       signInDev: (nextUserId, nextEmail) => {
+        setIsPilot(false);
         setUserId(nextUserId);
         setEmail(nextEmail);
+        window.localStorage.removeItem(PILOT_SESSION_KEY);
         window.localStorage.setItem(
           DEV_SESSION_KEY,
           JSON.stringify({ userId: nextUserId, email: nextEmail })
         );
       }
     }),
-    [email, isLoaded, userId]
+    [email, isLoaded, isPilot, userId]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

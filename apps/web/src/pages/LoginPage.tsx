@@ -1,4 +1,4 @@
-import { SignIn } from '@clerk/clerk-react';
+import { SignIn, SignUp } from '@clerk/clerk-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -6,10 +6,12 @@ import { useAppAuth } from '../lib/auth.js';
 
 const PILOT_EMAIL = 'teacher.test@example.com';
 const PILOT_PASSWORD = 'TeacherTest2026!';
+type LoginMode = 'signin' | 'signup' | 'pilot';
 
 export function LoginPage() {
   const auth = useAppAuth();
   const navigate = useNavigate();
+  const [loginMode, setLoginMode] = useState<LoginMode>('signin');
   const [devUserId, setDevUserId] = useState('teacher-dev-1');
   const [devEmail, setDevEmail] = useState('teacher@example.com');
   const [pilotEmail, setPilotEmail] = useState(PILOT_EMAIL);
@@ -21,83 +23,135 @@ export function LoginPage() {
     if (auth.isSignedIn) navigate('/dashboard');
   }, [auth.isSignedIn, navigate]);
 
+  const signInPilotAccount = () => {
+    if (pilotEmail.trim().toLowerCase() !== PILOT_EMAIL || pilotPassword !== PILOT_PASSWORD) {
+      setPilotError('Use the pilot account email and password.');
+      setPilotStatus(null);
+      return;
+    }
+
+    auth.signInPilot();
+    navigate('/dashboard');
+  };
+
   if (auth.mode === 'clerk') {
     return (
       <main className="login-page">
         <section className="login-panel">
           <div className="login-intro">
-            <p className="eyebrow">Teacher Dashboard</p>
-            <h1>Plan the day, then teach from the right place.</h1>
+            <p className="eyebrow">TeacherOS</p>
+            <h1>Sign in, create an account, or use the pilot account.</h1>
             <p className="muted">
-              Sign in to manage courses, schedules, year plans, and class progress in one workspace.
+              Use a real account when you are ready. Use the pilot account when you want to test the app immediately.
             </p>
+            <div className="login-proof-list">
+              <span>Courses</span>
+              <span>Periods</span>
+              <span>Year Plan</span>
+              <span>Progress</span>
+            </div>
           </div>
-          <div className="login-card">
-            <SignIn fallbackRedirectUrl="/dashboard" signUpFallbackRedirectUrl="/dashboard" />
-          </div>
-          <form
-            className="pilot-login-card"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (pilotEmail.trim().toLowerCase() !== PILOT_EMAIL || pilotPassword !== PILOT_PASSWORD) {
-                setPilotError('Use the temporary teacher test credentials.');
-                setPilotStatus(null);
-                return;
-              }
 
-              auth.signInPilot();
-              navigate('/dashboard');
-            }}
-          >
-            <div>
-              <strong>Temporary teacher test login</strong>
-              <p className="muted">Use this while Clerk email verification is being finalized.</p>
-            </div>
-            <div className="pilot-credential-actions">
+          <div className="login-workspace-card">
+            <div className="login-mode-tabs" role="tablist" aria-label="Login options">
               <button
-                className="secondary"
+                className={loginMode === 'signin' ? 'active' : ''}
                 type="button"
-                onClick={() => {
-                  setPilotEmail(PILOT_EMAIL);
-                  setPilotPassword(PILOT_PASSWORD);
-                  setPilotError(null);
-                  setPilotStatus('Test login filled.');
-                }}
+                role="tab"
+                aria-selected={loginMode === 'signin'}
+                onClick={() => setLoginMode('signin')}
               >
-                Fill test login
+                Existing user
               </button>
               <button
-                className="secondary"
+                className={loginMode === 'signup' ? 'active' : ''}
                 type="button"
-                onClick={() => {
-                  void navigator.clipboard
-                    ?.writeText(`Email: ${PILOT_EMAIL}\nPassword: ${PILOT_PASSWORD}`)
-                    .catch(() => undefined);
-                  setPilotStatus('Test credentials copied.');
-                }}
+                role="tab"
+                aria-selected={loginMode === 'signup'}
+                onClick={() => setLoginMode('signup')}
               >
-                Copy credentials
+                Create account
+              </button>
+              <button
+                className={loginMode === 'pilot' ? 'active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={loginMode === 'pilot'}
+                onClick={() => setLoginMode('pilot')}
+              >
+                Pilot account
               </button>
             </div>
-            <label>
-              Email
-              <input className="input" value={pilotEmail} onChange={(event) => setPilotEmail(event.target.value)} />
-            </label>
-            <label>
-              Password
-              <input
-                className="input"
-                type="password"
-                value={pilotPassword}
-                onChange={(event) => setPilotPassword(event.target.value)}
-              />
-            </label>
-            {pilotError ? <p className="notice warning">{pilotError}</p> : null}
-            {pilotStatus ? <p className="notice success">{pilotStatus}</p> : null}
-            <button type="submit" className="secondary">
-              Use temporary login
-            </button>
-          </form>
+
+            {loginMode === 'signin' ? (
+              <div className="login-card">
+                <SignIn
+                  fallbackRedirectUrl="/dashboard"
+                  signUpFallbackRedirectUrl="/dashboard"
+                  signUpUrl="/login"
+                />
+              </div>
+            ) : null}
+
+            {loginMode === 'signup' ? (
+              <div className="login-card">
+                <SignUp fallbackRedirectUrl="/dashboard" signInUrl="/login" />
+              </div>
+            ) : null}
+
+            {loginMode === 'pilot' ? (
+              <form
+                className="pilot-login-card"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  signInPilotAccount();
+                }}
+              >
+                <div>
+                  <strong>TeacherOS pilot account</strong>
+                  <p className="muted">A working test account for trying the official app flow.</p>
+                </div>
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => {
+                    setPilotEmail(PILOT_EMAIL);
+                    setPilotPassword(PILOT_PASSWORD);
+                    setPilotError(null);
+                    setPilotStatus('Pilot account filled.');
+                  }}
+                >
+                  Fill pilot account
+                </button>
+                <label>
+                  Email
+                  <input className="input" value={pilotEmail} onChange={(event) => setPilotEmail(event.target.value)} />
+                </label>
+                <label>
+                  Password
+                  <input
+                    className="input"
+                    type="password"
+                    value={pilotPassword}
+                    onChange={(event) => setPilotPassword(event.target.value)}
+                  />
+                </label>
+                {pilotError ? <p className="notice warning">{pilotError}</p> : null}
+                {pilotStatus ? <p className="notice success">{pilotStatus}</p> : null}
+                <button type="submit">
+                  Sign in with pilot account
+                </button>
+              </form>
+            ) : null}
+
+            <div className="login-account-note">
+              <strong>For testers</strong>
+              <p>
+                Start with the pilot account if you want to see the dashboard right away. Create your own account
+                when you want a separate login.
+              </p>
+            </div>
+          </div>
         </section>
       </main>
     );
@@ -107,28 +161,118 @@ export function LoginPage() {
     <main className="login-page">
       <section className="login-panel">
         <div className="login-intro">
-          <p className="eyebrow">Teacher Dashboard</p>
-          <h1>Local test login</h1>
-          <p className="muted">Use this only when Clerk is not configured for the local dev server.</p>
+          <p className="eyebrow">TeacherOS</p>
+          <h1>Local test mode</h1>
+          <p className="muted">Use this only when Clerk is not configured for this build.</p>
+          <div className="login-proof-list">
+            <span>Local</span>
+            <span>Testing</span>
+            <span>No email needed</span>
+          </div>
         </div>
-        <div className="card stack login-dev-card">
-          <label>
-            User ID
-            <input className="input" value={devUserId} onChange={(e) => setDevUserId(e.target.value)} />
-          </label>
-          <label>
-            Email
-            <input className="input" value={devEmail} onChange={(e) => setDevEmail(e.target.value)} />
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              auth.signInDev(devUserId, devEmail || null);
-              navigate('/dashboard');
-            }}
-          >
-            Sign in
-          </button>
+        <div className="login-workspace-card">
+          <div className="login-mode-tabs" role="tablist" aria-label="Local login options">
+            <button
+              className={loginMode === 'signin' ? 'active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={loginMode === 'signin'}
+              onClick={() => setLoginMode('signin')}
+            >
+              Existing user
+            </button>
+            <button
+              className={loginMode === 'signup' ? 'active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={loginMode === 'signup'}
+              onClick={() => setLoginMode('signup')}
+            >
+              Create account
+            </button>
+            <button
+              className={loginMode === 'pilot' ? 'active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={loginMode === 'pilot'}
+              onClick={() => setLoginMode('pilot')}
+            >
+              Pilot account
+            </button>
+          </div>
+
+          {loginMode === 'signin' || loginMode === 'signup' ? (
+            <div className="card stack login-dev-card">
+              <div>
+                <strong>{loginMode === 'signup' ? 'Create local account' : 'Existing local user'}</strong>
+                <p className="muted">
+                  This creates a local browser session for development. Live account creation uses Clerk.
+                </p>
+              </div>
+              <label>
+                User ID
+                <input className="input" value={devUserId} onChange={(e) => setDevUserId(e.target.value)} />
+              </label>
+              <label>
+                Email
+                <input className="input" value={devEmail} onChange={(e) => setDevEmail(e.target.value)} />
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  auth.signInDev(devUserId, devEmail || null);
+                  navigate('/dashboard');
+                }}
+              >
+                {loginMode === 'signup' ? 'Create local account' : 'Sign in'}
+              </button>
+            </div>
+          ) : null}
+
+          {loginMode === 'pilot' ? (
+            <form
+              className="pilot-login-card"
+              onSubmit={(event) => {
+                event.preventDefault();
+                signInPilotAccount();
+              }}
+            >
+              <div>
+                <strong>TeacherOS pilot account</strong>
+                <p className="muted">Use this for the shared tester workspace.</p>
+              </div>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  setPilotEmail(PILOT_EMAIL);
+                  setPilotPassword(PILOT_PASSWORD);
+                  setPilotError(null);
+                  setPilotStatus('Pilot account filled.');
+                }}
+              >
+                Fill pilot account
+              </button>
+              <label>
+                Email
+                <input className="input" value={pilotEmail} onChange={(event) => setPilotEmail(event.target.value)} />
+              </label>
+              <label>
+                Password
+                <input
+                  className="input"
+                  type="password"
+                  value={pilotPassword}
+                  onChange={(event) => setPilotPassword(event.target.value)}
+                />
+              </label>
+              {pilotError ? <p className="notice warning">{pilotError}</p> : null}
+              {pilotStatus ? <p className="notice success">{pilotStatus}</p> : null}
+              <button type="submit">
+                Sign in with pilot account
+              </button>
+            </form>
+          ) : null}
         </div>
       </section>
     </main>
