@@ -2561,6 +2561,7 @@ progress::-webkit-progress-value {
 }
 
 .landing-page {
+  position: relative;
   min-height: 100vh;
   color: var(--ink);
   background:
@@ -2568,7 +2569,51 @@ progress::-webkit-progress-value {
     radial-gradient(circle at 88% 12%, rgba(73, 109, 91, 0.18), transparent 34%),
     radial-gradient(circle at 58% 68%, rgba(49, 80, 108, 0.12), transparent 32%),
     linear-gradient(145deg, #f8f4ed 0%, #e9dfcf 48%, #f7f3ea 100%);
+  overflow-x: hidden;
+}
+
+.landing-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
   overflow: hidden;
+  pointer-events: none;
+}
+
+.landing-ambient span {
+  position: absolute;
+  width: 38vw;
+  min-width: 360px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  filter: blur(12px);
+  opacity: 0.42;
+  animation: landingFloat 18s ease-in-out infinite alternate;
+}
+
+.landing-ambient span:nth-child(1) {
+  top: 7%;
+  left: -12%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.86), rgba(217, 187, 131, 0.1) 62%, transparent 70%);
+}
+
+.landing-ambient span:nth-child(2) {
+  top: 12%;
+  right: -13%;
+  background: radial-gradient(circle, rgba(80, 118, 98, 0.24), rgba(80, 118, 98, 0.06) 60%, transparent 72%);
+  animation-delay: -6s;
+}
+
+.landing-ambient span:nth-child(3) {
+  bottom: 8%;
+  left: 44%;
+  background: radial-gradient(circle, rgba(37, 58, 80, 0.18), rgba(255, 255, 255, 0.05) 58%, transparent 72%);
+  animation-delay: -11s;
+}
+
+.landing-page > *:not(.landing-ambient) {
+  position: relative;
+  z-index: 1;
 }
 
 .landing-nav {
@@ -2590,6 +2635,7 @@ progress::-webkit-progress-value {
     0 18px 54px rgba(48, 42, 32, 0.12);
   backdrop-filter: blur(22px) saturate(140%);
   -webkit-backdrop-filter: blur(22px) saturate(140%);
+  animation: landingDrop 680ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .landing-brand {
@@ -2619,6 +2665,13 @@ progress::-webkit-progress-value {
   color: #fff;
   font-weight: 850;
   box-shadow: 0 12px 26px rgba(36, 50, 70, 0.18);
+  transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.landing-nav-cta:hover {
+  transform: translateY(-1px);
+  background: #172638;
+  box-shadow: 0 18px 34px rgba(36, 50, 70, 0.24);
 }
 
 .landing-hero,
@@ -2637,13 +2690,14 @@ progress::-webkit-progress-value {
   grid-template-columns: minmax(0, 0.95fr) minmax(380px, 1.05fr);
   gap: clamp(26px, 5vw, 62px);
   align-items: center;
-  min-height: calc(100vh - 94px);
-  padding: clamp(42px, 7vw, 88px) 0 52px;
+  min-height: calc(100svh - 94px);
+  padding: clamp(52px, 8vw, 108px) 0 70px;
 }
 
 .landing-hero-copy {
   display: grid;
   gap: 18px;
+  animation: landingRise 840ms cubic-bezier(0.16, 1, 0.3, 1) 100ms both;
 }
 
 .landing-hero h1,
@@ -2684,6 +2738,38 @@ progress::-webkit-progress-value {
   align-items: center;
 }
 
+.landing-hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 640px;
+  margin-top: 10px;
+}
+
+.landing-hero-metrics div {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(65, 55, 40, 0.1);
+  border-radius: 20px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.landing-hero-metrics strong {
+  color: var(--navy);
+  font-size: 1.55rem;
+  letter-spacing: -0.06em;
+  line-height: 1;
+}
+
+.landing-hero-metrics span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
 .landing-product-shot {
   position: relative;
   display: grid;
@@ -2700,6 +2786,9 @@ progress::-webkit-progress-value {
     0 38px 90px rgba(48, 42, 32, 0.18);
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
+  overflow: hidden;
+  transform-style: preserve-3d;
+  animation: landingPreviewIn 920ms cubic-bezier(0.16, 1, 0.3, 1) 220ms both;
 }
 
 .landing-product-shot::before {
@@ -2709,6 +2798,56 @@ progress::-webkit-progress-value {
   border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: 30px;
   pointer-events: none;
+}
+
+.landing-product-shot::after {
+  content: '';
+  position: absolute;
+  top: -35%;
+  left: -35%;
+  width: 56%;
+  height: 150%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.46), transparent);
+  transform: rotate(24deg);
+  animation: landingSheen 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.landing-preview-tabs {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid rgba(65, 55, 40, 0.1);
+  border-radius: 999px;
+  padding: 7px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+}
+
+.landing-preview-tabs button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.landing-preview-tabs button:hover {
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.landing-preview-tabs button.active {
+  background: var(--navy);
+  color: #fffaf3;
+  box-shadow: 0 12px 26px rgba(36, 50, 70, 0.18);
 }
 
 .landing-shot-top {
@@ -2778,11 +2917,23 @@ progress::-webkit-progress-value {
   gap: 9px;
   min-height: 180px;
   padding: 18px;
+  transition: transform 220ms ease, box-shadow 220ms ease, background 220ms ease;
 }
 
 .landing-shot-card.current {
   background:
     linear-gradient(145deg, rgba(232, 241, 235, 0.9), rgba(255, 255, 255, 0.64));
+}
+
+.landing-shot-card:hover,
+.landing-progress-card:hover,
+.landing-model-board > div:hover,
+.landing-pillar-grid article:hover,
+.landing-workflow article:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 22px 54px rgba(48, 42, 32, 0.14);
 }
 
 .landing-shot-card strong {
@@ -2795,6 +2946,13 @@ progress::-webkit-progress-value {
   margin: 0;
   color: var(--muted);
   line-height: 1.5;
+}
+
+.landing-shot-card small,
+.landing-progress-card small {
+  color: var(--green);
+  font-weight: 900;
+  letter-spacing: 0.02em;
 }
 
 .landing-progress-card {
@@ -2811,12 +2969,89 @@ progress::-webkit-progress-value {
   border-radius: 18px;
   padding: 14px;
   background: rgba(248, 244, 237, 0.72);
+  position: relative;
+  overflow: hidden;
+}
+
+.landing-progress-card div::after {
+  content: '';
+  width: 72%;
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--green), rgba(73, 109, 91, 0.18));
 }
 
 .landing-progress-card strong {
   color: var(--navy);
   font-size: 1.35rem;
   letter-spacing: -0.05em;
+}
+
+.landing-mini-timeline {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  min-height: 82px;
+  border: 1px solid rgba(65, 55, 40, 0.1);
+  border-radius: 24px;
+  padding: 22px 18px 18px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.landing-mini-timeline::before {
+  content: '';
+  position: absolute;
+  right: 18px;
+  left: 18px;
+  top: 50%;
+  height: 8px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(73, 109, 91, 0.22), rgba(36, 50, 70, 0.2)),
+    rgba(255, 255, 255, 0.7);
+}
+
+.landing-mini-timeline span {
+  position: absolute;
+  left: var(--offset);
+  top: 14px;
+  z-index: 2;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  padding: 7px 9px;
+  background: #fffaf3;
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 900;
+  box-shadow: 0 10px 24px rgba(48, 42, 32, 0.12);
+}
+
+.landing-mini-timeline i {
+  position: absolute;
+  left: 50%;
+  top: 11px;
+  bottom: 11px;
+  z-index: 3;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--rust);
+  box-shadow: 0 0 0 6px rgba(168, 78, 56, 0.12);
+  animation: landingPulse 2.4s ease-in-out infinite;
+}
+
+.landing-scroll-cue {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  animation: landingBounce 2.4s ease-in-out infinite;
 }
 
 .landing-question-panel,
@@ -2833,6 +3068,12 @@ progress::-webkit-progress-value {
   box-shadow: var(--soft-shadow);
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
+  animation-name: landingRise;
+  animation-duration: 1ms;
+  animation-fill-mode: both;
+  animation-timing-function: ease;
+  animation-timeline: view();
+  animation-range: entry 0% cover 34%;
 }
 
 .landing-question-panel {
@@ -2864,9 +3105,20 @@ progress::-webkit-progress-value {
   background: rgba(255, 255, 255, 0.55);
   color: var(--ink);
   font-weight: 750;
+  transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.landing-question-list span:hover,
+.landing-helper-list span:hover {
+  transform: translateX(6px);
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 14px 34px rgba(48, 42, 32, 0.1);
 }
 
 .landing-section {
+  display: grid;
+  align-content: center;
+  min-height: 88svh;
   padding: clamp(58px, 9vw, 108px) 0;
 }
 
@@ -2886,11 +3138,33 @@ progress::-webkit-progress-value {
 
 .landing-workflow article,
 .landing-pillar-grid article {
+  position: relative;
   display: grid;
   gap: 12px;
   align-content: start;
   min-height: 230px;
   padding: 22px;
+  overflow: hidden;
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.landing-workflow article::after,
+.landing-pillar-grid article::after {
+  content: '';
+  position: absolute;
+  right: -34px;
+  bottom: -42px;
+  width: 100px;
+  height: 100px;
+  border-radius: 999px;
+  background: rgba(73, 109, 91, 0.09);
+  transition: transform 280ms ease, opacity 280ms ease;
+}
+
+.landing-workflow article:hover::after,
+.landing-pillar-grid article:hover::after {
+  transform: scale(1.45);
+  opacity: 0.9;
 }
 
 .landing-workflow article span {
@@ -2918,6 +3192,23 @@ progress::-webkit-progress-value {
 .landing-model-section {
   grid-template-columns: minmax(0, 0.95fr) minmax(340px, 1.05fr);
   align-items: center;
+  min-height: 78svh;
+  position: relative;
+  overflow: hidden;
+}
+
+.landing-model-section::before {
+  content: '';
+  position: absolute;
+  inset: 28px;
+  border-radius: 26px;
+  background:
+    linear-gradient(rgba(65, 55, 40, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(65, 55, 40, 0.06) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  opacity: 0.35;
+  pointer-events: none;
 }
 
 .landing-model-copy {
@@ -2926,15 +3217,31 @@ progress::-webkit-progress-value {
 }
 
 .landing-model-board {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .landing-model-board > div {
+  position: relative;
   display: grid;
   gap: 8px;
   padding: 18px;
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+
+.landing-model-board .course-node {
+  grid-column: 1 / -1;
+  background:
+    radial-gradient(circle at 86% 22%, rgba(255, 255, 255, 0.84), transparent 32%),
+    linear-gradient(145deg, rgba(36, 50, 70, 0.92), rgba(36, 50, 70, 0.78));
+}
+
+.landing-model-board .course-node span,
+.landing-model-board .course-node strong,
+.landing-model-board .course-node p {
+  color: #fffaf3;
 }
 
 .landing-model-board strong {
@@ -2953,6 +3260,7 @@ progress::-webkit-progress-value {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
   align-items: center;
   margin-top: clamp(34px, 6vw, 72px);
+  min-height: 62svh;
 }
 
 .landing-test-section {
@@ -2963,10 +3271,24 @@ progress::-webkit-progress-value {
   justify-items: center;
   margin-top: clamp(56px, 8vw, 96px);
   margin-bottom: 34px;
+  min-height: 72svh;
+  align-content: center;
   text-align: center;
   background:
     radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.98), transparent 34%),
     linear-gradient(145deg, rgba(36, 50, 70, 0.94), rgba(37, 45, 52, 0.88));
+  overflow: hidden;
+}
+
+.landing-final-cta::before {
+  content: '';
+  position: absolute;
+  inset: auto auto -38% -18%;
+  width: 62%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 250, 243, 0.16), transparent 66%);
+  animation: landingFloat 12s ease-in-out infinite alternate;
 }
 
 .landing-final-cta h2,
@@ -2985,6 +3307,86 @@ progress::-webkit-progress-value {
   border-color: rgba(255, 255, 255, 0.22);
 }
 
+@keyframes landingDrop {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes landingRise {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landingPreviewIn {
+  from {
+    opacity: 0;
+    transform: translateY(30px) rotateX(6deg) rotateY(-5deg) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotateX(0) rotateY(0) scale(1);
+  }
+}
+
+@keyframes landingFloat {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(28px, -24px, 0) scale(1.06);
+  }
+}
+
+@keyframes landingSheen {
+  0%,
+  52% {
+    transform: translateX(-20%) rotate(24deg);
+    opacity: 0;
+  }
+  64% {
+    opacity: 0.75;
+  }
+  84%,
+  100% {
+    transform: translateX(260%) rotate(24deg);
+    opacity: 0;
+  }
+}
+
+@keyframes landingPulse {
+  0%,
+  100% {
+    transform: scaleY(0.88);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scaleY(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes landingBounce {
+  0%,
+  100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, 8px);
+  }
+}
+
 @media (max-width: 1180px) {
   .setup-readiness-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3001,6 +3403,10 @@ progress::-webkit-progress-value {
   .landing-workflow,
   .landing-pillar-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .landing-hero-metrics {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -3089,8 +3495,19 @@ progress::-webkit-progress-value {
     min-height: auto;
     padding-top: 46px;
   }
+  .landing-section,
+  .landing-model-section,
+  .landing-ai-section,
+  .landing-test-section,
+  .landing-final-cta {
+    min-height: auto;
+  }
   .landing-product-shot {
     min-height: auto;
+  }
+  .landing-preview-tabs {
+    grid-template-columns: 1fr;
+    border-radius: 22px;
   }
   .landing-shot-grid,
   .landing-progress-card,
@@ -3098,6 +3515,26 @@ progress::-webkit-progress-value {
   .landing-workflow,
   .landing-pillar-grid {
     grid-template-columns: 1fr;
+  }
+  .landing-model-board .course-node {
+    grid-column: auto;
+  }
+  .landing-mini-timeline span {
+    position: relative;
+    left: auto;
+    top: auto;
+    transform: none;
+    width: fit-content;
+  }
+  .landing-mini-timeline {
+    align-items: start;
+    gap: 8px;
+    padding-top: 18px;
+  }
+  .landing-mini-timeline::before,
+  .landing-mini-timeline i,
+  .landing-scroll-cue {
+    display: none;
   }
   .landing-hero h1 {
     font-size: clamp(3.5rem, 16vw, 6.2rem);
@@ -3162,5 +3599,22 @@ progress::-webkit-progress-value {
   .metric-card {
     box-shadow: none;
     break-inside: avoid;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+
+  .landing-ambient,
+  .landing-product-shot::after,
+  .landing-scroll-cue {
+    display: none !important;
   }
 }

@@ -1,23 +1,24 @@
+import { useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useAppAuth } from '../lib/auth.js';
 
 const workflowSteps = [
   {
-    title: 'Create one course',
-    body: 'Start with what you teach, not a database record.'
+    title: 'Create a course',
+    body: 'The shared home for units, lessons, and pacing.'
   },
   {
-    title: 'Add class periods',
-    body: 'Attach Period 1, Period 3, and Period 5 to the same course plan.'
+    title: 'Add periods',
+    body: 'Connect each real class period to the course.'
   },
   {
-    title: 'Build the year plan',
-    body: 'Organize units, lessons, and segments in a structure teachers can actually use.'
+    title: 'Plan the year',
+    body: 'Units, lessons, and segments stay easy to scan.'
   },
   {
-    title: 'Resume the right class',
-    body: 'Each section remembers its own stopped-at point and carry-over note.'
+    title: 'Teach from context',
+    body: 'Each period keeps its own progress and notes.'
   }
 ];
 
@@ -48,13 +49,66 @@ const productPillars = [
   }
 ];
 
+const previewModes = [
+  {
+    id: 'desk',
+    label: 'Daily Desk',
+    eyebrow: 'Current period',
+    title: 'US History',
+    meta: 'Period 3',
+    note: 'Stopped at source analysis.',
+    next: 'Period 5 is ready for Lesson 8, segment 2.',
+    rows: [
+      { label: 'Period 1', value: 'Lesson 8', state: 'On pace' },
+      { label: 'Period 3', value: 'Lesson 7', state: 'Behind' },
+      { label: 'Period 5', value: 'Lesson 9', state: 'Ahead' }
+    ]
+  },
+  {
+    id: 'plan',
+    label: 'Year Plan',
+    eyebrow: 'Unit 2',
+    title: 'Constitution',
+    meta: '5 lessons',
+    note: 'Lessons are organized into class-ready segments.',
+    next: 'Timeline shows where the week fits in the year.',
+    rows: [
+      { label: 'Lesson 5', value: 'Complete', state: 'Done' },
+      { label: 'Lesson 6', value: 'Today', state: 'Now' },
+      { label: 'Lesson 7', value: 'Friday', state: 'Next' }
+    ]
+  },
+  {
+    id: 'progress',
+    label: 'Progress',
+    eyebrow: 'Course pace',
+    title: '3 periods',
+    meta: '1 needs time',
+    note: 'See which class is ahead, behind, or ready.',
+    next: 'Catch-up planning starts from the real stopping point.',
+    rows: [
+      { label: 'Period 1', value: '42%', state: 'On pace' },
+      { label: 'Period 3', value: '36%', state: 'Behind' },
+      { label: 'Period 5', value: '47%', state: 'Ahead' }
+    ]
+  }
+] as const;
+
 export function LandingPage() {
   const auth = useAppAuth();
   const appTarget = auth.isSignedIn ? '/dashboard' : '/login';
   const appLabel = auth.isSignedIn ? 'Open dashboard' : 'Try TeacherOS';
+  const [activePreviewId, setActivePreviewId] = useState<(typeof previewModes)[number]['id']>('desk');
+  const activePreview = previewModes.find((preview) => preview.id === activePreviewId) ?? previewModes[0];
 
   return (
     <main className="landing-page">
+      <div className="landing-ambient" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+
       <nav className="landing-nav" aria-label="TeacherOS website navigation">
         <Link className="landing-brand" to="/">
           TeacherOS
@@ -86,41 +140,74 @@ export function LandingPage() {
               See the flow
             </a>
           </div>
+          <div className="landing-hero-metrics" aria-label="TeacherOS product focus">
+            <div>
+              <strong>1</strong>
+              <span>shared course plan</span>
+            </div>
+            <div>
+              <strong>3+</strong>
+              <span>periods tracked separately</span>
+            </div>
+            <div>
+              <strong>0</strong>
+              <span>guesswork between classes</span>
+            </div>
+          </div>
         </div>
 
         <div className="landing-product-shot" aria-label="TeacherOS product preview">
+          <div className="landing-preview-tabs" role="tablist" aria-label="Preview mode">
+            {previewModes.map((preview) => (
+              <button
+                key={preview.id}
+                className={activePreview.id === preview.id ? 'active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={activePreview.id === preview.id}
+                onClick={() => setActivePreviewId(preview.id)}
+              >
+                {preview.label}
+              </button>
+            ))}
+          </div>
           <div className="landing-shot-top">
             <span>Monday</span>
-            <strong>Daily Desk</strong>
-            <em>Ready soon</em>
+            <strong>{activePreview.label}</strong>
+            <em>Live preview</em>
           </div>
           <div className="landing-shot-grid">
             <div className="landing-shot-card current">
-              <span>Current period</span>
-              <strong>US History</strong>
-              <p>Period 3 stopped at source analysis.</p>
+              <span>{activePreview.eyebrow}</span>
+              <strong>{activePreview.title}</strong>
+              <p>{activePreview.meta}</p>
+              <small>{activePreview.note}</small>
             </div>
             <div className="landing-shot-card">
               <span>Next class</span>
-              <strong>Period 5</strong>
-              <p>Lesson 8, segment 2 is next.</p>
+              <strong>Next move</strong>
+              <p>{activePreview.next}</p>
             </div>
             <div className="landing-progress-card">
-              <div>
-                <span>Period 1</span>
-                <strong>Lesson 8</strong>
-              </div>
-              <div>
-                <span>Period 3</span>
-                <strong>Lesson 7</strong>
-              </div>
-              <div>
-                <span>Period 5</span>
-                <strong>Lesson 9</strong>
-              </div>
+              {activePreview.rows.map((row) => (
+                <div key={`${activePreview.id}-${row.label}`}>
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                  <small>{row.state}</small>
+                </div>
+              ))}
             </div>
           </div>
+          <div className="landing-mini-timeline" aria-label="Year pacing preview">
+            <span style={{ '--offset': '12%' } as CSSProperties}>Unit 1</span>
+            <span style={{ '--offset': '38%' } as CSSProperties}>Unit 2</span>
+            <span style={{ '--offset': '66%' } as CSSProperties}>Unit 3</span>
+            <i />
+          </div>
         </div>
+        <a className="landing-scroll-cue" href="#why" aria-label="Scroll to product details">
+          Scroll
+        </a>
       </section>
 
       <section className="landing-question-panel" id="why">
@@ -161,7 +248,7 @@ export function LandingPage() {
           </p>
         </div>
         <div className="landing-model-board">
-          <div>
+          <div className="course-node">
             <span>Course</span>
             <strong>US History</strong>
             <p>6 units, 42 lessons, 128 segments</p>
