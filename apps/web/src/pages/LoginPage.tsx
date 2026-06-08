@@ -8,6 +8,10 @@ const PILOT_EMAIL = 'teacher.test@example.com';
 const PILOT_PASSWORD = 'TeacherTest2026!';
 type LoginMode = 'signin' | 'signup' | 'pilot';
 
+function isLocalDevHost() {
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+}
+
 export function LoginPage() {
   const auth = useAppAuth();
   const navigate = useNavigate();
@@ -22,6 +26,12 @@ export function LoginPage() {
   useEffect(() => {
     if (auth.isSignedIn) navigate('/dashboard');
   }, [auth.isSignedIn, navigate]);
+
+  useEffect(() => {
+    if (auth.mode === 'dev' && !isLocalDevHost()) {
+      setLoginMode('pilot');
+    }
+  }, [auth.mode]);
 
   const signInPilotAccount = () => {
     if (pilotEmail.trim().toLowerCase() !== PILOT_EMAIL || pilotPassword !== PILOT_PASSWORD) {
@@ -157,39 +167,49 @@ export function LoginPage() {
     );
   }
 
+  const allowLocalDevLogin = isLocalDevHost();
+
   return (
     <main className="login-page">
       <section className="login-panel">
         <div className="login-intro">
           <p className="eyebrow">TeacherOS</p>
-          <h1>Local test mode</h1>
-          <p className="muted">Use this only when Clerk is not configured for this build.</p>
+          <h1>{allowLocalDevLogin ? 'Local test mode' : 'Pilot access'}</h1>
+          <p className="muted">
+            {allowLocalDevLogin
+              ? 'Use this only when Clerk is not configured for this build.'
+              : 'Use the pilot account while production account creation is being connected.'}
+          </p>
           <div className="login-proof-list">
-            <span>Local</span>
+            <span>{allowLocalDevLogin ? 'Local' : 'Pilot'}</span>
             <span>Testing</span>
-            <span>No email needed</span>
+            <span>Backend token</span>
           </div>
         </div>
         <div className="login-workspace-card">
           <div className="login-mode-tabs" role="tablist" aria-label="Local login options">
-            <button
-              className={loginMode === 'signin' ? 'active' : ''}
-              type="button"
-              role="tab"
-              aria-selected={loginMode === 'signin'}
-              onClick={() => setLoginMode('signin')}
-            >
-              Existing user
-            </button>
-            <button
-              className={loginMode === 'signup' ? 'active' : ''}
-              type="button"
-              role="tab"
-              aria-selected={loginMode === 'signup'}
-              onClick={() => setLoginMode('signup')}
-            >
-              Create account
-            </button>
+            {allowLocalDevLogin ? (
+              <>
+                <button
+                  className={loginMode === 'signin' ? 'active' : ''}
+                  type="button"
+                  role="tab"
+                  aria-selected={loginMode === 'signin'}
+                  onClick={() => setLoginMode('signin')}
+                >
+                  Existing user
+                </button>
+                <button
+                  className={loginMode === 'signup' ? 'active' : ''}
+                  type="button"
+                  role="tab"
+                  aria-selected={loginMode === 'signup'}
+                  onClick={() => setLoginMode('signup')}
+                >
+                  Create account
+                </button>
+              </>
+            ) : null}
             <button
               className={loginMode === 'pilot' ? 'active' : ''}
               type="button"
@@ -201,7 +221,7 @@ export function LoginPage() {
             </button>
           </div>
 
-          {loginMode === 'signin' || loginMode === 'signup' ? (
+          {allowLocalDevLogin && (loginMode === 'signin' || loginMode === 'signup') ? (
             <div className="card stack login-dev-card">
               <div>
                 <strong>{loginMode === 'signup' ? 'Create local account' : 'Existing local user'}</strong>
@@ -229,7 +249,7 @@ export function LoginPage() {
             </div>
           ) : null}
 
-          {loginMode === 'pilot' ? (
+          {loginMode === 'pilot' || !allowLocalDevLogin ? (
             <form
               className="pilot-login-card"
               onSubmit={(event) => {
