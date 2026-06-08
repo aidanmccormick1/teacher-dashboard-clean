@@ -18,7 +18,7 @@ export function LoginPage() {
   const [pilotStatus, setPilotStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    if (auth.isSignedIn) navigate('/');
+    if (auth.isSignedIn) navigate('/dashboard');
   }, [auth.isSignedIn, navigate]);
 
   if (auth.mode === 'clerk') {
@@ -33,7 +33,7 @@ export function LoginPage() {
             </p>
           </div>
           <div className="login-card">
-            <SignIn fallbackRedirectUrl="/" signUpFallbackRedirectUrl="/" />
+            <SignIn fallbackRedirectUrl="/dashboard" signUpFallbackRedirectUrl="/dashboard" />
           </div>
           <form
             className="pilot-login-card"
@@ -46,7 +46,7 @@ export function LoginPage() {
               }
 
               auth.signInPilot();
-              navigate('/');
+              navigate('/dashboard');
             }}
           >
             <div>
@@ -124,7 +124,7 @@ export function LoginPage() {
             type="button"
             onClick={() => {
               auth.signInDev(devUserId, devEmail || null);
-              navigate('/');
+              navigate('/dashboard');
             }}
           >
             Sign in

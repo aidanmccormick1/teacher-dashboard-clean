@@ -19,7 +19,7 @@ const feedbackStorageKey = 'teacheros_feedback_notes';
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
 
 const links = [
-  { path: '/', label: 'Dashboard' },
+  { path: '/dashboard', label: 'Dashboard' },
   { path: '/classroom', label: 'Classroom' },
   { path: '/management', label: 'Management' },
   { path: '/school', label: 'School' },

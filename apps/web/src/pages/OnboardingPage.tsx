@@ -213,7 +213,7 @@ export function OnboardingPage() {
                   grades: splitList(form.grades)
                 });
                 window.localStorage.removeItem(ONBOARDING_DRAFT_KEY);
-                navigate('/');
+                navigate('/dashboard');
               } catch (err) {
                 setError(err instanceof ApiError ? err.message : 'Failed to save onboarding data');
               } finally {

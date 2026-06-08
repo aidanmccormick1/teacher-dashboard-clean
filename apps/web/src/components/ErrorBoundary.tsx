@@ -51,7 +51,7 @@ export class ErrorBoundary extends Component<PropsWithChildren, ErrorBoundarySta
             <button type="button" onClick={() => window.location.reload()}>
               Reload app
             </button>
-            <button className="secondary" type="button" onClick={() => window.location.assign('/')}>
+            <button className="secondary" type="button" onClick={() => window.location.assign('/dashboard')}>
               Go to dashboard
             </button>
             <button className="secondary" type="button" onClick={() => void this.copyReport()}>

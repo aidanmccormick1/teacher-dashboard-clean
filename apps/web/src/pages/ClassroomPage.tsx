@@ -226,7 +226,7 @@ export function ClassroomPage() {
             <button className="secondary" type="button" onClick={() => openManagementTab('periods')}>
               Add periods
             </button>
-            <button className="secondary" type="button" onClick={() => navigate('/')}>
+            <button className="secondary" type="button" onClick={() => navigate('/dashboard')}>
               Back to dashboard
             </button>
             <button className="secondary" type="button" onClick={() => void copyClassBrief()}>

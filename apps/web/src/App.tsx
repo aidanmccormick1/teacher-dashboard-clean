@@ -7,6 +7,7 @@ import { CoursePage } from './pages/CoursePage.js';
 import { CurriculumPage } from './pages/CurriculumPage.js';
 import { DashboardPage } from './pages/DashboardPage.js';
 import { GuidePage } from './pages/GuidePage.js';
+import { LandingPage } from './pages/LandingPage.js';
 import { LessonTrackerPage } from './pages/LessonTrackerPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { ManagementPage } from './pages/ManagementPage.js';
@@ -26,12 +27,12 @@ function RequireAuth() {
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
 
       <Route element={<RequireAuth />}>
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route element={<AppShell />}>
-          <Route path="/" element={<DashboardPage />} />
           <Route path="/welcome" element={<GuidePage />} />
           <Route path="/guide" element={<Navigate to="/welcome" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
