@@ -420,6 +420,8 @@ export function DashboardPage() {
       action: 'Open classroom'
     }
   ];
+  const completedSetupSteps = setupSteps.filter((step) => step.done).length;
+  const setupCompletionPercent = Math.round((completedSetupSteps / setupSteps.length) * 100);
 
   const smartPrompts = useMemo(() => {
     const prompts = [];
@@ -569,7 +571,10 @@ export function DashboardPage() {
       <section className="dashboard-hero">
         <div className="hero-copy">
           <p className="eyebrow">{todayLabel}</p>
-          <h1>Daily Teaching Desk</h1>
+          <h1>Daily Desk</h1>
+          <p className="hero-subtitle">
+            One calm place for today&apos;s class, next prep, schedule gaps, and course planning.
+          </p>
           <div className="hero-actions">
             {state.today?.currentClass && currentResume?.lesson ? (
               <Link
@@ -604,7 +609,7 @@ export function DashboardPage() {
             <span>{readinessScore}</span>
           </div>
           <div>
-            <h2>Readiness</h2>
+            <p className="eyebrow">Readiness</p>
             <p className="muted">
               {readinessScore >= 85
                 ? 'Ready.'
@@ -618,21 +623,6 @@ export function DashboardPage() {
 
       {error ? <p className="notice warning">{error}</p> : null}
       {loading ? <p className="muted">Loading...</p> : null}
-
-      <section className="walkthrough-callout">
-        <div>
-          <p className="eyebrow">First time</p>
-          <h2>Welcome setup</h2>
-        </div>
-        <div className="callout-actions">
-          <Link className="button-link" to="/welcome">
-            Open welcome
-          </Link>
-          <button className="button-link secondary" type="button" onClick={() => openManagementTab('start')}>
-            Manage classes
-          </button>
-        </div>
-      </section>
 
       <section className="metric-grid">
         <div className="metric-card">
@@ -656,11 +646,18 @@ export function DashboardPage() {
       <section className="card stack setup-readiness-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Setup path</p>
-            <h2>What still needs to be ready?</h2>
+            <p className="eyebrow">Setup</p>
+            <h2>{completedSetupSteps} of {setupSteps.length} ready</h2>
+            <p className="muted">Finish only the missing pieces. Everything else stays out of the way.</p>
           </div>
-          <button className="secondary" type="button" onClick={() => openManagementTab('start')}>Open Management</button>
+          <div className="setup-actions">
+            <Link className="button-link secondary" to="/welcome">
+              Welcome
+            </Link>
+            <button className="secondary" type="button" onClick={() => openManagementTab('start')}>Manage setup</button>
+          </div>
         </div>
+        <progress className="setup-progress" max={100} value={setupCompletionPercent} />
         <div className="setup-readiness-grid">
           {setupSteps.map((step, index) => (
             <button
