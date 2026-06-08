@@ -160,9 +160,6 @@ export function CoursePage() {
           <button className="button-link secondary" type="button" disabled={!course} onClick={() => void copyCourseOutline()}>
             Copy outline
           </button>
-          <button className="button-link secondary print-only-control" type="button" disabled={!course} onClick={() => window.print()}>
-            Print
-          </button>
         </div>
       </div>
       {error ? <p className="notice warning">{error}</p> : null}

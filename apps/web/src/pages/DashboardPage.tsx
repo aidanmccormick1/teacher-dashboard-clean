@@ -151,88 +151,6 @@ function dashboardStorageKey(name: string, date: string | null): string {
   return `teacheros_dashboard_${date ?? 'today'}_${name}`;
 }
 
-function buildDailyBriefing(
-  todayLabel: string,
-  state: DashboardLoadState,
-  focusNote: string,
-  checkedItems: string[]
-): string {
-  const lines = [`Daily Teaching Desk`, todayLabel, ''];
-
-  if (state.today?.holiday) {
-    lines.push(`No school: ${state.today.holiday.name}`, '');
-  }
-
-  if (state.today?.currentClass) {
-    const resume = state.resumesBySectionId[state.today.currentClass.sectionId];
-    lines.push('Current class');
-    lines.push(`- ${state.today.currentClass.courseName} / ${state.today.currentClass.sectionName}`);
-    lines.push(`- Time: ${state.today.currentClass.meetingTime ?? 'TBD'}`);
-    if (state.today.currentClass.room) lines.push(`- Room: ${state.today.currentClass.room}`);
-    lines.push(`- Lesson: ${resume?.lesson?.title ?? 'No lesson attached yet'}`);
-    if (resume?.state?.carryOverNote) lines.push(`- Carry-over: ${resume.state.carryOverNote}`);
-    lines.push('');
-  }
-
-  if (state.today?.nextClass) {
-    const resume = state.resumesBySectionId[state.today.nextClass.sectionId];
-    lines.push('Next class');
-    lines.push(`- ${state.today.nextClass.courseName} / ${state.today.nextClass.sectionName}`);
-    lines.push(`- Time: ${state.today.nextClass.meetingTime ?? 'TBD'}`);
-    lines.push(`- Prep: ${resume?.lesson?.title ?? 'No lesson attached yet'}`);
-    lines.push('');
-  }
-
-  lines.push('Today schedule');
-  if (state.today?.todaySchedule.length) {
-    state.today.todaySchedule.forEach((item) => {
-      const resume = state.resumesBySectionId[item.sectionId];
-      lines.push(
-        `- ${item.meetingTime ?? 'TBD'} ${item.courseName} / ${item.sectionName}${
-          item.room ? ` / Room ${item.room}` : ''
-        } / ${resume?.lesson?.title ?? 'No lesson attached'}`
-      );
-    });
-  } else {
-    lines.push('- No classes scheduled today.');
-  }
-
-  lines.push('', 'Focus note');
-  lines.push(focusNote.trim() || '- None yet');
-  lines.push('', 'Desk checklist');
-  CHECKLIST_ITEMS.forEach((item) => {
-    lines.push(`- ${checkedItems.includes(item) ? '[x]' : '[ ]'} ${item}`);
-  });
-
-  return lines.join('\n');
-}
-
-function buildSetupSnapshot(
-  readinessScore: number,
-  summary: { courseCount: number; unitCount: number; lessonCount: number; segmentCount: number },
-  schedule: GetScheduleResponse | null,
-  scheduleGaps: string[]
-): string {
-  const sections = schedule?.sections ?? [];
-  return [
-    'TeacherOS setup snapshot',
-    `Readiness: ${readinessScore}`,
-    `Courses: ${summary.courseCount}`,
-    `Periods: ${sections.length}`,
-    `Units: ${summary.unitCount}`,
-    `Lessons: ${summary.lessonCount}`,
-    `Segments: ${summary.segmentCount}`,
-    '',
-    'Schedule gaps',
-    ...(scheduleGaps.length ? scheduleGaps.map((gap) => `- ${gap}`) : ['- None']),
-    '',
-    'Periods',
-    ...(sections.length
-      ? sections.map((section) => `- ${section.courseName} / ${section.sectionName}: ${section.meetings.length} meetings`)
-      : ['- None yet'])
-  ].join('\n');
-}
-
 export function DashboardPage() {
   const api = useApiClient();
   const navigate = useNavigate();
@@ -247,7 +165,6 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [focusNote, setFocusNote] = useState('');
   const [checkedItems, setCheckedItems] = useState<string[]>([]);
-  const [briefingStatus, setBriefingStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -373,15 +290,15 @@ export function DashboardPage() {
   const setupSteps = [
     {
       title: 'Create a course',
-      body: 'Name what you teach.',
+      body: 'Course name and subject.',
       done: hasCourses,
       to: '/management',
       managementTab: 'courses' as ManagementTabTarget,
-      action: hasCourses ? 'Review courses' : 'Start here'
+      action: hasCourses ? 'Review courses' : 'Add course'
     },
     {
       title: 'Add periods',
-      body: 'Attach real class periods to a course.',
+      body: 'Periods connected to each course.',
       done: hasSections,
       to: '/management',
       managementTab: 'periods' as ManagementTabTarget,
@@ -389,7 +306,7 @@ export function DashboardPage() {
     },
     {
       title: 'Add meeting times',
-      body: 'Tell the app when each period meets.',
+      body: 'Days, times, and rooms.',
       done: hasMeetingTimes,
       to: '/management',
       managementTab: 'weekly' as ManagementTabTarget,
@@ -397,7 +314,7 @@ export function DashboardPage() {
     },
     {
       title: 'Build Year Plan',
-      body: 'Add lessons or apply a starter plan.',
+      body: 'Units and lessons.',
       done: hasLessons,
       to: '/management',
       managementTab: 'curriculum' as ManagementTabTarget,
@@ -405,7 +322,7 @@ export function DashboardPage() {
     },
     {
       title: 'Add segments',
-      body: 'Break lessons into teachable chunks.',
+      body: 'Lesson parts for tracking.',
       done: hasSegments,
       to: '/management',
       managementTab: 'curriculum' as ManagementTabTarget,
@@ -413,7 +330,7 @@ export function DashboardPage() {
     },
     {
       title: 'Try Classroom',
-      body: 'Resume from the right stopping point.',
+      body: 'Open the teaching view.',
       done: hasClassroomResume,
       to: '/classroom',
       managementTab: null,
@@ -429,7 +346,7 @@ export function DashboardPage() {
     if (!state.courses.length) {
       prompts.push({
         title: 'Create your first course',
-        body: 'Start with one course so schedule sections and lesson tracking have somewhere to attach.',
+        body: 'Add one course to begin.',
         to: '/management',
         managementTab: 'courses' as ManagementTabTarget,
         action: 'Open Courses'
@@ -439,7 +356,7 @@ export function DashboardPage() {
     if (!state.schedule?.sections.length) {
       prompts.push({
         title: 'Build your schedule',
-        body: 'Add periods manually or import a schedule, then the dashboard can reason about today.',
+        body: 'Add periods manually or import a schedule.',
         to: '/management',
         managementTab: 'periods' as ManagementTabTarget,
         action: 'Open Periods'
@@ -497,8 +414,8 @@ export function DashboardPage() {
     }
 
     prompts.push({
-      title: 'Use optional tools only where they help',
-      body: 'Import a messy schedule or review helper output before saving anything.',
+      title: 'Import if it saves time',
+      body: 'Review imported schedule details before saving.',
       to: '/management',
       managementTab: 'import' as ManagementTabTarget,
       action: 'Open Import'
@@ -542,28 +459,9 @@ export function DashboardPage() {
     );
   }, [checkedItems, state.today?.date]);
 
-  const copyDailyBriefing = async () => {
-    const briefing = buildDailyBriefing(todayLabel, state, focusNote, checkedItems);
-    await navigator.clipboard?.writeText(briefing).catch(() => undefined);
-    setBriefingStatus('Daily briefing copied.');
-    window.setTimeout(() => setBriefingStatus(null), 1800);
-  };
-
   const openManagementTab = (tab: ManagementTabTarget) => {
     rememberManagementTab(tab);
     navigate('/management');
-  };
-
-  const copySetupSnapshot = async () => {
-    await navigator.clipboard
-      ?.writeText(buildSetupSnapshot(readinessScore, summary, state.schedule, scheduleGaps))
-      .catch(() => undefined);
-    setBriefingStatus('Setup snapshot copied.');
-    window.setTimeout(() => setBriefingStatus(null), 1800);
-  };
-
-  const printDailyBriefing = () => {
-    window.print();
   };
 
   return (
@@ -572,9 +470,7 @@ export function DashboardPage() {
         <div className="hero-copy">
           <p className="eyebrow">{todayLabel}</p>
           <h1>Daily Desk</h1>
-          <p className="hero-subtitle">
-            One calm place for today&apos;s class, next prep, schedule gaps, and course planning.
-          </p>
+          <p className="hero-subtitle">Today, next class, and the plan ahead.</p>
           <div className="hero-actions">
             {state.today?.currentClass && currentResume?.lesson ? (
               <Link
@@ -591,17 +487,7 @@ export function DashboardPage() {
             <button className="button-link secondary" type="button" onClick={() => openManagementTab('weekly')}>
               Adjust schedule
             </button>
-            <button className="button-link secondary" type="button" onClick={() => void copyDailyBriefing()}>
-              Copy daily brief
-            </button>
-            <button className="button-link secondary" type="button" onClick={() => void copySetupSnapshot()}>
-              Copy setup
-            </button>
-            <button className="button-link secondary print-only-control" type="button" onClick={printDailyBriefing}>
-              Print
-            </button>
           </div>
-          {briefingStatus ? <p className="inline-status">{briefingStatus}</p> : null}
         </div>
 
         <div className="readiness-card" aria-label={`Readiness score ${readinessScore} percent`}>
@@ -615,7 +501,7 @@ export function DashboardPage() {
                 ? 'Ready.'
                 : readinessScore >= 55
                   ? 'Needs a few updates.'
-                  : 'Setup needed.'}
+                  : 'Needs attention.'}
             </p>
           </div>
         </div>
@@ -646,15 +532,15 @@ export function DashboardPage() {
       <section className="card stack setup-readiness-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Setup</p>
+            <p className="eyebrow">Readiness</p>
             <h2>{completedSetupSteps} of {setupSteps.length} ready</h2>
-            <p className="muted">Finish only the missing pieces. Everything else stays out of the way.</p>
+            <p className="muted">Complete the basics as you go.</p>
           </div>
           <div className="setup-actions">
             <Link className="button-link secondary" to="/welcome">
               Welcome
             </Link>
-            <button className="secondary" type="button" onClick={() => openManagementTab('start')}>Manage setup</button>
+            <button className="secondary" type="button" onClick={() => openManagementTab('start')}>Open guide</button>
           </div>
         </div>
         <progress className="setup-progress" max={100} value={setupCompletionPercent} />
@@ -944,7 +830,7 @@ export function DashboardPage() {
           <div className="section-heading">
             <div>
               <p className="eyebrow">Watchlist</p>
-              <h2>Setup gaps</h2>
+              <h2>Missing pieces</h2>
             </div>
           </div>
           {scheduleGaps.length || summary.lessonCount === 0 || summary.segmentCount === 0 ? (

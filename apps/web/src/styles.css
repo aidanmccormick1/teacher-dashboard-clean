@@ -3136,7 +3136,6 @@ progress::-webkit-progress-value {
   .walkthrough-callout,
   .setup-readiness-card,
   .feedback-button,
-  .print-only-control,
   .button-link {
     display: none !important;
   }

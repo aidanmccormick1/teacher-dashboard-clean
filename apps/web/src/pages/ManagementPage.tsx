@@ -86,7 +86,7 @@ type ManagementState = {
 };
 
 const tabs: Array<{ id: ManagementTab; label: string }> = [
-  { id: 'start', label: 'Start' },
+  { id: 'start', label: 'Guide' },
   { id: 'courses', label: 'Courses' },
   { id: 'periods', label: 'Periods' },
   { id: 'weekly', label: 'Weekly Schedule' },
@@ -589,7 +589,7 @@ function promptForState(state: ManagementState, selectedCourse: CourseDetail | n
     return {
       id: 'create-course',
       title: 'Create your first course',
-      body: 'Start with what you teach. The course becomes the shared year plan.',
+      body: 'Courses hold the year plan.',
       tab: 'courses' as ManagementTab
     };
   }
@@ -916,14 +916,14 @@ export function ManagementPage() {
     {
       id: 'course',
       title: 'Create your first course',
-      body: 'Name what you teach once. Periods can share it.',
+      body: 'Create courses once. Periods can share them.',
       tab: 'courses' as ManagementTab,
       done: state.courseDetails.length > 0
     },
     {
       id: 'periods',
       title: 'Add class periods',
-      body: 'Add the real groups of students you see each day.',
+      body: 'Add each period that uses a course.',
       tab: 'periods' as ManagementTab,
       done: sections.length > 0
     },
@@ -1644,8 +1644,8 @@ export function ManagementPage() {
         <section className="management-panel stack">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Start</p>
-              <h2>Set up the year in small steps.</h2>
+              <p className="eyebrow">Guide</p>
+              <h2>Build the year in small steps.</h2>
               <p className="muted">Use one step at a time. Nothing here blocks the rest of the app.</p>
             </div>
             <button
