@@ -54,9 +54,13 @@ services:
       - key: RUN_EMBEDDED_AI_WORKER
         value: true
       - key: S3_REGION
-        value: us-east-1
-      - key: S3_BUCKET
+        value: auto
+      - key: S3_ENDPOINT
         sync: false
+      - key: S3_FORCE_PATH_STYLE
+        value: true
+      - key: S3_BUCKET
+        value: teacheros-materials
       - key: S3_ACCESS_KEY_ID
         sync: false
       - key: S3_SECRET_ACCESS_KEY

@@ -10,7 +10,7 @@ The script writes a timestamped report to `ops/reports/`.
 
 ## Manual Go/No-Go Checklist
 
-1. Confirm backup artifacts from the same day exist for DB and S3.
+1. Confirm backup artifacts from the same day exist for DB and R2/S3 materials.
 2. Confirm CI is green on `typecheck`, `lint`, `test`, `build`.
 3. Confirm staging smoke tests:
    - onboarding

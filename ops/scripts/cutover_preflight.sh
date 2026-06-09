@@ -10,6 +10,9 @@ FAILURES=0
 
 mkdir -p "${REPORT_DIR}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib_s3_compat.sh"
+
 {
   echo "# Cutover Preflight Report"
   echo
@@ -55,8 +58,9 @@ if [[ -n "${WEB_URL}" ]]; then
 fi
 
 if [[ -n "${S3_BUCKET:-}" ]]; then
+  configure_s3_compat_cli
   run_check "AWS CLI available" aws --version
-  run_check "S3 bucket reachable" aws s3 ls "s3://${S3_BUCKET}/"
+  run_check "S3 bucket reachable" aws "${S3_ENDPOINT_ARGS[@]}" s3 ls "s3://${S3_BUCKET}/"
 else
   record_result "S3 bucket configured" "SKIP (S3_BUCKET not set)"
 fi

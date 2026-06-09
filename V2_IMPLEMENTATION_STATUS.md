@@ -44,8 +44,9 @@
   - GitHub Actions CI (`typecheck`, `lint`, `test`, `build`)
 - Deployment scaffolding added:
   - Cloudflare Pages setup guide: `infra/cloudflare-pages.md`
+  - Cloudflare R2 storage setup guide: `infra/cloudflare-r2.md`
   - Render blueprint: `render.yaml`
-  - Render Blueprint now includes API, BullMQ worker, Postgres, and Redis-compatible key-value service in the Ohio US-East region
+  - Render Blueprint now includes API, Postgres, Redis-compatible key-value service, embedded free-tier AI worker mode, and R2-compatible storage env wiring
 - Health and readiness routes implemented:
   - `GET /health/liveness`
   - `GET /health/readiness`
@@ -89,6 +90,10 @@
   - `POST /v1/ai/generate-continuity`
 - Additional storage helper route:
   - `POST /v1/files/sign-upload`
+  - Supports Cloudflare R2 through S3-compatible endpoint configuration:
+    - `S3_ENDPOINT`
+    - `S3_REGION=auto`
+    - `S3_FORCE_PATH_STYLE=true`
 - OpenAPI docs enabled at:
   - `/docs`
 

@@ -26,7 +26,7 @@
 - Storage `> 85%`: **warning**
 - Replication lag or write errors detected: **critical**
 
-## Storage (S3)
+## Storage (Cloudflare R2 / S3-compatible)
 
 - Signed URL failure rate `> 1%` over `10m`: **warning**
 - Any public ACL/object exposure event: **critical**

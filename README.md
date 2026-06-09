@@ -38,8 +38,8 @@ Add the pilot token to verify authenticated teacher reads:
 
 - `PILOT_TOKEN=... npm run ops:smoke:production`
 
-After the private S3 bucket is configured, verify the full queued reader and signed-upload paths:
+After the private R2/S3-compatible bucket is configured, verify the full queued reader and signed-upload paths:
 
 - `PILOT_TOKEN=... REQUIRE_AI_CAPABILITIES=1 SMOKE_AI_QUEUE=1 SMOKE_S3_UPLOAD=1 npm run ops:smoke:production`
 
-The checked-in `render.yaml` provisions the API, Redis-compatible key-value store, and Postgres in Render's Ohio US-East region. The free pilot runs the BullMQ processor inside the API process. A standalone `apps/worker` process remains available for a paid production worker later. S3 and API keys remain private dashboard variables.
+The checked-in `render.yaml` provisions the API, Redis-compatible key-value store, and Postgres in Render's Ohio US-East region. The free pilot runs the BullMQ processor inside the API process. A standalone `apps/worker` process remains available for a paid production worker later. Cloudflare R2 is the free pilot object-storage target; see `infra/cloudflare-r2.md`. Storage and API keys remain private dashboard variables.

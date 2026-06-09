@@ -3,7 +3,7 @@
 ## Scope
 
 - Postgres system of record (Neon, US-East)
-- S3 materials bucket (`us-east-1`)
+- R2/S3-compatible private materials bucket
 
 ## Prerequisites
 
@@ -11,15 +11,16 @@
 - Environment variables exported:
   - `DATABASE_URL`
   - `S3_BUCKET`
-  - `AWS_ACCESS_KEY_ID`
-  - `AWS_SECRET_ACCESS_KEY`
-  - `AWS_DEFAULT_REGION=us-east-1`
+  - `S3_ACCESS_KEY_ID` or `AWS_ACCESS_KEY_ID`
+  - `S3_SECRET_ACCESS_KEY` or `AWS_SECRET_ACCESS_KEY`
+  - `S3_REGION=auto` for Cloudflare R2
+  - `S3_ENDPOINT=https://<cloudflare-account-id>.r2.cloudflarestorage.com` for Cloudflare R2
 
 ## Create Backups
 
 1. Postgres:
    - `bash ops/scripts/backup_postgres.sh`
-2. S3 materials:
+2. R2/S3 materials:
    - `bash ops/scripts/backup_s3_materials.sh`
 
 Both scripts print the artifact location when complete.
@@ -28,7 +29,7 @@ Both scripts print the artifact location when complete.
 
 1. Restore Postgres:
    - `bash ops/scripts/restore_postgres.sh <path-to-dump-file>`
-2. Restore S3 materials:
+2. Restore R2/S3 materials:
    - `bash ops/scripts/restore_s3_materials.sh <path-to-local-materials-folder>`
 
 ## Validation After Restore

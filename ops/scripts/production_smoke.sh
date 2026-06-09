@@ -92,6 +92,25 @@ if [[ "${SMOKE_S3_UPLOAD}" == "1" ]]; then
   test -n "${object_key}"
   PASS_COUNT=$((PASS_COUNT + 1))
   echo "Checking signed S3 upload URL                 PASS"
+
+  upload_body="TeacherOS production smoke upload ${object_key}"
+  upload_status="$(
+    curl -sS -o /dev/null -w "%{http_code}" --max-time 60 \
+      -X PUT \
+      -H "Content-Type: text/plain" \
+      --data-binary "${upload_body}" \
+      "${upload_url}"
+  )"
+  case "${upload_status}" in
+    200|201|204)
+      PASS_COUNT=$((PASS_COUNT + 1))
+      echo "Checking signed S3 upload PUT                 PASS"
+      ;;
+    *)
+      echo "Checking signed S3 upload PUT                 FAIL (${upload_status})"
+      exit 1
+      ;;
+  esac
 fi
 
 if [[ "${SMOKE_AI_QUEUE}" == "1" ]]; then
