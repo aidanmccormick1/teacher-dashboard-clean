@@ -6,6 +6,16 @@ const booleanFromEnv = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+const optionalStringFromEnv = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().optional()
+);
+
+const optionalUrlFromEnv = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().url().optional()
+);
+
 const ConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_PORT: z.preprocess(
@@ -14,23 +24,23 @@ const ConfigSchema = z.object({
   ),
   REQUEST_ID_HEADER: z.string().default('x-request-id'),
   ENABLE_API_DOCS: z.coerce.boolean().default(false),
-  CLERK_SECRET_KEY: z.string().optional(),
-  CLERK_JWT_KEY: z.string().optional(),
+  CLERK_SECRET_KEY: optionalStringFromEnv,
+  CLERK_JWT_KEY: optionalStringFromEnv,
   CLERK_AUTHORIZED_PARTIES: z.string().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().optional(),
-  OPENAI_API_KEY: z.string().optional(),
+  REDIS_URL: optionalStringFromEnv,
+  OPENAI_API_KEY: optionalStringFromEnv,
   OPENAI_MODEL_PARSE_SCHEDULE: z.string().default('gpt-4o-mini'),
   OPENAI_MODEL_GENERATE_SEGMENTS: z.string().default('gpt-4o'),
   OPENAI_MODEL_CONTINUITY: z.string().default('gpt-4o'),
   RUN_EMBEDDED_AI_WORKER: booleanFromEnv.default(false),
   S3_REGION: z.string().default('auto'),
-  S3_ENDPOINT: z.string().url().optional(),
+  S3_ENDPOINT: optionalUrlFromEnv,
   S3_FORCE_PATH_STYLE: booleanFromEnv.default(false),
-  S3_BUCKET: z.string().optional(),
-  S3_ACCESS_KEY_ID: z.string().optional(),
-  S3_SECRET_ACCESS_KEY: z.string().optional(),
-  SENTRY_DSN: z.string().optional()
+  S3_BUCKET: optionalStringFromEnv,
+  S3_ACCESS_KEY_ID: optionalStringFromEnv,
+  S3_SECRET_ACCESS_KEY: optionalStringFromEnv,
+  SENTRY_DSN: optionalStringFromEnv
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
