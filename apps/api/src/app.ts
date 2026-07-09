@@ -20,6 +20,7 @@ import { createAiQueue } from './lib/queue.js';
 import { authPlugin } from './plugins/auth.js';
 import { requestContextPlugin } from './plugins/request-context.js';
 import { healthRoutes } from './routes/health.js';
+import { testAuthRoutes } from './routes/test-auth.js';
 import { v1Routes } from './routes/v1.js';
 
 export async function createApp(config: AppConfig) {
@@ -106,6 +107,7 @@ export async function createApp(config: AppConfig) {
   }
 
   await app.register(requestContextPlugin);
+  await app.register(testAuthRoutes);
   await app.register(authPlugin);
   await app.register(healthRoutes);
 

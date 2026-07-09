@@ -43,6 +43,20 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
 
+export const testAccounts = pgTable(
+  'test_accounts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    username: text('username').notNull().unique(),
+    email: text('email').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    sessionTokenHash: text('session_token_hash').unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_test_accounts_session_token_hash').on(table.sessionTokenHash)]
+);
+
 export const schools = pgTable('schools', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name').notNull(),

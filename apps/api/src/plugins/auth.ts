@@ -1,14 +1,23 @@
+import { createHash } from 'node:crypto';
+
 import fp from 'fastify-plugin';
+import { eq } from 'drizzle-orm';
 import { verifyToken } from '@clerk/backend';
 
+import { db, testAccounts } from '@teacheros/db';
+
 const pilotToken = 'teacher-dashboard-pilot-2026';
+
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
 
 export const authPlugin = fp(async (app) => {
   app.decorateRequest('principal', null);
 
   app.addHook('onRequest', async (request, reply) => {
     const path = request.url.split('?')[0] ?? '/';
-    if (path.startsWith('/health') || path.startsWith('/docs')) return;
+    if (path.startsWith('/health') || path.startsWith('/docs') || path.startsWith('/v1/test-auth')) return;
 
     const authHeader = request.headers.authorization;
     const devUser = request.headers['x-dev-user-id'];
@@ -39,6 +48,22 @@ export const authPlugin = fp(async (app) => {
         email: 'teacher.test@example.com'
       };
       return;
+    }
+
+    if (token.startsWith('test_')) {
+      const [account] = await db
+        .select({ username: testAccounts.username, email: testAccounts.email })
+        .from(testAccounts)
+        .where(eq(testAccounts.sessionTokenHash, hashToken(token)))
+        .limit(1);
+
+      if (account) {
+        request.principal = {
+          clerkUserId: `test-account:${account.username}`,
+          email: account.email
+        };
+        return;
+      }
     }
 
     const clerkJwtKey = app.config.CLERK_JWT_KEY;
