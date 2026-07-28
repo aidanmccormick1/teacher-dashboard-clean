@@ -89,7 +89,7 @@ export function LoginPage() {
     >
       <div>
         <strong>{testAuthMode === 'signup' ? 'Create tester account' : 'Sign in as tester'}</strong>
-        <p className="muted">A simple username and password keeps each tester's data in a separate workspace.</p>
+        <p className="muted">A simple username and password keeps each tester&apos;s data in a separate workspace.</p>
       </div>
       <div className="login-mode-tabs" role="tablist" aria-label="Tester account mode">
         <button
