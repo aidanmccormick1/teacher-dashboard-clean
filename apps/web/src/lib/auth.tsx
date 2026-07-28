@@ -27,113 +27,59 @@ type AuthState = {
 };
 
 const DEV_SESSION_KEY = 'teacheros_dev_session';
-const PILOT_SESSION_KEY = 'teacheros_pilot_session';
-const TEST_SESSION_KEY = 'teacheros_test_session';
-const PILOT_TOKEN = 'teacher-dashboard-pilot-2026';
-const PILOT_EMAIL = 'teacher.test@example.com';
+const RETIRED_SESSION_KEYS = ['teacheros_pilot_session', 'teacheros_test_session'];
 const AuthContext = createContext<AuthState | null>(null);
 
-type TestSession = {
-  token: string;
-  username: string;
-  email: string | null;
-};
+function clearRetiredSessions() {
+  RETIRED_SESSION_KEYS.forEach((key) => window.localStorage.removeItem(key));
+}
 
 function DevAuthProvider({ children }: PropsWithChildren) {
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
-  const [isPilot, setIsPilot] = useState(false);
-  const [testSession, setTestSession] = useState<TestSession | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    const pilotSession = window.localStorage.getItem(PILOT_SESSION_KEY) === 'true';
-    if (pilotSession) {
-      setIsPilot(true);
-      setIsLoaded(true);
-      return;
-    }
-
-    const rawTestSession = window.localStorage.getItem(TEST_SESSION_KEY);
-    if (rawTestSession) {
-      try {
-        setTestSession(JSON.parse(rawTestSession) as TestSession);
-      } catch {
-        window.localStorage.removeItem(TEST_SESSION_KEY);
-      } finally {
-        setIsLoaded(true);
-      }
-      return;
-    }
-
     const raw = window.localStorage.getItem(DEV_SESSION_KEY);
-    if (!raw) {
-      setIsLoaded(true);
-      return;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { userId: string; email: string | null };
+        setUserId(parsed.userId);
+        setEmail(parsed.email);
+      } catch {
+        window.localStorage.removeItem(DEV_SESSION_KEY);
+      }
     }
-
-    try {
-      const parsed = JSON.parse(raw) as { userId: string; email: string | null };
-      setUserId(parsed.userId);
-      setEmail(parsed.email);
-    } catch {
-      window.localStorage.removeItem(DEV_SESSION_KEY);
-    } finally {
-      setIsLoaded(true);
-    }
+    setIsLoaded(true);
   }, []);
 
   const value = useMemo<AuthState>(
     () => ({
       mode: 'dev',
       isLoaded,
-      isSignedIn: isPilot || Boolean(testSession) || Boolean(userId),
-      isPilot,
-      userId: isPilot ? 'pilot-teacher-demo' : (testSession ? `test-account:${testSession.username}` : userId),
-      email: isPilot ? PILOT_EMAIL : (testSession?.email ?? email),
-      getToken: async () => (isPilot ? PILOT_TOKEN : (testSession?.token ?? null)),
+      isSignedIn: Boolean(userId),
+      isPilot: false,
+      userId,
+      email,
+      getToken: async () => null,
       signOut: async () => {
-        setIsPilot(false);
-        setTestSession(null);
         setUserId(null);
         setEmail(null);
-        window.localStorage.removeItem(PILOT_SESSION_KEY);
-        window.localStorage.removeItem(TEST_SESSION_KEY);
         window.localStorage.removeItem(DEV_SESSION_KEY);
       },
       signInPilot: () => {
-        setIsPilot(true);
-        setTestSession(null);
-        setUserId(null);
-        setEmail(null);
-        window.localStorage.setItem(PILOT_SESSION_KEY, 'true');
-        window.localStorage.removeItem(TEST_SESSION_KEY);
-        window.localStorage.removeItem(DEV_SESSION_KEY);
+        throw new Error('Pilot authentication is unavailable. Sign in with Clerk instead.');
       },
       signInDev: (nextUserId, nextEmail) => {
-        setIsPilot(false);
-        setTestSession(null);
         setUserId(nextUserId);
         setEmail(nextEmail);
-        window.localStorage.removeItem(PILOT_SESSION_KEY);
-        window.localStorage.removeItem(TEST_SESSION_KEY);
-        window.localStorage.setItem(
-          DEV_SESSION_KEY,
-          JSON.stringify({ userId: nextUserId, email: nextEmail })
-        );
+        window.localStorage.setItem(DEV_SESSION_KEY, JSON.stringify({ userId: nextUserId, email: nextEmail }));
       },
-      signInWithTestToken: (token, username, nextEmail) => {
-        const nextSession = { token, username, email: nextEmail };
-        setIsPilot(false);
-        setTestSession(nextSession);
-        setUserId(null);
-        setEmail(null);
-        window.localStorage.removeItem(PILOT_SESSION_KEY);
-        window.localStorage.removeItem(DEV_SESSION_KEY);
-        window.localStorage.setItem(TEST_SESSION_KEY, JSON.stringify(nextSession));
+      signInWithTestToken: () => {
+        throw new Error('Tester-token authentication is unavailable. Sign in with Clerk instead.');
       }
     }),
-    [email, isLoaded, isPilot, testSession, userId]
+    [email, isLoaded, userId]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -142,66 +88,55 @@ function DevAuthProvider({ children }: PropsWithChildren) {
 function ClerkAuthBridge({ children }: PropsWithChildren) {
   const { isLoaded, isSignedIn, userId, getToken, signOut } = useClerkAuth();
   const { user } = useClerkUser();
-  const [isPilot, setIsPilot] = useState(false);
-  const [testSession, setTestSession] = useState<TestSession | null>(null);
 
   useEffect(() => {
-    setIsPilot(window.localStorage.getItem(PILOT_SESSION_KEY) === 'true');
-    const rawTestSession = window.localStorage.getItem(TEST_SESSION_KEY);
-    if (!rawTestSession) return;
-
-    try {
-      setTestSession(JSON.parse(rawTestSession) as TestSession);
-    } catch {
-      window.localStorage.removeItem(TEST_SESSION_KEY);
-    }
+    // Previous versions stored a public, non-JWT pilot token. Remove it so a
+    // returning visitor is prompted to obtain a valid Clerk session instead.
+    clearRetiredSessions();
   }, []);
 
   const value = useMemo<AuthState>(
     () => ({
       mode: 'clerk',
       isLoaded,
-      isSignedIn: isPilot || Boolean(testSession) || Boolean(isSignedIn),
-      isPilot,
-      userId: isPilot ? 'pilot-teacher-demo' : (testSession ? `test-account:${testSession.username}` : (userId ?? null)),
-      email: isPilot ? PILOT_EMAIL : (testSession?.email ?? user?.primaryEmailAddress?.emailAddress ?? null),
-      getToken: async () => (isPilot ? PILOT_TOKEN : (testSession?.token ?? (await getToken()) ?? null)),
+      isSignedIn: Boolean(isSignedIn),
+      isPilot: false,
+      userId: userId ?? null,
+      email: user?.primaryEmailAddress?.emailAddress ?? null,
+      getToken: async () => (await getToken()) ?? null,
       signOut: async () => {
-        setIsPilot(false);
-        setTestSession(null);
-        window.localStorage.removeItem(PILOT_SESSION_KEY);
-        window.localStorage.removeItem(TEST_SESSION_KEY);
+        clearRetiredSessions();
         await signOut();
       },
       signInPilot: () => {
-        setIsPilot(true);
-        setTestSession(null);
-        window.localStorage.setItem(PILOT_SESSION_KEY, 'true');
-        window.localStorage.removeItem(TEST_SESSION_KEY);
+        throw new Error('Pilot authentication is unavailable. Sign in with Clerk instead.');
       },
       signInDev: () => {
         throw new Error('signInDev is unavailable in Clerk mode');
       },
-      signInWithTestToken: (token, username, nextEmail) => {
-        const nextSession = { token, username, email: nextEmail };
-        setIsPilot(false);
-        setTestSession(nextSession);
-        window.localStorage.removeItem(PILOT_SESSION_KEY);
-        window.localStorage.setItem(TEST_SESSION_KEY, JSON.stringify(nextSession));
+      signInWithTestToken: () => {
+        throw new Error('Tester-token authentication is unavailable. Sign in with Clerk instead.');
       }
     }),
-    [getToken, isLoaded, isPilot, isSignedIn, signOut, testSession, user?.primaryEmailAddress?.emailAddress, userId]
+    [getToken, isLoaded, isSignedIn, signOut, user?.primaryEmailAddress?.emailAddress, userId]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function AppAuthProvider({ children }: PropsWithChildren) {
-  const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+  // This development-instance key is public by design and matches the Clerk
+  // verification key configured on the Render API. Cloudflare can override it
+  // with either a test or live publishable key when the production Clerk
+  // domain is ready.
+  const configuredPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+  const developmentPublishableKey = 'pk_test_ZnVuLXdlZXZpbC0xMS5jbGVyay5hY2NvdW50cy5kZXYk';
+  const publishableKey =
+    configuredPublishableKey?.startsWith('pk_test_') || configuredPublishableKey?.startsWith('pk_live_')
+      ? configuredPublishableKey
+      : developmentPublishableKey;
 
-  if (!publishableKey) {
-    return <DevAuthProvider>{children}</DevAuthProvider>;
-  }
+  if (!publishableKey) return <DevAuthProvider>{children}</DevAuthProvider>;
 
   return (
     <ClerkProvider publishableKey={publishableKey}>
@@ -212,8 +147,6 @@ export function AppAuthProvider({ children }: PropsWithChildren) {
 
 export function useAppAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAppAuth must be used inside AppAuthProvider');
-  }
+  if (!context) throw new Error('useAppAuth must be used inside AppAuthProvider');
   return context;
 }

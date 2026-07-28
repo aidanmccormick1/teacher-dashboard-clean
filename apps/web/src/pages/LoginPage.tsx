@@ -150,10 +150,8 @@ export function LoginPage() {
         <section className="login-panel">
           <div className="login-intro">
             <p className="eyebrow">TeacherOS</p>
-            <h1>Sign in, create an account, or use the pilot account.</h1>
-            <p className="muted">
-              Use a real account when you are ready. Use the pilot account when you want to test the app immediately.
-            </p>
+            <h1>Sign in or create an account.</h1>
+            <p className="muted">Use a secure TeacherOS account to keep your courses and plans private.</p>
             <div className="login-proof-list">
               <span>Courses</span>
               <span>Periods</span>
@@ -182,24 +180,6 @@ export function LoginPage() {
               >
                 Create account
               </button>
-              <button
-                className={loginMode === 'pilot' ? 'active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={loginMode === 'pilot'}
-                onClick={() => setLoginMode('pilot')}
-              >
-                Pilot account
-              </button>
-              <button
-                className={loginMode === 'test' ? 'active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={loginMode === 'test'}
-                onClick={() => setLoginMode('test')}
-              >
-                Tester account
-              </button>
             </div>
 
             {loginMode === 'signin' ? (
@@ -218,59 +198,9 @@ export function LoginPage() {
               </div>
             ) : null}
 
-            {loginMode === 'pilot' ? (
-              <form
-                className="pilot-login-card"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  signInPilotAccount();
-                }}
-              >
-                <div>
-                  <strong>TeacherOS pilot account</strong>
-                  <p className="muted">A working test account for trying the official app flow.</p>
-                </div>
-                <button
-                  className="secondary"
-                  type="button"
-                  onClick={() => {
-                    setPilotEmail(PILOT_EMAIL);
-                    setPilotPassword(PILOT_PASSWORD);
-                    setPilotError(null);
-                    setPilotStatus('Pilot account filled.');
-                  }}
-                >
-                  Fill pilot account
-                </button>
-                <label>
-                  Email
-                  <input className="input" value={pilotEmail} onChange={(event) => setPilotEmail(event.target.value)} />
-                </label>
-                <label>
-                  Password
-                  <input
-                    className="input"
-                    type="password"
-                    value={pilotPassword}
-                    onChange={(event) => setPilotPassword(event.target.value)}
-                  />
-                </label>
-                {pilotError ? <p className="notice warning">{pilotError}</p> : null}
-                {pilotStatus ? <p className="notice success">{pilotStatus}</p> : null}
-                <button type="submit">
-                  Sign in with pilot account
-                </button>
-              </form>
-            ) : null}
-
-            {loginMode === 'test' ? testAccountForm : null}
-
             <div className="login-account-note">
-              <strong>For testers</strong>
-              <p>
-                Start with the pilot account if you want to see the dashboard right away. Use a tester account
-                when you want a separate workspace.
-              </p>
+              <strong>Secure sign-in</strong>
+              <p>Authentication is handled by Clerk and the API only accepts signed session tokens.</p>
             </div>
           </div>
         </section>
