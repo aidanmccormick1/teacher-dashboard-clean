@@ -1491,7 +1491,9 @@ export function ManagementPage() {
       setScheduleImportJobId(null);
       setScheduleImportJob(null);
       setScheduleImportOutput(null);
-      const job = await api.enqueueParseSchedule({
+      // Run schedule imports directly. The production deployment does not run a
+      // separate queue worker, so queueing would leave the review stuck at 0%.
+      const parsed = await api.importSchedule({
         text: scheduleImportText.trim() || undefined,
         // The production API reads uploaded schedule images from imageBase64.
         // Keep the data URL intact so the vision request receives its MIME type.
@@ -1499,8 +1501,7 @@ export function ManagementPage() {
         fileName: scheduleImportFileName || undefined,
         fileMimeType: scheduleImportFileMimeType || undefined
       });
-      setScheduleImportJobId(job.jobId);
-      setScheduleImportJob(null);
+      applyScheduleParseResult(parsed);
       setLocalScheduleParse(null);
       setError(null);
     } catch (err) {
