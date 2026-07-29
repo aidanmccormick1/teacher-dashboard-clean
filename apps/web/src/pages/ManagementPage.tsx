@@ -86,13 +86,13 @@ type ManagementState = {
 };
 
 const tabs: Array<{ id: ManagementTab; label: string }> = [
+  { id: 'import', label: 'Import first' },
   { id: 'start', label: 'Guide' },
   { id: 'courses', label: 'Courses' },
   { id: 'periods', label: 'Periods' },
   { id: 'weekly', label: 'Weekly Schedule' },
   { id: 'curriculum', label: 'Year Plan' },
-  { id: 'progress', label: 'Progress' },
-  { id: 'import', label: 'Import' }
+  { id: 'progress', label: 'Progress' }
 ];
 
 const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'] as const;
@@ -232,9 +232,9 @@ function readManagementActiveTab(): ManagementTab {
   try {
     const saved = window.localStorage.getItem(activeTabStorageKey);
     const matchingTab = tabs.find((tab) => tab.id === saved);
-    return matchingTab?.id ?? 'start';
+    return matchingTab?.id ?? 'import';
   } catch {
-    return 'start';
+    return 'import';
   }
 }
 
@@ -587,10 +587,10 @@ function promptForState(state: ManagementState, selectedCourse: CourseDetail | n
 
   if (!state.courses.length) {
     return {
-      id: 'create-course',
-      title: 'Create your first course',
-      body: 'Courses hold the year plan.',
-      tab: 'courses' as ManagementTab
+      id: 'import-schedule',
+      title: 'Import your schedule first',
+      body: 'Upload a schedule screenshot, PDF, or pasted text to draft courses and periods for review.',
+      tab: 'import' as ManagementTab
     };
   }
   if (!selectedSections.length) {
@@ -1986,9 +1986,9 @@ export function ManagementPage() {
         <section className="management-panel stack">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Import</p>
-              <h2>Import Schedule</h2>
-              <p className="muted">Use local import first, or use the enhanced reader when a file is messy.</p>
+              <p className="eyebrow">Start here</p>
+              <h2>Import your schedule</h2>
+              <p className="muted">Upload what you already have to draft courses, class periods, meeting times, and rooms for review.</p>
             </div>
           </div>
 
