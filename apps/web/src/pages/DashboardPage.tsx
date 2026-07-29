@@ -361,7 +361,9 @@ export function DashboardPage() {
   const smartPrompts = useMemo(() => {
     const prompts = [];
 
-    if (!state.courses.length && !state.schedule?.sections.length) {
+    const hasScheduleMeetings = Boolean(state.schedule?.sections.some((section) => section.meetings.length > 0));
+
+    if (!state.courses.length && !hasScheduleMeetings) {
       return [
         {
           title: 'Import your schedule first',
@@ -383,13 +385,13 @@ export function DashboardPage() {
       });
     }
 
-    if (!state.schedule?.sections.length) {
+    if (!hasScheduleMeetings) {
       prompts.push({
-        title: 'Build your schedule',
-        body: 'Add periods manually, or import a schedule to draft them for review.',
+        title: 'Import your schedule',
+        body: 'Upload a schedule screenshot, PDF, or pasted text to draft periods for review.',
         to: '/management',
-        managementTab: 'periods' as ManagementTabTarget,
-        action: 'Open Periods'
+        managementTab: 'import' as ManagementTabTarget,
+        action: 'Start import'
       });
     }
 
@@ -459,7 +461,7 @@ export function DashboardPage() {
     nextResume,
     scheduleGaps,
     state.courses.length,
-    state.schedule?.sections.length,
+    state.schedule?.sections,
     state.today?.currentClass,
     state.today?.nextClass,
     summary.lessonCount,

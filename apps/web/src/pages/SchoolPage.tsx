@@ -64,7 +64,8 @@ export function SchoolPage() {
         // rather than presenting setup as a loading failure.
         setNeedsScheduleImport(
           scheduleResult.status === 'rejected' ||
-            (scheduleResult.status === 'fulfilled' && scheduleResult.value.sections.length === 0)
+            (scheduleResult.status === 'fulfilled' &&
+              !scheduleResult.value.sections.some((section) => section.meetings.length > 0))
         );
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Failed to load school setup');
