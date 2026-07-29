@@ -1477,7 +1477,10 @@ export function ManagementPage() {
     }
 
     const source = match[1].replace(/\b(the|classes?|sections?)\b/gi, '').trim();
-    const target = match[2].trim();
+    const target = match[2]
+      .replace(/^(?:one|the same)\s+course\s+(?:called\s+)?/i, '')
+      .replace(/^called\s+/i, '')
+      .trim();
     if (!source || !target) return;
 
     const sourceNames = (allSectionsMatch ? [source] : source.split(/,|\band\b/i))
