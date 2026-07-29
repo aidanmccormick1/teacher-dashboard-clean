@@ -1482,11 +1482,17 @@ export function ManagementPage() {
       return;
     }
 
-    const source = match[1].replace(/\b(the|classes?|sections?)\b/gi, '').trim();
-    const target = match[2]
+    const [sourceMatch, targetMatch] = [match[1], match[2]];
+    if (!sourceMatch || !targetMatch) {
+      setError('Include both the period names and the course name you want to use.');
+      return;
+    }
+
+    const source = sourceMatch.replace(/\b(the|classes?|sections?)\b/gi, '').trim();
+    const targetSentence = targetMatch.split(/[.!?]/, 1)[0] ?? '';
+    const target = targetSentence
       // A teacher may follow the correction with another sentence of guidance.
       // Only the first sentence is the requested course name.
-      .split(/[.!?]/, 1)[0]
       .replace(/^(?:one|the same)\s+course\s+(?:called\s+)?/i, '')
       .replace(/^called\s+/i, '')
       .trim();
