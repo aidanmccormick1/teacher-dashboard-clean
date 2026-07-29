@@ -351,6 +351,17 @@ function draftToParsedClass(draft: ParsedClassEditDraft): ParsedScheduleClass {
   };
 }
 
+function courseNameKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort()
+    .join(' ');
+}
+
 function parseMeetingDaysInput(value: string): Array<(typeof meetingDays)[number]> {
   const days = value
     .split(',')
@@ -1426,21 +1437,11 @@ export function ManagementPage() {
   };
 
   const findCourseForParsedClass = (parsedClass: ParsedScheduleClass) => {
-    const normalizedCandidates = [parsedClass.name, parsedClass.subject]
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean);
-
-    return (
-      state.courses.find((course) => normalizedCandidates.includes(course.name.trim().toLowerCase())) ??
-      state.courses.find((course) =>
-        course.subject ? normalizedCandidates.includes(course.subject.trim().toLowerCase()) : false
-      ) ??
-      null
-    );
+    const nameKey = courseNameKey(parsedClass.name);
+    return state.courses.find((course) => courseNameKey(course.name) === nameKey) ?? null;
   };
 
-  const parsedCourseKey = (parsedClass: ParsedScheduleClass) =>
-    (parsedClass.name.trim() || parsedClass.subject.trim()).toLowerCase();
+  const parsedCourseKey = (parsedClass: ParsedScheduleClass) => courseNameKey(parsedClass.name);
 
   const parsedClassKey = (parsedClass: ParsedScheduleClass) =>
     `${parsedClass.name}-${parsedClass.period}-${parsedClass.time ?? 'time'}-${parsedClass.room ?? 'room'}`;
@@ -1498,10 +1499,12 @@ export function ManagementPage() {
       .map((parsedClass) => {
         const key = parsedClassKey(parsedClass);
         const draft = parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
-        const currentName = draft.name.trim().toLowerCase();
+        const currentName = courseNameKey(draft.name);
         const shouldMerge = allSectionsMatch
-          ? currentName.startsWith(sourceNames[0] ?? '')
-          : sourceNames.includes(currentName);
+          ? courseNameKey(sourceNames[0] ?? '')
+              .split(' ')
+              .every((token) => currentName.includes(token))
+          : sourceNames.some((name) => courseNameKey(name) === currentName);
         return shouldMerge && draft.name !== target ? key : null;
       })
       .filter((key): key is string => Boolean(key));
@@ -1623,12 +1626,7 @@ export function ManagementPage() {
     try {
       setBusy(true);
       const coursesByKey = new Map(
-        state.courses.flatMap((course) => {
-          const keys = [course.name, course.subject ?? '']
-            .map((value) => value.trim().toLowerCase())
-            .filter(Boolean);
-          return keys.map((key) => [key, course] as const);
-        })
+        state.courses.map((course) => [courseNameKey(course.name), course] as const)
       );
       const addedKeys: string[] = [];
       let latestSchedule: GetScheduleResponse | null = null;
@@ -1642,7 +1640,6 @@ export function ManagementPage() {
           (await createCourse(edited.name, edited.subject, edited.grade ?? ''));
 
         coursesByKey.set(parsedCourseKey(edited), course);
-        if (course.subject) coursesByKey.set(course.subject.trim().toLowerCase(), course);
 
         latestSchedule = await api.createSection({
           courseId: course.id,
