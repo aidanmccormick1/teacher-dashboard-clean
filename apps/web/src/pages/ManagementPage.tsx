@@ -73,6 +73,11 @@ type AddPeriodDraft = {
   time: string;
   room: string;
 };
+type GenerationProgress = {
+  completed: number;
+  total: number;
+  status: 'creating' | 'complete';
+};
 
 type ManagementState = {
   courses: CourseSummary[];
@@ -334,6 +339,20 @@ function courseNameKey(value: string): string {
     .join(' ');
 }
 
+function classReferenceMatches(reference: string, draft: ParsedClassEditDraft): boolean {
+  const referenceTokens = courseNameKey(reference).split(' ').filter(Boolean);
+  if (!referenceTokens.length) return false;
+  const candidates = [draft.name, draft.period, `${draft.name} ${draft.period}`].map((value) =>
+    courseNameKey(value).split(' ').filter(Boolean)
+  );
+
+  return candidates.some(
+    (tokens) =>
+      tokens.join(' ') === referenceTokens.join(' ') ||
+      referenceTokens.every((referenceToken) => tokens.includes(referenceToken))
+  );
+}
+
 function parseMeetingDaysInput(value: string): Array<(typeof meetingDays)[number]> {
   const days = value
     .split(',')
@@ -575,6 +594,7 @@ export function ManagementPage() {
   const [scheduleImportChanges, setScheduleImportChanges] = useState('');
   const [parsedClassEditDrafts, setParsedClassEditDrafts] = useState<Record<string, ParsedClassEditDraft>>({});
   const [addedParsedClassKeys, setAddedParsedClassKeys] = useState<string[]>([]);
+  const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [completedWalkthroughIds, setCompletedWalkthroughIds] = useState<string[]>(() => readStringList(walkthroughStorageKey));
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [confirmedScheduleSignature, setConfirmedScheduleSignature] = useState(
@@ -669,10 +689,17 @@ export function ManagementPage() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (!state.courses.length && activeTab !== 'import' && activeTab !== 'courses') {
-      setActiveTab('import');
-    }
-  }, [activeTab, state.courses.length]);
+    const hasClasses = Boolean(state.schedule?.sections.length);
+    const hasMeetingTimes = Boolean(state.schedule?.sections.some((section) => section.meetings.length > 0));
+    const allowedTabs = !state.courses.length
+      ? ['import', 'courses']
+      : !hasClasses
+        ? ['import', 'courses', 'periods']
+        : !hasMeetingTimes
+          ? ['import', 'courses', 'periods', 'weekly']
+          : tabs.map((tab) => tab.id);
+    if (!allowedTabs.includes(activeTab)) setActiveTab('import');
+  }, [activeTab, state.courses.length, state.schedule?.sections]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -790,7 +817,7 @@ export function ManagementPage() {
   }, [selectedSectionId, selectedSections]);
 
   const prompt = promptForState(state, selectedCourse);
-  const showPrompt = prompt && !dismissedPromptIds.includes(prompt.id);
+  const showPrompt = activeTab !== 'import' && prompt && !dismissedPromptIds.includes(prompt.id);
   const selectedDepth = selectedCourse ? courseDepth(selectedCourse) : { units: 0, lessons: 0, segments: 0 };
   const selectedCourseLessonIds = selectedCourse ? courseLessonIds(selectedCourse) : [];
   const plannedPercent = selectedDepth.lessons > 0 ? Math.min(100, Math.round((selectedDepth.segments / selectedDepth.lessons) * 20)) : 0;
@@ -811,6 +838,13 @@ export function ManagementPage() {
   const hasMeetingGaps = sections.some((section) =>
     !section.meetings.length || section.meetings.some((meeting) => !meeting.time || !meeting.room)
   );
+  const visibleTabs = !state.courses.length
+    ? tabs.filter((tab) => tab.id === 'import' || tab.id === 'courses')
+    : !sections.length
+      ? tabs.filter((tab) => tab.id === 'import' || tab.id === 'courses' || tab.id === 'periods')
+      : !sections.some((section) => section.meetings.length > 0)
+        ? tabs.filter((tab) => ['import', 'courses', 'periods', 'weekly'].includes(tab.id))
+        : tabs;
   const scheduleSignature = sections
     .flatMap((section) =>
       section.meetings.map((meeting) =>
@@ -1364,14 +1398,17 @@ export function ManagementPage() {
     if (!instruction) return;
 
     const mergeMatch = instruction.match(/(?:merge|combine|treat)\s+(.+?)\s+(?:into|as|called)\s+(.+?)[.!]?$/i);
-    const periodsOfMatch = instruction.match(
-      /^(.+?)\s+(?:are|is)\s+(?:just\s+)?(?:different\s+)?(?:class(?:\s+groups?)?|groups?|periods?)\s+of\s+(.+?)[.!]?$/i
+    const groupingMatch = instruction.match(
+      /^(.+?)\s+(?:(?:are|is)\s+)?(?:just\s+)?(?:different\s+)?(?:class(?:\s+groups?)?|groups?|periods?|part\s+of|under|in)\s+(?:of|under|in|for)?\s*(.+?)[.!]?$/i
+    );
+    const shouldUseMatch = instruction.match(
+      /^(.+?)\s+(?:should\s+)?(?:use|share|follow)\s+(?:the\s+)?(.+?)\s+curriculum[.!]?$/i
     );
     const allSectionsMatch = instruction.match(
       /all\s+(.+?)\s+sections?\s+(?:should be|are|as)\s+(?:one|the same)\s+course(?:\s+called)?\s+(.+?)[.!]?$/i
     );
     const renameMatch = instruction.match(/rename\s+(.+?)\s+to\s+(.+?)[.!]?$/i);
-    const match = mergeMatch ?? periodsOfMatch ?? allSectionsMatch ?? renameMatch;
+    const match = mergeMatch ?? groupingMatch ?? shouldUseMatch ?? allSectionsMatch ?? renameMatch;
 
     if (!match) {
       setError('Try “Treat Spanish 5A and Spanish 5B as class groups of Spanish 5.”');
@@ -1384,13 +1421,14 @@ export function ManagementPage() {
       return;
     }
 
-    const source = sourceMatch.replace(/\b(the|classes?|sections?)\b/gi, '').trim();
+    const source = sourceMatch.replace(/\b(the|classes?|class\s+groups?|groups?|sections?)\b/gi, '').trim();
     const targetSentence = targetMatch.split(/[.!?]/, 1)[0] ?? '';
     const target = targetSentence
       // A teacher may follow the correction with another sentence of guidance.
       // Only the first sentence is the requested course name.
       .replace(/^(?:one|the same)\s+course\s+(?:called\s+)?/i, '')
       .replace(/^called\s+/i, '')
+      .replace(/\s+curriculum$/i, '')
       .trim();
     if (!source || !target) return;
 
@@ -1406,13 +1444,13 @@ export function ManagementPage() {
           ? courseNameKey(sourceNames[0] ?? '')
               .split(' ')
               .every((token) => currentName.includes(token))
-          : sourceNames.some((name) => courseNameKey(name) === currentName);
+          : sourceNames.some((name) => classReferenceMatches(name, draft));
         return shouldMerge && draft.name !== target ? key : null;
       })
       .filter((key): key is string => Boolean(key));
 
     if (!matchingKeys.length) {
-      setError(`No imported classes matched “${source}”. Edit the course names directly instead.`);
+      setError(`I could not match “${source}”. Try the exact group names, such as “Spanish 5A and Spanish 5B are class groups of Spanish 5.”`);
       return;
     }
     setParsedClassEditDrafts((previous) =>
@@ -1433,6 +1471,7 @@ export function ManagementPage() {
       Object.fromEntries(parsed.classes.map((parsedClass) => [parsedClassKey(parsedClass), parsedClassToDraft(parsedClass)]))
     );
     setAddedParsedClassKeys([]);
+    setGenerationProgress(null);
   };
 
   const startScheduleUpload = async () => {
@@ -1446,6 +1485,7 @@ export function ManagementPage() {
       setScheduleImportJobId(null);
       setScheduleImportJob(null);
       setScheduleImportOutput(null);
+      setGenerationProgress(null);
       // Run schedule imports directly. The production deployment does not run a
       // separate queue worker, so queueing would leave the review stuck at 0%.
       const parsed = await api.importSchedule({
@@ -1468,6 +1508,7 @@ export function ManagementPage() {
   const addParsedClassToSchedule = async (parsedClass: ParsedScheduleClass, reviewKey = parsedClassKey(parsedClass)) => {
     try {
       setBusy(true);
+      setGenerationProgress({ completed: 0, total: 1, status: 'creating' });
       const existingCourse = findCourseForParsedClass(parsedClass);
       const course =
         existingCourse ??
@@ -1488,7 +1529,9 @@ export function ManagementPage() {
       setSelectedCourseForSchedule(course.id);
       setAddedParsedClassKeys((previous) => [...new Set([...previous, reviewKey])]);
       setError(null);
+      setGenerationProgress({ completed: 1, total: 1, status: 'complete' });
     } catch (err) {
+      setGenerationProgress(null);
       setError(err instanceof ApiError ? err.message : 'Failed to add parsed period');
     } finally {
       setBusy(false);
@@ -1512,6 +1555,7 @@ export function ManagementPage() {
 
     try {
       setBusy(true);
+      setGenerationProgress({ completed: 0, total: pendingClasses.length, status: 'creating' });
       const coursesByKey = new Map(
         state.courses.map((course) => [courseNameKey(course.name), course] as const)
       );
@@ -1539,6 +1583,7 @@ export function ManagementPage() {
         });
         lastCourseId = course.id;
         addedKeys.push(key);
+        setGenerationProgress({ completed: addedKeys.length, total: pendingClasses.length, status: 'creating' });
       }
 
       if (latestSchedule) {
@@ -1550,8 +1595,10 @@ export function ManagementPage() {
       }
       setAddedParsedClassKeys((previous) => [...new Set([...previous, ...addedKeys])]);
       setError(null);
+      setGenerationProgress({ completed: pendingClasses.length, total: pendingClasses.length, status: 'complete' });
       flashCopyStatus(`Created ${addedKeys.length} reviewed ${addedKeys.length === 1 ? 'class group' : 'class groups'}.`);
     } catch (err) {
+      setGenerationProgress(null);
       setError(err instanceof ApiError ? err.message : 'Failed to create reviewed class groups');
     } finally {
       setBusy(false);
@@ -1577,7 +1624,7 @@ export function ManagementPage() {
   return (
     <div className="management-page stack">
       <nav className="management-tabs" aria-label="Management sections">
-        {(state.courses.length ? tabs : tabs.filter((tab) => tab.id === 'import' || tab.id === 'courses')).map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
             className={activeTab === tab.id ? 'active' : ''}
@@ -1978,6 +2025,7 @@ export function ManagementPage() {
                   setScheduleImportOutput(null);
                   setParsedClassEditDrafts({});
                   setAddedParsedClassKeys([]);
+                  setGenerationProgress(null);
                 }}
               >
                 Clear
@@ -2056,20 +2104,37 @@ export function ManagementPage() {
                   </div>
                 </div>
                 <div className="local-parse-summary good import-changes-panel">
-                  <strong>Make changes before saving</strong>
-                  <span>Group each class under the shared course curriculum here. Class names (A, B, C or Period 1, 2, 3) and meeting times stay unchanged until you edit them directly.</span>
+                  <strong>Describe a correction</strong>
+                  <span>Tell us how to group classes under the shared curriculum. For example: “Spanish 5A and Spanish 5B are class groups of Spanish 5.”</span>
                   <div className="profile-actions">
                     <textarea
                       rows={2}
                       value={scheduleImportChanges}
                       onChange={(event) => setScheduleImportChanges(event.target.value)}
-                      placeholder="Spanish 5A and Spanish 5B are class groups of Spanish 5."
+                      placeholder="Type a correction in plain language..."
                     />
                     <button type="button" disabled={busy || !scheduleImportChanges.trim()} onClick={applyScheduleImportChanges}>
-                      Apply changes
+                      Apply correction
                     </button>
                   </div>
                 </div>
+                {generationProgress ? (
+                  <div className="import-status-panel" aria-live="polite">
+                    <div>
+                      <strong>
+                        {generationProgress.status === 'complete'
+                          ? 'Course structure created'
+                          : 'Creating course structure...'}
+                      </strong>
+                      <span>
+                        {generationProgress.status === 'complete'
+                          ? `${generationProgress.total} class groups are ready for review in Classes and Meeting times.`
+                          : `Creating ${generationProgress.completed + 1} of ${generationProgress.total} class groups...`}
+                      </span>
+                    </div>
+                    <progress max={generationProgress.total} value={generationProgress.completed} />
+                  </div>
+                ) : null}
                 <div className="parsed-class-list">
                   {importedCourseGroups.map((group) => {
                     const firstClass = group.classes[0];
