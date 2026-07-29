@@ -1483,6 +1483,9 @@ export function ManagementPage() {
 
     const source = match[1].replace(/\b(the|classes?|sections?)\b/gi, '').trim();
     const target = match[2]
+      // A teacher may follow the correction with another sentence of guidance.
+      // Only the first sentence is the requested course name.
+      .split(/[.!?]/, 1)[0]
       .replace(/^(?:one|the same)\s+course\s+(?:called\s+)?/i, '')
       .replace(/^called\s+/i, '')
       .trim();
