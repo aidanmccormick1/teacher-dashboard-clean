@@ -670,6 +670,7 @@ export function ManagementPage() {
   const [scheduleImportJobId, setScheduleImportJobId] = useState<string | null>(null);
   const [scheduleImportJob, setScheduleImportJob] = useState<AiJobStatusResponse | null>(null);
   const [scheduleImportOutput, setScheduleImportOutput] = useState<ParseScheduleResponse | null>(null);
+  const [scheduleImportChanges, setScheduleImportChanges] = useState('');
   const [localScheduleParse, setLocalScheduleParse] = useState<LocalScheduleParseResult | null>(null);
   const [parsedClassEditDrafts, setParsedClassEditDrafts] = useState<Record<string, ParsedClassEditDraft>>({});
   const [addedParsedClassKeys, setAddedParsedClassKeys] = useState<string[]>([]);
@@ -1458,6 +1459,58 @@ export function ManagementPage() {
     }));
   };
 
+  const applyScheduleImportChanges = () => {
+    if (!scheduleImportOutput) return;
+    const instruction = scheduleImportChanges.trim().replace(/\s+/g, ' ');
+    if (!instruction) return;
+
+    const mergeMatch = instruction.match(/(?:merge|combine|treat)\s+(.+?)\s+(?:into|as|called)\s+(.+?)[.!]?$/i);
+    const allSectionsMatch = instruction.match(
+      /all\s+(.+?)\s+sections?\s+(?:should be|are|as)\s+(?:one|the same)\s+course(?:\s+called)?\s+(.+?)[.!]?$/i
+    );
+    const renameMatch = instruction.match(/rename\s+(.+?)\s+to\s+(.+?)[.!]?$/i);
+    const match = mergeMatch ?? allSectionsMatch ?? renameMatch;
+
+    if (!match) {
+      setError('Try “Treat Spanish 5A and Spanish 5B as one course called Spanish 5.”');
+      return;
+    }
+
+    const source = match[1].replace(/\b(the|classes?|sections?)\b/gi, '').trim();
+    const target = match[2].trim();
+    if (!source || !target) return;
+
+    const sourceNames = (allSectionsMatch ? [source] : source.split(/,|\band\b/i))
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean);
+    const matchingKeys = scheduleImportOutput.classes
+      .map((parsedClass) => {
+        const key = parsedClassKey(parsedClass);
+        const draft = parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
+        const currentName = draft.name.trim().toLowerCase();
+        const shouldMerge = allSectionsMatch
+          ? currentName.startsWith(sourceNames[0] ?? '')
+          : sourceNames.includes(currentName);
+        return shouldMerge && draft.name !== target ? key : null;
+      })
+      .filter((key): key is string => Boolean(key));
+
+    if (!matchingKeys.length) {
+      setError(`No imported classes matched “${source}”. Edit the course names directly instead.`);
+      return;
+    }
+    setParsedClassEditDrafts((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).map(([key, draft]) =>
+          matchingKeys.includes(key) ? [key, { ...draft, name: target }] : [key, draft]
+        )
+      )
+    );
+    setScheduleImportChanges('');
+    setError(null);
+    flashCopyStatus(`Updated ${matchingKeys.length} ${matchingKeys.length === 1 ? 'class' : 'classes'} to ${target}.`);
+  };
+
   const applyScheduleParseResult = (parsed: ParseScheduleResponse) => {
     setScheduleImportOutput(parsed);
     setParsedClassEditDrafts(
@@ -2103,6 +2156,21 @@ export function ManagementPage() {
                     </button>
                     <button className="secondary" type="button" onClick={() => void copyImportSummary()}>
                       Copy import summary
+                    </button>
+                  </div>
+                </div>
+                <div className="local-parse-summary good import-changes-panel">
+                  <strong>Make changes before saving</strong>
+                  <span>Describe a correction in plain language. We keep the periods, days, times, and rooms.</span>
+                  <div className="profile-actions">
+                    <textarea
+                      rows={2}
+                      value={scheduleImportChanges}
+                      onChange={(event) => setScheduleImportChanges(event.target.value)}
+                      placeholder="Treat Spanish 5A and Spanish 5B as one course called Spanish 5."
+                    />
+                    <button type="button" disabled={busy || !scheduleImportChanges.trim()} onClick={applyScheduleImportChanges}>
+                      Apply changes
                     </button>
                   </div>
                 </div>
