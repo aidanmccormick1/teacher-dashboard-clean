@@ -78,6 +78,10 @@ type GenerationProgress = {
   total: number;
   status: 'creating' | 'complete';
 };
+type CorrectionProgress = {
+  status: 'sending' | 'processing' | 'complete';
+  percent: number;
+};
 
 type ManagementState = {
   courses: CourseSummary[];
@@ -339,20 +343,6 @@ function courseNameKey(value: string): string {
     .join(' ');
 }
 
-function classReferenceMatches(reference: string, draft: ParsedClassEditDraft): boolean {
-  const referenceTokens = courseNameKey(reference).split(' ').filter(Boolean);
-  if (!referenceTokens.length) return false;
-  const candidates = [draft.name, draft.period, `${draft.name} ${draft.period}`].map((value) =>
-    courseNameKey(value).split(' ').filter(Boolean)
-  );
-
-  return candidates.some(
-    (tokens) =>
-      tokens.join(' ') === referenceTokens.join(' ') ||
-      referenceTokens.every((referenceToken) => tokens.includes(referenceToken))
-  );
-}
-
 function parseMeetingDaysInput(value: string): Array<(typeof meetingDays)[number]> {
   const days = value
     .split(',')
@@ -595,6 +585,7 @@ export function ManagementPage() {
   const [parsedClassEditDrafts, setParsedClassEditDrafts] = useState<Record<string, ParsedClassEditDraft>>({});
   const [addedParsedClassKeys, setAddedParsedClassKeys] = useState<string[]>([]);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
+  const [correctionProgress, setCorrectionProgress] = useState<CorrectionProgress | null>(null);
   const [completedWalkthroughIds, setCompletedWalkthroughIds] = useState<string[]>(() => readStringList(walkthroughStorageKey));
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [confirmedScheduleSignature, setConfirmedScheduleSignature] = useState(
@@ -1392,77 +1383,34 @@ export function ManagementPage() {
     }));
   };
 
-  const applyScheduleImportChanges = () => {
+  const applyScheduleImportChanges = async () => {
     if (!scheduleImportOutput) return;
     const instruction = scheduleImportChanges.trim().replace(/\s+/g, ' ');
     if (!instruction) return;
 
-    const mergeMatch = instruction.match(/(?:merge|combine|treat)\s+(.+?)\s+(?:into|as|called)\s+(.+?)[.!]?$/i);
-    const groupingMatch = instruction.match(
-      /^(.+?)\s+(?:(?:are|is)\s+)?(?:just\s+)?(?:different\s+)?(?:class(?:\s+groups?)?|groups?|periods?|part\s+of|under|in)\s+(?:of|under|in|for)?\s*(.+?)[.!]?$/i
-    );
-    const shouldUseMatch = instruction.match(
-      /^(.+?)\s+(?:should\s+)?(?:use|share|follow)\s+(?:the\s+)?(.+?)\s+curriculum[.!]?$/i
-    );
-    const allSectionsMatch = instruction.match(
-      /all\s+(.+?)\s+sections?\s+(?:should be|are|as)\s+(?:one|the same)\s+course(?:\s+called)?\s+(.+?)[.!]?$/i
-    );
-    const renameMatch = instruction.match(/rename\s+(.+?)\s+to\s+(.+?)[.!]?$/i);
-    const match = mergeMatch ?? groupingMatch ?? shouldUseMatch ?? allSectionsMatch ?? renameMatch;
-
-    if (!match) {
-      setError('Try “Treat Spanish 5A and Spanish 5B as class groups of Spanish 5.”');
-      return;
+    try {
+      setBusy(true);
+      setCorrectionProgress({ status: 'sending', percent: 20 });
+      const currentSchedule = {
+        classes: scheduleImportOutput.classes.map((parsedClass) => parsedClassFromDraft(parsedClass)),
+        assignments: scheduleImportOutput.assignments
+      };
+      setCorrectionProgress({ status: 'processing', percent: 55 });
+      const correctedSchedule = await api.correctScheduleImport({
+        ...currentSchedule,
+        instruction
+      });
+      applyScheduleParseResult(correctedSchedule);
+      setScheduleImportChanges('');
+      setCorrectionProgress({ status: 'complete', percent: 100 });
+      setError(null);
+      flashCopyStatus('Correction processed. Rebuilt the complete schedule review.');
+    } catch (err) {
+      setCorrectionProgress(null);
+      setError(err instanceof ApiError ? err.message : 'Failed to process the schedule correction');
+    } finally {
+      setBusy(false);
     }
-
-    const [sourceMatch, targetMatch] = [match[1], match[2]];
-    if (!sourceMatch || !targetMatch) {
-      setError('Include both the period names and the course name you want to use.');
-      return;
-    }
-
-    const source = sourceMatch.replace(/\b(the|classes?|class\s+groups?|groups?|sections?)\b/gi, '').trim();
-    const targetSentence = targetMatch.split(/[.!?]/, 1)[0] ?? '';
-    const target = targetSentence
-      // A teacher may follow the correction with another sentence of guidance.
-      // Only the first sentence is the requested course name.
-      .replace(/^(?:one|the same)\s+course\s+(?:called\s+)?/i, '')
-      .replace(/^called\s+/i, '')
-      .replace(/\s+curriculum$/i, '')
-      .trim();
-    if (!source || !target) return;
-
-    const sourceNames = (allSectionsMatch ? [source] : source.split(/,|\band\b/i))
-      .map((name) => name.trim().toLowerCase())
-      .filter(Boolean);
-    const matchingKeys = scheduleImportOutput.classes
-      .map((parsedClass) => {
-        const key = parsedClassKey(parsedClass);
-        const draft = parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
-        const currentName = courseNameKey(draft.name);
-        const shouldMerge = allSectionsMatch
-          ? courseNameKey(sourceNames[0] ?? '')
-              .split(' ')
-              .every((token) => currentName.includes(token))
-          : sourceNames.some((name) => classReferenceMatches(name, draft));
-        return shouldMerge && draft.name !== target ? key : null;
-      })
-      .filter((key): key is string => Boolean(key));
-
-    if (!matchingKeys.length) {
-      setError(`I could not match “${source}”. Try the exact group names, such as “Spanish 5A and Spanish 5B are class groups of Spanish 5.”`);
-      return;
-    }
-    setParsedClassEditDrafts((previous) =>
-      Object.fromEntries(
-        Object.entries(previous).map(([key, draft]) =>
-          matchingKeys.includes(key) ? [key, { ...draft, name: target }] : [key, draft]
-        )
-      )
-    );
-    setScheduleImportChanges('');
-    setError(null);
-    flashCopyStatus(`Updated ${matchingKeys.length} ${matchingKeys.length === 1 ? 'class' : 'classes'} to ${target}.`);
   };
 
   const applyScheduleParseResult = (parsed: ParseScheduleResponse) => {
@@ -1486,6 +1434,7 @@ export function ManagementPage() {
       setScheduleImportJob(null);
       setScheduleImportOutput(null);
       setGenerationProgress(null);
+      setCorrectionProgress(null);
       // Run schedule imports directly. The production deployment does not run a
       // separate queue worker, so queueing would leave the review stuck at 0%.
       const parsed = await api.importSchedule({
@@ -2026,6 +1975,7 @@ export function ManagementPage() {
                   setParsedClassEditDrafts({});
                   setAddedParsedClassKeys([]);
                   setGenerationProgress(null);
+                  setCorrectionProgress(null);
                 }}
               >
                 Clear
@@ -2104,8 +2054,8 @@ export function ManagementPage() {
                   </div>
                 </div>
                 <div className="local-parse-summary good import-changes-panel">
-                  <strong>Describe a correction</strong>
-                  <span>Tell us how to group classes under the shared curriculum. For example: “Spanish 5A and Spanish 5B are class groups of Spanish 5.”</span>
+                  <strong>AI schedule correction</strong>
+                  <span>Tell us what to change. We will send it for processing, then rebuild the entire course, class-group, and meeting-time review before anything is saved.</span>
                   <div className="profile-actions">
                     <textarea
                       rows={2}
@@ -2113,11 +2063,32 @@ export function ManagementPage() {
                       onChange={(event) => setScheduleImportChanges(event.target.value)}
                       placeholder="Type a correction in plain language..."
                     />
-                    <button type="button" disabled={busy || !scheduleImportChanges.trim()} onClick={applyScheduleImportChanges}>
-                      Apply correction
+                    <button type="button" disabled={busy || !scheduleImportChanges.trim()} onClick={() => void applyScheduleImportChanges()}>
+                      {correctionProgress?.status === 'processing' || correctionProgress?.status === 'sending'
+                        ? 'Processing correction...'
+                        : 'Process correction'}
                     </button>
                   </div>
                 </div>
+                {correctionProgress ? (
+                  <div className="import-status-panel" aria-live="polite">
+                    <div>
+                      <strong>
+                        {correctionProgress.status === 'sending'
+                          ? 'Sending correction...'
+                          : correctionProgress.status === 'processing'
+                            ? 'Rebuilding schedule review...'
+                            : 'Schedule review rebuilt'}
+                      </strong>
+                      <span>
+                        {correctionProgress.status === 'complete'
+                          ? 'The updated course, class-group, and meeting-time review is ready. Nothing has been saved yet.'
+                          : 'Your correction is being processed by the schedule reader.'}
+                      </span>
+                    </div>
+                    <progress max={100} value={correctionProgress.percent} />
+                  </div>
+                ) : null}
                 {generationProgress ? (
                   <div className="import-status-panel" aria-live="polite">
                     <div>

@@ -165,6 +165,12 @@ export const ScheduleImportResponseSchema = z.object({
   assignments: z.array(AssignmentItemSchema)
 });
 
+export const ScheduleImportCorrectionRequestSchema = z.object({
+  classes: z.array(ScheduleClassSchema).min(1),
+  assignments: z.array(AssignmentItemSchema),
+  instruction: z.string().min(1)
+});
+
 export const HolidaysUpsertRequestSchema = z.object({
   holidays: z.array(
     z.object({
@@ -457,6 +463,7 @@ export type SectionMutationRequest = z.infer<typeof SectionMutationRequestSchema
 export type SectionUpdateRequest = z.infer<typeof SectionUpdateRequestSchema>;
 export type ScheduleImportRequest = z.infer<typeof ScheduleImportRequestSchema>;
 export type ScheduleImportResponse = z.infer<typeof ScheduleImportResponseSchema>;
+export type ScheduleImportCorrectionRequest = z.infer<typeof ScheduleImportCorrectionRequestSchema>;
 export type HolidaysUpsertRequest = z.infer<typeof HolidaysUpsertRequestSchema>;
 export type HolidaysUpsertResponse = z.infer<typeof HolidaysUpsertResponseSchema>;
 export type FeedbackSubmitRequest = z.infer<typeof FeedbackSubmitRequestSchema>;

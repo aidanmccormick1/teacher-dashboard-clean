@@ -34,6 +34,7 @@ import type {
   ProfileUpdateResponse,
   SegmentCreateRequest,
   SegmentUpdateRequest,
+  ScheduleImportCorrectionRequest,
   ScheduleImportRequest,
   SectionMutationRequest,
   SectionUpdateRequest,
@@ -179,6 +180,8 @@ export function useApiClient() {
         request<DeleteEntityResponse>(`/v1/segments/${segmentId}`, { method: 'DELETE' }, auth),
       importSchedule: (body: ScheduleImportRequest) =>
         request<ParseScheduleResponse>('/v1/schedule/import', { method: 'POST', body: JSON.stringify(body) }, auth),
+      correctScheduleImport: (body: ScheduleImportCorrectionRequest) =>
+        request<ParseScheduleResponse>('/v1/schedule/import/correct', { method: 'POST', body: JSON.stringify(body) }, auth),
       enqueueParseSchedule: (body: ScheduleImportRequest) =>
         request<AiJobEnqueueResponse>(
           '/v1/ai/parse-schedule/queue',

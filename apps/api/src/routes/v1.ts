@@ -39,6 +39,7 @@ import {
   SegmentCreateRequestSchema,
   SegmentUpdateRequestSchema,
   ScheduleImportRequestSchema,
+  ScheduleImportCorrectionRequestSchema,
   ScheduleImportResponseSchema,
   SectionMutationRequestSchema,
   SectionUpdateRequestSchema,
@@ -96,6 +97,7 @@ const InternalParseScheduleSchema = z.object({
 });
 
 type ScheduleImportBody = z.infer<typeof ScheduleImportRequestSchema>;
+type ScheduleImportCorrectionBody = z.infer<typeof ScheduleImportCorrectionRequestSchema>;
 
 function hasScheduleImportInput(body: ScheduleImportBody): boolean {
   return Boolean(body.text || body.imageBase64 || body.fileBase64);
@@ -121,6 +123,20 @@ function scheduleImportUserPrompt(body: ScheduleImportBody): string {
     return 'Parse the uploaded PDF schedule. Extract teaching classes and assignments. Return JSON only.';
   }
   return 'Parse the uploaded schedule image. Extract teaching classes and assignments. Return JSON only.';
+}
+
+function scheduleImportCorrectionPrompt(body: ScheduleImportCorrectionBody): string {
+  return [
+    'Correct this already-parsed teacher schedule according to the teacher instruction.',
+    'The `name` field is the shared course curriculum. The `period` field is a distinct class group or period under that course.',
+    'Keep every class group, its meeting days, time, room, subject, grade, and assignments unless the instruction explicitly changes one.',
+    'When the teacher says groups or periods share a course, update their `name` fields to the shared course while retaining separate `period` entries.',
+    'Return the complete corrected schedule as JSON only, not a partial patch.',
+    '',
+    `Teacher instruction: ${body.instruction}`,
+    '',
+    `Current schedule: ${JSON.stringify({ classes: body.classes, assignments: body.assignments })}`
+  ].join('\n');
 }
 
 function requirePrincipal(request: FastifyRequest, reply: FastifyReply) {
@@ -1551,6 +1567,40 @@ export async function v1Routes(app: FastifyInstance) {
         userPrompt: scheduleImportUserPrompt(body),
         fileDataUrl: scheduleImportFileDataUrl(body),
         fileName: body.fileName
+      });
+
+      return ParseScheduleResponseSchema.parse(response);
+    }
+  );
+
+  app.post(
+    '/v1/schedule/import/correct',
+    {
+      schema: {
+        body: ScheduleImportCorrectionRequestSchema,
+        response: {
+          200: ScheduleImportResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const body = ScheduleImportCorrectionRequestSchema.parse(request.body);
+
+      if (!app.config.OPENAI_API_KEY) {
+        (reply as any).code(503);
+        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
+      }
+
+      const response = await runStructuredPrompt<z.infer<typeof InternalParseScheduleSchema>>({
+        apiKey: app.config.OPENAI_API_KEY,
+        model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+        schemaName: 'schedule_import_correction',
+        schema: InternalParseScheduleSchema,
+        systemPrompt:
+          'You correct a parsed teacher schedule. Preserve all class groups and meeting details unless explicitly changed. Return the complete corrected JSON only.',
+        userPrompt: scheduleImportCorrectionPrompt(body)
       });
 
       return ParseScheduleResponseSchema.parse(response);
