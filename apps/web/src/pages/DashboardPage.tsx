@@ -221,7 +221,7 @@ export function DashboardPage() {
         const onboardingRequired = failedPrimaryLoads.some(
           (result) =>
             result.status === 'rejected' &&
-            result.reason instanceof ApiError &&
+            result.reason instanceof Error &&
             result.reason.message.includes('Complete onboarding first')
         );
         if (onboardingRequired) {

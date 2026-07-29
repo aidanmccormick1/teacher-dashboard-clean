@@ -730,7 +730,7 @@ export function ManagementPage() {
         const onboardingRequired = primaryResults.some(
           (result) =>
             result.status === 'rejected' &&
-            result.reason instanceof ApiError &&
+            result.reason instanceof Error &&
             result.reason.message.includes('Complete onboarding first')
         );
         if (onboardingRequired) {
