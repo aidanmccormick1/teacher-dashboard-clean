@@ -727,7 +727,9 @@ export function ManagementPage() {
         });
 
         const primaryResults = [coursesResult, scheduleResult];
-        const onboardingRequired = primaryResults.some(
+        const onboardingRequired =
+          (coursesResult.status === 'fulfilled' && scheduleResult.status === 'rejected') ||
+          primaryResults.some(
           (result) =>
             result.status === 'rejected' &&
             typeof result.reason === 'object' &&
