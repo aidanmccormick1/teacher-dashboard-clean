@@ -531,7 +531,7 @@ button {
   color: #fff;
   padding: 11px 16px;
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 650;
   box-shadow: none;
 }
 
@@ -548,7 +548,8 @@ button.danger {
 }
 
 .muted {
-  color: var(--muted);
+  color: color-mix(in srgb, var(--muted) 88%, var(--ink));
+  font-size: 0.94em;
 }
 
 .notice {
@@ -687,7 +688,7 @@ button.button-link {
 .hero-copy h1 {
   max-width: 720px;
   font-size: clamp(2.8rem, 6.2vw, 5.55rem);
-  font-weight: 780;
+  font-weight: 700;
   line-height: 0.94;
   letter-spacing: -0.065em;
 }
@@ -711,8 +712,8 @@ button.button-link {
   margin: 0;
   color: var(--green);
   font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.16em;
+  font-weight: 700;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
 }
 
