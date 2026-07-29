@@ -232,7 +232,9 @@ function readManagementActiveTab(): ManagementTab {
   try {
     const saved = window.localStorage.getItem(activeTabStorageKey);
     const matchingTab = tabs.find((tab) => tab.id === saved);
-    return matchingTab?.id ?? 'import';
+    // Migrate the former default Guide tab into the new import-first experience.
+    // Explicitly saved work tabs still open where the teacher left off.
+    return matchingTab?.id === 'start' ? 'import' : matchingTab?.id ?? 'import';
   } catch {
     return 'import';
   }
