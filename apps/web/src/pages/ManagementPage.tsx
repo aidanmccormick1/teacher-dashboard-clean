@@ -1467,11 +1467,14 @@ export function ManagementPage() {
     if (!instruction) return;
 
     const mergeMatch = instruction.match(/(?:merge|combine|treat)\s+(.+?)\s+(?:into|as|called)\s+(.+?)[.!]?$/i);
+    const periodsOfMatch = instruction.match(
+      /^(.+?)\s+(?:are|is)\s+(?:just\s+)?(?:different\s+)?periods?\s+of\s+(.+?)[.!]?$/i
+    );
     const allSectionsMatch = instruction.match(
       /all\s+(.+?)\s+sections?\s+(?:should be|are|as)\s+(?:one|the same)\s+course(?:\s+called)?\s+(.+?)[.!]?$/i
     );
     const renameMatch = instruction.match(/rename\s+(.+?)\s+to\s+(.+?)[.!]?$/i);
-    const match = mergeMatch ?? allSectionsMatch ?? renameMatch;
+    const match = mergeMatch ?? periodsOfMatch ?? allSectionsMatch ?? renameMatch;
 
     if (!match) {
       setError('Try “Treat Spanish 5A and Spanish 5B as one course called Spanish 5.”');
@@ -1795,6 +1798,18 @@ export function ManagementPage() {
               {isNewCourseOpen ? 'Close' : 'New Course'}
             </button>
           </div>
+
+          <article className="card terminology-card">
+            <div>
+              <p className="eyebrow">Quick definitions</p>
+              <h3>Courses hold the plan. Periods hold the meetings.</h3>
+            </div>
+            <div className="terminology-grid">
+              <p><strong>Course</strong> — the shared class plan, such as Spanish 5.</p>
+              <p><strong>Period</strong> — a specific group that takes that course, with its own days, time, and room, such as Spanish 5A at 8:10.</p>
+              <p><strong>Import review</strong> — your chance to group period names under one course before anything is saved.</p>
+            </div>
+          </article>
 
           {isNewCourseOpen ? (
             <article className="card stack compact-create-card">
@@ -2166,13 +2181,13 @@ export function ManagementPage() {
                 </div>
                 <div className="local-parse-summary good import-changes-panel">
                   <strong>Make changes before saving</strong>
-                  <span>Describe a correction in plain language. We keep the periods, days, times, and rooms.</span>
+                  <span>Change only the course grouping here. Period names, days, times, rooms, and notes stay unchanged until you edit them directly.</span>
                   <div className="profile-actions">
                     <textarea
                       rows={2}
                       value={scheduleImportChanges}
                       onChange={(event) => setScheduleImportChanges(event.target.value)}
-                      placeholder="Treat Spanish 5A and Spanish 5B as one course called Spanish 5."
+                      placeholder="Spanish 5A and Spanish 5B are periods of Spanish 5."
                     />
                     <button type="button" disabled={busy || !scheduleImportChanges.trim()} onClick={applyScheduleImportChanges}>
                       Apply changes

@@ -552,6 +552,35 @@ button.danger {
   font-size: 0.94em;
 }
 
+.terminology-card {
+  display: grid;
+  gap: 14px;
+}
+
+.terminology-card h3,
+.terminology-card p {
+  margin: 0;
+}
+
+.terminology-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.terminology-grid p {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.terminology-grid strong {
+  color: var(--ink);
+}
+
 .notice {
   border-radius: 4px;
   padding: 12px 14px;
