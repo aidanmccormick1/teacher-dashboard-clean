@@ -726,6 +726,17 @@ export function ManagementPage() {
           resumesBySectionId
         });
 
+        const primaryResults = [coursesResult, scheduleResult];
+        const onboardingRequired = primaryResults.some(
+          (result) =>
+            result.status === 'rejected' &&
+            result.reason instanceof ApiError &&
+            result.reason.message.includes('Complete onboarding first')
+        );
+        if (onboardingRequired) {
+          navigate('/onboarding', { replace: true });
+          return;
+        }
         if (coursesResult.status === 'rejected' || scheduleResult.status === 'rejected') {
           setError('Some management data could not load.');
         }
@@ -735,7 +746,7 @@ export function ManagementPage() {
         if (showLoading) setLoading(false);
       }
     },
-    [api]
+    [api, navigate]
   );
 
   useEffect(() => {

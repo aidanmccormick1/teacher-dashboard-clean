@@ -218,6 +218,16 @@ export function DashboardPage() {
         const failedPrimaryLoads = [todayResult, scheduleResult, coursesResult].filter(
           (result) => result.status === 'rejected'
         );
+        const onboardingRequired = failedPrimaryLoads.some(
+          (result) =>
+            result.status === 'rejected' &&
+            result.reason instanceof ApiError &&
+            result.reason.message.includes('Complete onboarding first')
+        );
+        if (onboardingRequired) {
+          navigate('/onboarding', { replace: true });
+          return;
+        }
         if (failedPrimaryLoads.length > 0) {
           setError('Some dashboard data could not load.');
         }
@@ -233,7 +243,7 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [api, navigate]);
 
   const currentResume = state.today?.currentClass
     ? state.resumesBySectionId[state.today.currentClass.sectionId]
