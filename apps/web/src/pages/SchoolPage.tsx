@@ -43,6 +43,7 @@ export function SchoolPage() {
   const [removingHolidayId, setRemovingHolidayId] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsScheduleImport, setNeedsScheduleImport] = useState(false);
 
   useEffect(() => {
     const raw = window.localStorage.getItem(schoolYearStorageKey);
@@ -59,9 +60,12 @@ export function SchoolPage() {
         const [profileResult, scheduleResult] = await Promise.allSettled([api.getProfile(), api.getSchedule()]);
         if (profileResult.status === 'fulfilled') setProfile(profileResult.value);
         if (scheduleResult.status === 'fulfilled') setSchedule(scheduleResult.value);
-        if (profileResult.status === 'rejected' || scheduleResult.status === 'rejected') {
-          setError('Some school setup data could not load.');
-        }
+        // An empty schedule is normal for a new teacher. Invite them to import
+        // rather than presenting setup as a loading failure.
+        setNeedsScheduleImport(
+          scheduleResult.status === 'rejected' ||
+            (scheduleResult.status === 'fulfilled' && scheduleResult.value.sections.length === 0)
+        );
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Failed to load school setup');
       }
@@ -158,6 +162,19 @@ export function SchoolPage() {
 
       {error ? <p className="notice warning">{error}</p> : null}
       {saved ? <p className="notice success">Saved.</p> : null}
+
+      {needsScheduleImport ? (
+        <section className="smart-prompt">
+          <div>
+            <p className="eyebrow">Start with your schedule</p>
+            <h2>Import what you already have</h2>
+            <p>Upload a schedule screenshot, PDF, or pasted text to draft courses, periods, days, and rooms for review.</p>
+          </div>
+          <Link className="button-link" to="/management" onClick={() => rememberManagementTab('import')}>
+            Import schedule
+          </Link>
+        </section>
+      ) : null}
 
       <section className="school-grid">
         <article className="card stack">

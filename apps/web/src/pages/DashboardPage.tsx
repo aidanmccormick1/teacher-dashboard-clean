@@ -231,7 +231,12 @@ export function DashboardPage() {
           navigate('/onboarding', { replace: true });
           return;
         }
-        if (failedPrimaryLoads.length > 0) {
+        const isFirstSetup =
+          coursesResult.status === 'fulfilled' &&
+          scheduleResult.status === 'fulfilled' &&
+          courses.length === 0 &&
+          (schedule?.sections.length ?? 0) === 0;
+        if (failedPrimaryLoads.length > 0 && !isFirstSetup) {
           setError('Some dashboard data could not load.');
         }
       } catch (err) {
@@ -356,10 +361,22 @@ export function DashboardPage() {
   const smartPrompts = useMemo(() => {
     const prompts = [];
 
+    if (!state.courses.length && !state.schedule?.sections.length) {
+      return [
+        {
+          title: 'Import your schedule first',
+          body: 'Upload a schedule screenshot, PDF, or pasted text. We will draft your courses and periods for review.',
+          to: '/management',
+          managementTab: 'import' as ManagementTabTarget,
+          action: 'Start import'
+        }
+      ];
+    }
+
     if (!state.courses.length) {
       prompts.push({
         title: 'Create your first course',
-        body: 'Add one course to begin.',
+        body: 'Add one course manually, or import a schedule instead.',
         to: '/management',
         managementTab: 'courses' as ManagementTabTarget,
         action: 'Open Courses'
@@ -369,7 +386,7 @@ export function DashboardPage() {
     if (!state.schedule?.sections.length) {
       prompts.push({
         title: 'Build your schedule',
-        body: 'Add periods manually or import a schedule.',
+        body: 'Add periods manually, or import a schedule to draft them for review.',
         to: '/management',
         managementTab: 'periods' as ManagementTabTarget,
         action: 'Open Periods'
