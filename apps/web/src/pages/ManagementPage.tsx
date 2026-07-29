@@ -1493,7 +1493,9 @@ export function ManagementPage() {
       setScheduleImportOutput(null);
       const job = await api.enqueueParseSchedule({
         text: scheduleImportText.trim() || undefined,
-        fileBase64: scheduleImportFileDataUrl || undefined,
+        // The production API reads uploaded schedule images from imageBase64.
+        // Keep the data URL intact so the vision request receives its MIME type.
+        imageBase64: scheduleImportFileDataUrl || undefined,
         fileName: scheduleImportFileName || undefined,
         fileMimeType: scheduleImportFileMimeType || undefined
       });
