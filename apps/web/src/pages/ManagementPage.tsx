@@ -37,10 +37,6 @@ type SectionEditDraft = {
   time: string;
   room: string;
 };
-type LocalScheduleParseResult = ParseScheduleResponse & {
-  confidence: number;
-  warnings: string[];
-};
 type YearPlanTemplate = {
   id: string;
   name: string;
@@ -89,8 +85,8 @@ const tabs: Array<{ id: ManagementTab; label: string }> = [
   { id: 'import', label: 'Import first' },
   { id: 'start', label: 'Guide' },
   { id: 'courses', label: 'Courses' },
-  { id: 'periods', label: 'Periods' },
-  { id: 'weekly', label: 'Weekly Schedule' },
+  { id: 'periods', label: 'Classes' },
+  { id: 'weekly', label: 'Meeting times' },
   { id: 'curriculum', label: 'Year Plan' },
   { id: 'progress', label: 'Progress' }
 ];
@@ -102,6 +98,7 @@ const walkthroughStorageKey = 'teacheros_management_walkthrough_v1';
 const newCourseDraftStorageKey = 'teacheros_management_new_course_draft_v1';
 const addPeriodDraftStorageKey = 'teacheros_management_add_period_draft_v1';
 const activeTabStorageKey = 'teacheros_management_active_tab_v1';
+const scheduleConfirmationStorageKey = 'teacheros_management_confirmed_schedule_v1';
 const yearPlanTemplates: YearPlanTemplate[] = [
   {
     id: 'starter-4-week',
@@ -199,31 +196,6 @@ const yearPlanTemplates: YearPlanTemplate[] = [
     ]
   }
 ];
-const dayAliases: Record<string, (typeof meetingDays)[number]> = {
-  m: 'Monday',
-  mon: 'Monday',
-  monday: 'Monday',
-  t: 'Tuesday',
-  tue: 'Tuesday',
-  tues: 'Tuesday',
-  tuesday: 'Tuesday',
-  w: 'Wednesday',
-  wed: 'Wednesday',
-  wednesday: 'Wednesday',
-  th: 'Thursday',
-  thu: 'Thursday',
-  thur: 'Thursday',
-  thurs: 'Thursday',
-  thursday: 'Thursday',
-  f: 'Friday',
-  fri: 'Friday',
-  friday: 'Friday',
-  a: 'A-Day',
-  'a-day': 'A-Day',
-  b: 'B-Day',
-  'b-day': 'B-Day'
-};
-
 function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
 }
@@ -373,89 +345,6 @@ function parseMeetingDaysInput(value: string): Array<(typeof meetingDays)[number
   return days.length ? days : ['Monday'];
 }
 
-function normalizeTime(value: string): string | null {
-  const match = value.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
-  if (!match) return null;
-
-  let hour = Number(match[1]);
-  const minute = match[2] ?? '00';
-  const meridiem = match[3]?.toLowerCase();
-  if (meridiem === 'pm' && hour < 12) hour += 12;
-  if (meridiem === 'am' && hour === 12) hour = 0;
-  if (hour > 23) return null;
-  return `${String(hour).padStart(2, '0')}:${minute}`;
-}
-
-function parseDaysFromText(value: string): Array<(typeof meetingDays)[number]> {
-  const found = new Set<(typeof meetingDays)[number]>();
-  const compact = value.match(/\b[MTWFS]{2,5}\b/g);
-  compact?.forEach((token) => {
-    token.split('').forEach((letter) => {
-      const day = dayAliases[letter.toLowerCase()];
-      if (day) found.add(day);
-    });
-  });
-
-  value
-    .split(/[\s,;/|]+/)
-    .map((token) => token.trim().toLowerCase())
-    .forEach((token) => {
-      const day = dayAliases[token];
-      if (day) found.add(day);
-    });
-
-  return [...found];
-}
-
-function parseLocalScheduleText(text: string): LocalScheduleParseResult {
-  const lines = text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const classes: ParsedScheduleClass[] = [];
-  const warnings: string[] = [];
-
-  lines.forEach((line) => {
-    const periodMatch = line.match(/\b(?:period|per\.?|block|class)\s*([A-Za-z0-9-]+)\b/i);
-    const loosePeriodMatch = line.match(/^\s*([A-Za-z]?\d+[A-Za-z]?|[AB]-?Day|Block\s+[A-Za-z0-9-]+)/i);
-    const period = periodMatch?.[1] ?? loosePeriodMatch?.[1] ?? '';
-    const days = parseDaysFromText(line);
-    const time = normalizeTime(line);
-    const roomMatch = line.match(/\b(?:room|rm\.?)\s*([A-Za-z0-9-]+)\b/i);
-    const courseCandidate = line
-      .replace(/\b(?:period|per\.?|block|class)\s*[A-Za-z0-9-]+\b/gi, '')
-      .replace(/\b(?:room|rm\.?)\s*[A-Za-z0-9-]+\b/gi, '')
-      .replace(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, '')
-      .replace(/\b[MTWFS]{2,5}\b/g, '')
-      .replace(/\b(?:mon|tue|tues|wed|thu|thur|thurs|fri|monday|tuesday|wednesday|thursday|friday|a-day|b-day)\b/gi, '')
-      .replace(/[-–—|,;]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    if (period && courseCandidate && days.length) {
-      classes.push({
-        name: courseCandidate,
-        period: period.toLowerCase().startsWith('period') ? period : `Period ${period}`,
-        days,
-        time,
-        room: roomMatch?.[1] ?? null,
-        subject: courseCandidate,
-        grade: ''
-      });
-    } else {
-      warnings.push(`Skipped: ${line}`);
-    }
-  });
-
-  const confidence = lines.length ? Math.round((classes.length / lines.length) * 100) : 0;
-  return {
-    classes,
-    assignments: [],
-    confidence,
-    warnings
-  };
-}
-
 function sectionToDraft(section: ScheduleSection): SectionEditDraft {
   const firstMeeting = section.meetings[0];
   const days = section.meetings.length ? section.meetings.map((meeting) => meeting.day).join(', ') : 'Monday';
@@ -602,25 +491,25 @@ function promptForState(state: ManagementState, selectedCourse: CourseDetail | n
     return {
       id: 'import-schedule',
       title: 'Import your schedule first',
-      body: 'Upload a schedule screenshot, PDF, or pasted text to draft courses and periods for review.',
+      body: 'Upload a schedule screenshot, PDF, or pasted text to draft courses, class groups, and meeting times for review.',
       tab: 'import' as ManagementTab
     };
   }
   if (!selectedSections.length) {
-    return {
-      id: 'add-periods',
-      title: 'Add the periods that teach this course',
-      body: 'Periods share the same course plan, but each period tracks progress separately.',
-      tab: 'periods' as ManagementTab
-    };
+  return {
+    id: 'add-periods',
+    title: 'Add class groups for this course',
+    body: 'A course uses one curriculum. Add groups such as A, B, and C—or Period 1, 2, and 3—to track them separately.',
+    tab: 'periods' as ManagementTab
+  };
   }
   if (!hasMeetingTimes) {
     return {
       id: 'add-times',
-      title: 'Add meeting days and times',
-      body: 'Schedule data lets the app know what class is current and what comes next.',
-      tab: 'weekly' as ManagementTab
-    };
+    title: 'Add meeting times',
+    body: 'Give each group its own days, time, and room so the dashboard knows what class is current and what comes next.',
+    tab: 'weekly' as ManagementTab
+  };
   }
   if (!hasLessons) {
     return {
@@ -684,11 +573,13 @@ export function ManagementPage() {
   const [scheduleImportJob, setScheduleImportJob] = useState<AiJobStatusResponse | null>(null);
   const [scheduleImportOutput, setScheduleImportOutput] = useState<ParseScheduleResponse | null>(null);
   const [scheduleImportChanges, setScheduleImportChanges] = useState('');
-  const [localScheduleParse, setLocalScheduleParse] = useState<LocalScheduleParseResult | null>(null);
   const [parsedClassEditDrafts, setParsedClassEditDrafts] = useState<Record<string, ParsedClassEditDraft>>({});
   const [addedParsedClassKeys, setAddedParsedClassKeys] = useState<string[]>([]);
   const [completedWalkthroughIds, setCompletedWalkthroughIds] = useState<string[]>(() => readStringList(walkthroughStorageKey));
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [confirmedScheduleSignature, setConfirmedScheduleSignature] = useState(
+    () => window.localStorage.getItem(scheduleConfirmationStorageKey) ?? ''
+  );
 
   const [unitTitle, setUnitTitle] = useState('');
   const [unitDescription, setUnitDescription] = useState('');
@@ -776,6 +667,12 @@ export function ManagementPage() {
   useEffect(() => {
     window.localStorage.setItem(activeTabStorageKey, activeTab);
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!state.courses.length && activeTab !== 'import' && activeTab !== 'courses') {
+      setActiveTab('import');
+    }
+  }, [activeTab, state.courses.length]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -900,7 +797,7 @@ export function ManagementPage() {
   const meetingsRemaining = selectedSections.reduce((count, section) => count + section.meetings.length, 0);
   const setupSnapshot = [
     { label: 'Courses', value: state.courseDetails.length },
-    { label: 'Periods', value: sections.length },
+    { label: 'Classes', value: sections.length },
     { label: 'Units', value: state.courseDetails.reduce((count, course) => count + course.units.length, 0) },
     {
       label: 'Lessons',
@@ -914,6 +811,15 @@ export function ManagementPage() {
   const hasMeetingGaps = sections.some((section) =>
     !section.meetings.length || section.meetings.some((meeting) => !meeting.time || !meeting.room)
   );
+  const scheduleSignature = sections
+    .flatMap((section) =>
+      section.meetings.map((meeting) =>
+        [section.courseId, section.sectionId, section.sectionName, meeting.day, meeting.time ?? '', meeting.room ?? ''].join(':')
+      )
+    )
+    .sort()
+    .join('|');
+  const scheduleConfirmed = Boolean(scheduleSignature) && confirmedScheduleSignature === scheduleSignature;
   const scheduleGapItems = sections.flatMap((section) => {
     if (!section.meetings.length) {
       return [
@@ -946,21 +852,21 @@ export function ManagementPage() {
     {
       id: 'course',
       title: 'Create your first course',
-      body: 'Create courses once. Periods can share them.',
+      body: 'Create the course curriculum once. Class groups can share it.',
       tab: 'courses' as ManagementTab,
       done: state.courseDetails.length > 0
     },
     {
       id: 'periods',
-      title: 'Add class periods',
-      body: 'Add each period that uses a course.',
+      title: 'Add classes',
+      body: 'Add each class group or period that uses a course.',
       tab: 'periods' as ManagementTab,
       done: sections.length > 0
     },
     {
       id: 'schedule',
-      title: 'Add meeting days and times',
-      body: 'This lets the dashboard know what is happening today.',
+      title: 'Add meeting times',
+      body: 'Set when each class group meets so the dashboard knows what is happening today.',
       tab: 'weekly' as ManagementTab,
       done: sections.some((section) => section.meetings.length > 0)
     },
@@ -1028,7 +934,7 @@ export function ManagementPage() {
       `Course: ${newCourseName.trim() || 'Untitled'}`,
       `Subject: ${newCourseSubject.trim() || 'Not set'}`,
       `Grade: ${newCourseGrade.trim() || 'Not set'}`,
-      `Periods: ${newCoursePeriods.trim() || 'Not set'}`
+      `Class groups: ${newCoursePeriods.trim() || 'Not set'}`
     ].join('\n');
     await navigator.clipboard?.writeText(summary).catch(() => undefined);
     flashCopyStatus('Course draft copied.');
@@ -1196,7 +1102,7 @@ export function ManagementPage() {
   const saveSectionEdit = async (sectionId: string) => {
     const draft = sectionEditDrafts[sectionId];
     if (!draft?.sectionName.trim()) {
-      setError('Period name is required.');
+      setError('Class group name is required.');
       return;
     }
 
@@ -1426,16 +1332,6 @@ export function ManagementPage() {
     }
   };
 
-  const toggleMeetingDay = (day: (typeof meetingDays)[number]) => {
-    setSelectedMeetingDays((previous) => {
-      if (previous.includes(day)) {
-        const next = previous.filter((selectedDay) => selectedDay !== day);
-        return next.length ? next : previous;
-      }
-      return [...previous, day];
-    });
-  };
-
   const findCourseForParsedClass = (parsedClass: ParsedScheduleClass) => {
     const nameKey = courseNameKey(parsedClass.name);
     return state.courses.find((course) => courseNameKey(course.name) === nameKey) ?? null;
@@ -1469,7 +1365,7 @@ export function ManagementPage() {
 
     const mergeMatch = instruction.match(/(?:merge|combine|treat)\s+(.+?)\s+(?:into|as|called)\s+(.+?)[.!]?$/i);
     const periodsOfMatch = instruction.match(
-      /^(.+?)\s+(?:are|is)\s+(?:just\s+)?(?:different\s+)?periods?\s+of\s+(.+?)[.!]?$/i
+      /^(.+?)\s+(?:are|is)\s+(?:just\s+)?(?:different\s+)?(?:class(?:\s+groups?)?|groups?|periods?)\s+of\s+(.+?)[.!]?$/i
     );
     const allSectionsMatch = instruction.match(
       /all\s+(.+?)\s+sections?\s+(?:should be|are|as)\s+(?:one|the same)\s+course(?:\s+called)?\s+(.+?)[.!]?$/i
@@ -1478,7 +1374,7 @@ export function ManagementPage() {
     const match = mergeMatch ?? periodsOfMatch ?? allSectionsMatch ?? renameMatch;
 
     if (!match) {
-      setError('Try “Treat Spanish 5A and Spanish 5B as one course called Spanish 5.”');
+      setError('Try “Treat Spanish 5A and Spanish 5B as class groups of Spanish 5.”');
       return;
     }
 
@@ -1539,20 +1435,6 @@ export function ManagementPage() {
     setAddedParsedClassKeys([]);
   };
 
-  const startLocalScheduleParse = () => {
-    if (!scheduleImportText.trim()) {
-      setError('Paste schedule text first.');
-      return;
-    }
-
-    const parsed = parseLocalScheduleText(scheduleImportText);
-    setLocalScheduleParse(parsed);
-    applyScheduleParseResult(parsed);
-    setScheduleImportJobId(null);
-    setScheduleImportJob(null);
-    setError(parsed.classes.length ? null : 'Local import could not find classes. Try the enhanced reader.');
-  };
-
   const startScheduleUpload = async () => {
     if (!scheduleImportText.trim() && !scheduleImportFileDataUrl) {
       setError('Paste schedule text or upload an image/PDF first.');
@@ -1575,7 +1457,6 @@ export function ManagementPage() {
         fileMimeType: scheduleImportFileMimeType || undefined
       });
       applyScheduleParseResult(parsed);
-      setLocalScheduleParse(null);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to read schedule');
@@ -1669,18 +1550,34 @@ export function ManagementPage() {
       }
       setAddedParsedClassKeys((previous) => [...new Set([...previous, ...addedKeys])]);
       setError(null);
-      flashCopyStatus(`Added ${addedKeys.length} reviewed ${addedKeys.length === 1 ? 'period' : 'periods'}.`);
+      flashCopyStatus(`Created ${addedKeys.length} reviewed ${addedKeys.length === 1 ? 'class group' : 'class groups'}.`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to add reviewed periods');
+      setError(err instanceof ApiError ? err.message : 'Failed to create reviewed class groups');
     } finally {
       setBusy(false);
     }
   };
 
+  const importedCourseGroups = scheduleImportOutput
+    ? Array.from(
+        scheduleImportOutput.classes.reduce(
+          (groups, parsedClass) => {
+            const editedClass = parsedClassFromDraft(parsedClass);
+            const key = courseNameKey(editedClass.name) || parsedClassKey(parsedClass);
+            const group = groups.get(key) ?? { name: editedClass.name, classes: [] as ParsedScheduleClass[] };
+            group.classes.push(parsedClass);
+            groups.set(key, group);
+            return groups;
+          },
+          new Map<string, { name: string; classes: ParsedScheduleClass[] }>()
+        ).values()
+      )
+    : [];
+
   return (
     <div className="management-page stack">
       <nav className="management-tabs" aria-label="Management sections">
-        {tabs.map((tab) => (
+        {(state.courses.length ? tabs : tabs.filter((tab) => tab.id === 'import' || tab.id === 'courses')).map((tab) => (
           <button
             key={tab.id}
             className={activeTab === tab.id ? 'active' : ''}
@@ -1692,19 +1589,21 @@ export function ManagementPage() {
         ))}
       </nav>
 
-      <section className="management-snapshot" aria-label="Management setup snapshot">
-        {setupSnapshot.map((item) => (
-          <div key={item.label}>
-            <strong>{item.value}</strong>
-            <span>{item.label}</span>
-          </div>
-        ))}
-      </section>
+      {state.courses.length ? (
+        <section className="management-snapshot" aria-label="Management setup snapshot">
+          {setupSnapshot.map((item) => (
+            <div key={item.label}>
+              <strong>{item.value}</strong>
+              <span>{item.label}</span>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       {error ? <p className="notice warning">{error}</p> : null}
       {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
       {loading ? <p className="muted">Loading...</p> : null}
-      {showPrompt ? (
+      {showPrompt && state.courses.length ? (
         <section className="smart-prompt">
           <div>
             <p className="eyebrow">Next step</p>
@@ -1808,12 +1707,12 @@ export function ManagementPage() {
           <article className="card terminology-card">
             <div>
               <p className="eyebrow">Quick definitions</p>
-              <h3>Courses hold the plan. Periods hold the meetings.</h3>
+              <h3>One course, many class groups, separate meeting times.</h3>
             </div>
             <div className="terminology-grid">
-              <p><strong>Course</strong> — the shared class plan, such as Spanish 5.</p>
-              <p><strong>Period</strong> — a specific group that takes that course, with its own days, time, and room, such as Spanish 5A at 8:10.</p>
-              <p><strong>Import review</strong> — your chance to group period names under one course before anything is saved.</p>
+              <p><strong>Course</strong> — one shared curriculum, such as Spanish 5.</p>
+              <p><strong>Class group</strong> — the students taking that course, such as Group A, B, or C. You can also name groups Period 1, Period 2, and Period 3.</p>
+              <p><strong>Meeting times</strong> — the days, time, and room for each class group. Every group can meet at a different time.</p>
             </div>
           </article>
 
@@ -1852,12 +1751,6 @@ export function ManagementPage() {
                   onChange={(event) => setNewCourseGrade(event.target.value)}
                   placeholder="Grade level"
                 />
-                <input
-                  className="input"
-                  value={newCoursePeriods}
-                  onChange={(event) => setNewCoursePeriods(event.target.value)}
-                  placeholder="Periods"
-                />
               </div>
               <div className="profile-actions">
                 <button
@@ -1866,19 +1759,7 @@ export function ManagementPage() {
                   onClick={async () => {
                     try {
                       setBusy(true);
-                      const course = await createCourse(newCourseName, newCourseSubject, newCourseGrade);
-                      const periodCount = parseNullablePositiveInt(newCoursePeriods);
-                      if (periodCount) {
-                        let latestSchedule = state.schedule;
-                        for (let index = 1; index <= periodCount; index += 1) {
-                          latestSchedule = await api.createSection({
-                            courseId: course.id,
-                            sectionName: `Period ${index}`,
-                            meetings: []
-                          });
-                        }
-                        if (latestSchedule) setState((previous) => ({ ...previous, schedule: latestSchedule }));
-                      }
+                      await createCourse(newCourseName, newCourseSubject, newCourseGrade);
                       setNewCourseName('');
                       setNewCourseSubject('');
                       setNewCourseGrade('');
@@ -1894,7 +1775,7 @@ export function ManagementPage() {
                     }
                   }}
                 >
-                  Create and add periods
+                  Create course and add class groups
                 </button>
                 <button className="secondary" type="button" onClick={() => setIsNewCourseOpen(false)}>
                   Cancel
@@ -1955,7 +1836,7 @@ export function ManagementPage() {
                       {attachedSections.length ? (
                         attachedSections.map((section) => <span key={section.sectionId}>{section.sectionName}</span>)
                       ) : (
-                        <span>No periods yet</span>
+                        <span>No class groups yet</span>
                       )}
                     </div>
                     <div className="section-progress-list">
@@ -1967,7 +1848,7 @@ export function ManagementPage() {
                           </div>
                         ))
                       ) : (
-                        <p className="muted">Add periods so the app can track each class separately.</p>
+                        <p className="muted">Add class groups so the app can track each group separately.</p>
                       )}
                     </div>
                     <div className="profile-actions">
@@ -1975,7 +1856,7 @@ export function ManagementPage() {
                         Open Year Plan
                       </button>
                       <button className="secondary" type="button" onClick={() => selectCourse(course.id, 'periods')}>
-                        Add Period
+                        Add class group
                       </button>
                       {isEditing ? (
                         <>
@@ -1998,7 +1879,7 @@ export function ManagementPage() {
             ) : (
               <article className="card stack">
                 <h3>No courses yet</h3>
-                <p className="muted">Create one course to begin setting up periods and the year plan.</p>
+                <p className="muted">Create one course to begin setting up class groups and the year plan.</p>
               </article>
             )}
           </div>
@@ -2011,9 +1892,21 @@ export function ManagementPage() {
             <div>
               <p className="eyebrow">Start here</p>
               <h2>Import your schedule</h2>
-              <p className="muted">Upload what you already have to draft courses, class periods, meeting times, and rooms for review.</p>
+              <p className="muted">We will organize one shared curriculum into course, class groups, and meeting times for your review.</p>
             </div>
           </div>
+
+          <article className="card terminology-card">
+            <div>
+              <p className="eyebrow">How your schedule is organized</p>
+              <h3>Course → class group → meeting times</h3>
+            </div>
+            <div className="terminology-grid">
+              <p><strong>Course:</strong> one shared curriculum, such as Spanish 5.</p>
+              <p><strong>Class group:</strong> a group taking that course, such as A, B, C—or Period 1, 2, 3.</p>
+              <p><strong>Meeting times:</strong> the days, time, and room for each class group.</p>
+            </div>
+          </article>
 
           <article className="card stack schedule-upload-card">
             <div className="section-heading">
@@ -2069,11 +1962,8 @@ export function ManagementPage() {
             </div>
 
             <div className="profile-actions">
-              <button type="button" disabled={busy || !scheduleImportText.trim()} onClick={startLocalScheduleParse}>
-                Try local import
-              </button>
               <button type="button" disabled={busy || (!scheduleImportText.trim() && !scheduleImportFileDataUrl)} onClick={startScheduleUpload}>
-                {busy ? 'Reading...' : 'Use enhanced reader'}
+                {busy ? 'Creating classes...' : 'Auto-create classes'}
               </button>
               <button
                 className="secondary"
@@ -2086,7 +1976,6 @@ export function ManagementPage() {
                   setScheduleImportJobId(null);
                   setScheduleImportJob(null);
                   setScheduleImportOutput(null);
-                  setLocalScheduleParse(null);
                   setParsedClassEditDrafts({});
                   setAddedParsedClassKeys([]);
                 }}
@@ -2150,35 +2039,16 @@ export function ManagementPage() {
               </div>
             ) : null}
 
-            {localScheduleParse ? (
-              <div className={localScheduleParse.confidence >= 70 ? 'local-parse-summary good' : 'local-parse-summary cautious'}>
-                <strong>Local import confidence: {localScheduleParse.confidence}%</strong>
-                <span>
-                  {localScheduleParse.confidence >= 70
-                    ? 'This looks usable. Review before saving.'
-                    : 'Review carefully or use the enhanced reader for a second pass.'}
-                </span>
-                {localScheduleParse.warnings.length ? (
-                  <details>
-                    <summary>{localScheduleParse.warnings.length} lines need review</summary>
-                    {localScheduleParse.warnings.slice(0, 5).map((warning) => (
-                      <p key={warning}>{warning}</p>
-                    ))}
-                  </details>
-                ) : null}
-              </div>
-            ) : null}
-
             {scheduleImportOutput ? (
               <div className="parsed-schedule-review">
                 <div className="section-heading">
                   <div>
                     <p className="eyebrow">Review before saving</p>
-                    <h3>{scheduleImportOutput.classes.length} classes found</h3>
+                    <h3>{scheduleImportOutput.classes.length} class groups found</h3>
                   </div>
                   <div className="profile-actions">
                     <button type="button" disabled={busy} onClick={() => void addAllParsedClassesToSchedule()}>
-                      Add all reviewed
+                      Create all reviewed classes
                     </button>
                     <button className="secondary" type="button" onClick={() => void copyImportSummary()}>
                       Copy import summary
@@ -2187,13 +2057,13 @@ export function ManagementPage() {
                 </div>
                 <div className="local-parse-summary good import-changes-panel">
                   <strong>Make changes before saving</strong>
-                  <span>Change only the course grouping here. Period names, days, times, rooms, and notes stay unchanged until you edit them directly.</span>
+                  <span>Group each class under the shared course curriculum here. Class names (A, B, C or Period 1, 2, 3) and meeting times stay unchanged until you edit them directly.</span>
                   <div className="profile-actions">
                     <textarea
                       rows={2}
                       value={scheduleImportChanges}
                       onChange={(event) => setScheduleImportChanges(event.target.value)}
-                      placeholder="Spanish 5A and Spanish 5B are periods of Spanish 5."
+                      placeholder="Spanish 5A and Spanish 5B are class groups of Spanish 5."
                     />
                     <button type="button" disabled={busy || !scheduleImportChanges.trim()} onClick={applyScheduleImportChanges}>
                       Apply changes
@@ -2201,82 +2071,105 @@ export function ManagementPage() {
                   </div>
                 </div>
                 <div className="parsed-class-list">
-                  {scheduleImportOutput.classes.map((parsedClass) => {
-                    const key = parsedClassKey(parsedClass);
-                    const editedClass = parsedClassFromDraft(parsedClass);
-                    const draft = parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
-                    const matchingCourse = findCourseForParsedClass(editedClass);
-                    const isAdded = addedParsedClassKeys.includes(key);
+                  {importedCourseGroups.map((group) => {
+                    const firstClass = group.classes[0];
+                    const matchingCourse = firstClass ? findCourseForParsedClass(parsedClassFromDraft(firstClass)) : null;
                     return (
-                      <article key={key} className="parsed-class-card">
-                        <div className="parsed-class-fields">
-                          <label>
-                            Period
-                            <input
-                              className="input"
-                              value={draft.period}
-                              onChange={(event) => updateParsedClassDraft(parsedClass, { period: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            Course
-                            <input
-                              className="input"
-                              value={draft.name}
-                              onChange={(event) => updateParsedClassDraft(parsedClass, { name: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            Subject
-                            <input
-                              className="input"
-                              value={draft.subject}
-                              onChange={(event) => updateParsedClassDraft(parsedClass, { subject: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            Days
-                            <input
-                              className="input"
-                              value={draft.days}
-                              onChange={(event) => updateParsedClassDraft(parsedClass, { days: event.target.value })}
-                              placeholder="Monday, Wednesday, Friday"
-                            />
-                          </label>
-                          <label>
-                            Time
-                            <input
-                              className="input"
-                              type="time"
-                              value={draft.time}
-                              onChange={(event) => updateParsedClassDraft(parsedClass, { time: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            Room
-                            <input
-                              className="input"
-                              value={draft.room}
-                              onChange={(event) => updateParsedClassDraft(parsedClass, { room: event.target.value })}
-                            />
-                          </label>
+                      <article key={group.name} className="card stack">
+                        <div className="section-heading">
+                          <div>
+                            <p className="eyebrow">Shared curriculum</p>
+                            <h4>Course</h4>
+                          </div>
+                          <span className="status-pill upcoming">{group.classes.length} class {group.classes.length === 1 ? 'group' : 'groups'}</span>
                         </div>
-                        <p>
-                          {editedClass.days.join(', ')} at {editedClass.time ?? 'TBD'}
-                          {editedClass.room ? `, ${editedClass.room}` : ''}
-                        </p>
+                        <label>
+                          Course name
+                          <input
+                            className="input"
+                            value={group.name}
+                            onChange={(event) => {
+                              const name = event.target.value;
+                              setParsedClassEditDrafts((previous) => ({
+                                ...previous,
+                                ...Object.fromEntries(
+                                  group.classes.map((parsedClass) => {
+                                    const key = parsedClassKey(parsedClass);
+                                    return [key, { ...(previous[key] ?? parsedClassToDraft(parsedClass)), name }];
+                                  })
+                                )
+                              }));
+                            }}
+                          />
+                        </label>
                         <p className="muted">
                           {matchingCourse
-                            ? `Will attach to ${matchingCourse.name}.`
-                            : `Will create ${editedClass.name} first.`}
+                            ? `Will use the existing ${matchingCourse.name} curriculum.`
+                            : `Will create one ${group.name} curriculum for these class groups.`}
                         </p>
-                        <button
-                          type="button"
-                          disabled={busy || isAdded || !editedClass.name || !editedClass.period}
-                          onClick={() => void addParsedClassToSchedule(editedClass, key)}
-                        >
-                          {isAdded ? 'Added' : matchingCourse ? 'Add period' : 'Create course + period'}
-                        </button>
+                        <div className="parsed-class-list">
+                          {group.classes.map((parsedClass) => {
+                            const key = parsedClassKey(parsedClass);
+                            const editedClass = parsedClassFromDraft(parsedClass);
+                            const draft = parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
+                            const isAdded = addedParsedClassKeys.includes(key);
+                            return (
+                              <article key={key} className="parsed-class-card">
+                                <div className="section-heading">
+                                  <div>
+                                    <p className="eyebrow">Class group</p>
+                                    <h4>{draft.period || 'Unnamed class group'}</h4>
+                                  </div>
+                                  <span className="status-pill upcoming">Meeting times</span>
+                                </div>
+                                <div className="parsed-class-fields">
+                                  <label>
+                                    Group name or period
+                                    <input
+                                      className="input"
+                                      value={draft.period}
+                                      onChange={(event) => updateParsedClassDraft(parsedClass, { period: event.target.value })}
+                                      placeholder="A, B, C, or Period 1"
+                                    />
+                                  </label>
+                                  <label>
+                                    Meeting days
+                                    <input
+                                      className="input"
+                                      value={draft.days}
+                                      onChange={(event) => updateParsedClassDraft(parsedClass, { days: event.target.value })}
+                                      placeholder="Monday, Wednesday, Friday"
+                                    />
+                                  </label>
+                                  <label>
+                                    Meeting time
+                                    <input
+                                      className="input"
+                                      type="time"
+                                      value={draft.time}
+                                      onChange={(event) => updateParsedClassDraft(parsedClass, { time: event.target.value })}
+                                    />
+                                  </label>
+                                  <label>
+                                    Room
+                                    <input
+                                      className="input"
+                                      value={draft.room}
+                                      onChange={(event) => updateParsedClassDraft(parsedClass, { room: event.target.value })}
+                                    />
+                                  </label>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={busy || isAdded || !editedClass.name || !editedClass.period}
+                                  onClick={() => void addParsedClassToSchedule(editedClass, key)}
+                                >
+                                  {isAdded ? 'Added' : matchingCourse ? 'Create class group' : 'Create course + class group'}
+                                </button>
+                              </article>
+                            );
+                          })}
+                        </div>
                       </article>
                     );
                   })}
@@ -2302,15 +2195,15 @@ export function ManagementPage() {
         <section className="management-panel stack">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Periods</p>
-              <h2>Which class periods do I teach?</h2>
-              <p className="muted">Periods share a course plan, but each one keeps its own progress.</p>
+              <p className="eyebrow">Classes</p>
+              <h2>Which class groups use each course?</h2>
+              <p className="muted">A course shares one curriculum. Add groups such as A, B, and C—or Period 1, 2, and 3—for separate progress and meeting times.</p>
             </div>
           </div>
           {state.courses.length === 0 ? (
             <article className="card stack compact-create-card">
               <h3>Create a course first</h3>
-              <p className="muted">This period needs a course plan to follow.</p>
+              <p className="muted">A class group needs a shared course curriculum to follow.</p>
               <div className="inline-editor">
                 <input
                   className="input"
@@ -2350,8 +2243,8 @@ export function ManagementPage() {
               <article className="card stack">
                 <div className="section-heading">
                   <div>
-                    <h3>Add class period</h3>
-                    <p className="muted">Draft saves on this device until the period is added.</p>
+                    <h3>Add class group</h3>
+                    <p className="muted">Choose the shared course, then name this group A, B, C—or Period 1, 2, 3.</p>
                   </div>
                   <div className="profile-actions">
                     <button className="secondary" type="button" onClick={() => void copyAddPeriodDraft()}>
@@ -2377,34 +2270,9 @@ export function ManagementPage() {
                   className="input"
                   value={sectionName}
                   onChange={(event) => setSectionName(event.target.value)}
-                  placeholder="Period name, like Period 3"
+                  placeholder="Class group, like A or Period 3"
                 />
-                <div className="day-picker" aria-label="Meeting days">
-                  {meetingDays.map((day) => (
-                    <button
-                      key={day}
-                      className={selectedMeetingDays.includes(day) ? 'active' : ''}
-                      type="button"
-                      onClick={() => toggleMeetingDay(day)}
-                    >
-                      {day}
-                    </button>
-                  ))}
-                </div>
-                <div className="inline-editor">
-                  <input
-                    className="input"
-                    type="time"
-                    value={meetingTime}
-                    onChange={(event) => setMeetingTime(event.target.value)}
-                  />
-                  <input
-                    className="input"
-                    value={meetingRoom}
-                    onChange={(event) => setMeetingRoom(event.target.value)}
-                    placeholder="Room"
-                  />
-                </div>
+                <p className="muted">Set this group’s days, time, and room next in Meeting times.</p>
                 <button
                   type="button"
                   disabled={busy || !selectedCourseForSchedule || !sectionName.trim()}
@@ -2414,17 +2282,12 @@ export function ManagementPage() {
                       const schedule = await api.createSection({
                         courseId: selectedCourseForSchedule,
                         sectionName: sectionName.trim(),
-                        meetings: selectedMeetingDays.map((day) => ({
-                          day,
-                          time: meetingTime || null,
-                          room: meetingRoom.trim() || null
-                        }))
+                        meetings: []
                       });
                       setState((previous) => ({ ...previous, schedule }));
                       setSectionName('');
-                      setMeetingTime('');
-                      setMeetingRoom('');
                       window.localStorage.removeItem(addPeriodDraftStorageKey);
+                      setActiveTab('weekly');
                       setError(null);
                     } catch (err) {
                       setError(err instanceof ApiError ? err.message : 'Failed to create section');
@@ -2433,12 +2296,12 @@ export function ManagementPage() {
                     }
                   }}
                 >
-                  Add period
+                  Create class group
                 </button>
               </article>
 
               <article className="card stack">
-                <h3>Current periods</h3>
+                <h3>Current class groups</h3>
                 <div className="section-roster single-column">
                   {sections.length ? (
                     sections.map((section) => {
@@ -2451,7 +2314,7 @@ export function ManagementPage() {
                           {isEditing ? (
                             <div className="section-inline-edit">
                               <label>
-                                Period
+                                Class group / period
                                 <input
                                   className="input"
                                   value={draft.sectionName}
@@ -2507,9 +2370,7 @@ export function ManagementPage() {
                                 <strong>{section.sectionName}</strong>
                                 <span>Course: {section.courseName}</span>
                               </div>
-                              <p>Meets: {formatMeeting(section)}</p>
-                              <p>Time: {section.meetings[0]?.time ?? 'TBD'} to TBD</p>
-                              <p>Room: {section.meetings[0]?.room ?? 'TBD'}</p>
+                              <p>Meeting times: {section.meetings.length ? formatMeeting(section) : 'Not set yet'}</p>
                               <p>Current: {resume?.lesson?.title ?? 'No lesson started'}</p>
                               <p>Stopped at: {resume?.state?.carryOverNote ?? resume?.lastNote?.content ?? 'None'}</p>
                               <p>Status: {sectionPercent(resume) >= 100 ? 'Ahead' : sectionPercent(resume) > 0 ? 'On pace' : 'Not started'}</p>
@@ -2570,7 +2431,7 @@ export function ManagementPage() {
                       );
                     })
                   ) : (
-                    <p className="muted">No periods yet.</p>
+                    <p className="muted">No class groups yet.</p>
                   )}
                 </div>
               </article>
@@ -2583,19 +2444,98 @@ export function ManagementPage() {
         <section className="management-panel stack">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Weekly Schedule</p>
-              <h2>When do my periods meet?</h2>
-              <p className="muted">Grouped by day so missing times and rooms are easy to spot.</p>
+              <p className="eyebrow">Meeting times</p>
+              <h2>When does each class group meet?</h2>
+              <p className="muted">Each group under a course gets its own days, time, and room. Review and confirm the schedule below.</p>
             </div>
             <div className="profile-actions">
               <button className="secondary" type="button" onClick={() => void copyWeeklyScheduleSummary()}>
-                Copy weekly schedule
+                Copy meeting times
               </button>
               <button className="secondary" type="button" onClick={() => setActiveTab('periods')}>
-                Add or edit periods
+                Add or edit classes
               </button>
             </div>
           </div>
+
+          <article className="schedule-gap-panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Schedule confirmation</p>
+                <h3>{scheduleConfirmed ? 'Meeting times confirmed' : 'Confirm your schedule'}</h3>
+                <p className="muted">
+                  {scheduleConfirmed
+                    ? 'Your current course, class group, and meeting-time setup is confirmed.'
+                    : hasMeetingGaps
+                      ? 'Add the missing meeting times before confirming this schedule.'
+                      : 'Check that every course, class group, day, time, and room is correct.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={!scheduleSignature || hasMeetingGaps || scheduleConfirmed}
+                onClick={() => {
+                  window.localStorage.setItem(scheduleConfirmationStorageKey, scheduleSignature);
+                  setConfirmedScheduleSignature(scheduleSignature);
+                  flashCopyStatus('Schedule confirmed.');
+                }}
+              >
+                {scheduleConfirmed ? 'Confirmed' : 'Confirm schedule'}
+              </button>
+            </div>
+            {sections.length ? (
+              <p className="muted">
+                {sections.length} {sections.length === 1 ? 'class group' : 'class groups'} across {state.courses.length}{' '}
+                {state.courses.length === 1 ? 'course' : 'courses'}.
+              </p>
+            ) : null}
+          </article>
+
+          <section className="management-editor-grid">
+            {sections.map((section) => {
+              const draft = sectionEditDrafts[section.sectionId] ?? sectionToDraft(section);
+              return (
+                <article key={section.sectionId} className="card stack">
+                  <div>
+                    <p className="eyebrow">{section.courseName} curriculum</p>
+                    <h3>{section.sectionName}</h3>
+                    <p className="muted">Set the meeting times for this class group or period.</p>
+                  </div>
+                  <div className="section-inline-edit">
+                    <label>
+                      Meeting days
+                      <input
+                        className="input"
+                        value={draft.days}
+                        onChange={(event) => updateSectionDraft(section.sectionId, { days: event.target.value })}
+                        placeholder="Monday, Wednesday, Friday"
+                      />
+                    </label>
+                    <label>
+                      Meeting time
+                      <input
+                        className="input"
+                        type="time"
+                        value={draft.time}
+                        onChange={(event) => updateSectionDraft(section.sectionId, { time: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Room
+                      <input
+                        className="input"
+                        value={draft.room}
+                        onChange={(event) => updateSectionDraft(section.sectionId, { room: event.target.value })}
+                      />
+                    </label>
+                  </div>
+                  <button type="button" disabled={busy || !draft.days.trim()} onClick={() => void saveSectionEdit(section.sectionId)}>
+                    Save meeting times
+                  </button>
+                </article>
+              );
+            })}
+          </section>
 
           {hasMeetingGaps ? (
             <article className="schedule-gap-panel">
@@ -2605,7 +2545,7 @@ export function ManagementPage() {
                   <h3>{scheduleGapItems.length} schedule {scheduleGapItems.length === 1 ? 'gap' : 'gaps'}</h3>
                 </div>
                 <button className="secondary" type="button" onClick={() => setActiveTab('periods')}>
-                  Fix in Periods
+                  Fix class details
                 </button>
               </div>
               <div className="schedule-gap-list">
@@ -2633,7 +2573,7 @@ export function ManagementPage() {
               <article key={day} className="weekly-day-card">
                 <div className="section-heading">
                   <h3>{day}</h3>
-                  <span className="status-pill upcoming">{daySections.length} periods</span>
+                  <span className="status-pill upcoming">{daySections.length} classes</span>
                 </div>
                 {daySections.length ? (
                   daySections.map((section) => {
@@ -2656,7 +2596,7 @@ export function ManagementPage() {
                     );
                   })
                 ) : (
-                  <p className="muted">No periods on this day.</p>
+                  <p className="muted">No classes on this day.</p>
                 )}
               </article>
             ))}
