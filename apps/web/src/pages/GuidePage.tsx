@@ -110,7 +110,7 @@ function loadProgress(): string[] {
 
 function buildWelcomeProgressSummary(completedIds: string[]): string {
   return [
-    'TeacherOS welcome progress',
+    'Such Teacher OS welcome progress',
     '',
     ...steps.map((step, index) => {
       const status = completedIds.includes(step.id) ? 'done' : 'not done';

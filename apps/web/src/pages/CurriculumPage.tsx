@@ -37,7 +37,7 @@ function loadCourseDraft(): CourseDraft {
 
 function buildCourseListSummary(courses: CourseRow[]): string {
   return [
-    'TeacherOS courses',
+    'Such Teacher OS courses',
     '',
     courses.length
       ? courses

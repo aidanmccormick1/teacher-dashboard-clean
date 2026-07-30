@@ -97,7 +97,7 @@ export function AppShell() {
 
   const copyApiStatus = async () => {
     const report = [
-      'TeacherOS backend status',
+      'Such Teacher OS backend status',
       `Status: ${apiStatus}`,
       `API base URL: ${apiBaseUrl}`,
       `Checked at: ${apiCheckedAt ?? 'Not checked yet'}`,
@@ -158,7 +158,7 @@ export function AppShell() {
           : 'Saved locally. Backend feedback save failed.'
       );
     }
-    await navigator.clipboard?.writeText(`TeacherOS feedback\n${formatFeedbackEntry(entry)}`).catch(() => undefined);
+    await navigator.clipboard?.writeText(`Such Teacher OS feedback\n${formatFeedbackEntry(entry)}`).catch(() => undefined);
     setFeedbackText('');
   };
 
@@ -211,7 +211,7 @@ export function AppShell() {
 
   const copyAllFeedback = async () => {
     const report = feedbackEntries.map((entry, index) => `#${index + 1}\n${formatFeedbackEntry(entry)}`).join('\n\n---\n\n');
-    await navigator.clipboard?.writeText(report || 'No TeacherOS feedback yet.').catch(() => undefined);
+    await navigator.clipboard?.writeText(report || 'No Such Teacher OS feedback yet.').catch(() => undefined);
     setFeedbackSaved(true);
   };
 
@@ -227,7 +227,7 @@ export function AppShell() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <h2>TeacherOS v2</h2>
+        <h2>Such Teacher OS</h2>
         <p className="muted">{auth.email ?? auth.userId ?? 'Signed in'}</p>
         <div className="api-status-card">
           <div className={`api-status ${apiStatus}`}>

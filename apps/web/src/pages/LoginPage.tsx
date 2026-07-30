@@ -88,10 +88,10 @@ export function LoginPage() {
       }}
     >
       <div>
-        <strong>{testAuthMode === 'signup' ? 'Create tester account' : 'Sign in as tester'}</strong>
-        <p className="muted">A simple username and password keeps each tester&apos;s data in a separate workspace.</p>
+        <strong>{testAuthMode === 'signup' ? 'Create your account' : 'Sign in to your account'}</strong>
+        <p className="muted">Your username and password keep your courses and plans in a separate workspace.</p>
       </div>
-      <div className="login-mode-tabs" role="tablist" aria-label="Tester account mode">
+      <div className="login-mode-tabs" role="tablist" aria-label="Account mode">
         <button
           className={testAuthMode === 'signup' ? 'active' : ''}
           type="button"
@@ -102,7 +102,7 @@ export function LoginPage() {
             setTestError(null);
           }}
         >
-          New tester
+          Create account
         </button>
         <button
           className={testAuthMode === 'login' ? 'active' : ''}
@@ -114,7 +114,7 @@ export function LoginPage() {
             setTestError(null);
           }}
         >
-          Returning tester
+          Sign in
         </button>
       </div>
       <label>
@@ -139,7 +139,7 @@ export function LoginPage() {
       </label>
       {testError ? <p className="notice warning">{testError}</p> : null}
       <button type="submit" disabled={testLoading}>
-        {testLoading ? 'Working...' : testAuthMode === 'signup' ? 'Create tester account' : 'Sign in'}
+        {testLoading ? 'Working...' : testAuthMode === 'signup' ? 'Create account' : 'Sign in'}
       </button>
     </form>
   );
@@ -149,9 +149,9 @@ export function LoginPage() {
       <main className="login-page">
         <section className="login-panel">
           <div className="login-intro">
-            <p className="eyebrow">TeacherOS</p>
+            <p className="eyebrow">Such Teacher OS</p>
             <h1>Sign in or create an account.</h1>
-            <p className="muted">Use a secure TeacherOS account to keep your courses and plans private.</p>
+            <p className="muted">Use your secure Such Teacher OS account to keep courses and plans private.</p>
             <div className="login-proof-list">
               <span>Courses</span>
               <span>Periods</span>
@@ -214,17 +214,17 @@ export function LoginPage() {
     <main className="login-page">
       <section className="login-panel">
         <div className="login-intro">
-          <p className="eyebrow">TeacherOS</p>
-          <h1>{allowLocalDevLogin ? 'Local test mode' : 'Tester access'}</h1>
+          <p className="eyebrow">Such Teacher OS</p>
+          <h1>{allowLocalDevLogin ? 'Local development access' : 'Your teaching workspace'}</h1>
           <p className="muted">
             {allowLocalDevLogin
               ? 'Use this only when Clerk is not configured for this build.'
-              : 'Create a simple tester account so your courses and plans stay separate.'}
+              : 'Create an account so your courses and plans stay separate.'}
           </p>
           <div className="login-proof-list">
-            <span>{allowLocalDevLogin ? 'Local' : 'Tester'}</span>
-            <span>Testing</span>
-            <span>Backend token</span>
+            <span>{allowLocalDevLogin ? 'Local' : 'Private'}</span>
+            <span>Courses</span>
+            <span>Plans</span>
           </div>
         </div>
         <div className="login-workspace-card">
@@ -258,7 +258,7 @@ export function LoginPage() {
               aria-selected={loginMode === 'test'}
               onClick={() => setLoginMode('test')}
             >
-              Tester account
+              Your account
             </button>
             <button
               className={loginMode === 'pilot' ? 'active' : ''}
@@ -310,8 +310,8 @@ export function LoginPage() {
               }}
             >
               <div>
-                <strong>TeacherOS pilot account</strong>
-                <p className="muted">Use this for the shared tester workspace.</p>
+                <strong>Such Teacher OS pilot account</strong>
+                <p className="muted">Use this shared workspace to explore the app.</p>
               </div>
               <button
                 className="secondary"
