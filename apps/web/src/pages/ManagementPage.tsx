@@ -82,6 +82,10 @@ type CorrectionProgress = {
   status: 'sending' | 'processing' | 'complete';
   percent: number;
 };
+type ImportProgress = {
+  status: 'ready' | 'uploading' | 'processing' | 'complete';
+  percent: number;
+};
 
 type ManagementState = {
   courses: CourseSummary[];
@@ -341,6 +345,38 @@ function courseNameKey(value: string): string {
     .filter(Boolean)
     .sort()
     .join(' ');
+}
+
+function normalizeImportedCourseVariants(schedule: ParseScheduleResponse): ParseScheduleResponse {
+  const courseNameBySource = new Map<string, string>();
+  const classes = schedule.classes.map((parsedClass) => {
+    const variant = parsedClass.name.trim().match(/^(.+?\b\d{1,2})\s*[-–—]?\s*([A-Za-z])$/);
+    if (!variant) return parsedClass;
+
+    const courseName = variant[1]?.trim();
+    const group = variant[2]?.toUpperCase();
+    if (!courseName || !group) return parsedClass;
+    const period = parsedClass.period.trim();
+    const groupLabel = period && courseNameKey(period) !== courseNameKey(group)
+      ? `Group ${group} / ${period}`
+      : `Group ${group}`;
+    courseNameBySource.set(courseNameKey(parsedClass.name), courseName);
+    return {
+      ...parsedClass,
+      name: courseName,
+      period: groupLabel,
+      subject: parsedClass.subject || courseName
+    };
+  });
+
+  return {
+    ...schedule,
+    classes,
+    assignments: schedule.assignments.map((assignment) => ({
+      ...assignment,
+      courseName: courseNameBySource.get(courseNameKey(assignment.courseName)) ?? assignment.courseName
+    }))
+  };
 }
 
 function correctionReferenceMatches(reference: string, parsedClass: ParsedScheduleClass): boolean {
@@ -633,6 +669,7 @@ export function ManagementPage() {
   const [addedParsedClassKeys, setAddedParsedClassKeys] = useState<string[]>([]);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [correctionProgress, setCorrectionProgress] = useState<CorrectionProgress | null>(null);
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [completedWalkthroughIds, setCompletedWalkthroughIds] = useState<string[]>(() => readStringList(walkthroughStorageKey));
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [confirmedScheduleSignature, setConfirmedScheduleSignature] = useState(
@@ -1473,9 +1510,10 @@ export function ManagementPage() {
   };
 
   const applyScheduleParseResult = (parsed: ParseScheduleResponse) => {
-    setScheduleImportOutput(parsed);
+    const normalized = normalizeImportedCourseVariants(parsed);
+    setScheduleImportOutput(normalized);
     setParsedClassEditDrafts(
-      Object.fromEntries(parsed.classes.map((parsedClass) => [parsedClassKey(parsedClass), parsedClassToDraft(parsedClass)]))
+      Object.fromEntries(normalized.classes.map((parsedClass) => [parsedClassKey(parsedClass), parsedClassToDraft(parsedClass)]))
     );
     setAddedParsedClassKeys([]);
     setGenerationProgress(null);
@@ -1489,11 +1527,13 @@ export function ManagementPage() {
 
     try {
       setBusy(true);
+      setImportProgress({ status: 'uploading', percent: 25 });
       setScheduleImportJobId(null);
       setScheduleImportJob(null);
       setScheduleImportOutput(null);
       setGenerationProgress(null);
       setCorrectionProgress(null);
+      setImportProgress({ status: 'processing', percent: 65 });
       // Run schedule imports directly. The production deployment does not run a
       // separate queue worker, so queueing would leave the review stuck at 0%.
       const parsed = await api.importSchedule({
@@ -1505,8 +1545,10 @@ export function ManagementPage() {
         fileMimeType: scheduleImportFileMimeType || undefined
       });
       applyScheduleParseResult(parsed);
+      setImportProgress({ status: 'complete', percent: 100 });
       setError(null);
     } catch (err) {
+      setImportProgress(null);
       setError(err instanceof ApiError ? err.message : 'Failed to read schedule');
     } finally {
       setBusy(false);
@@ -1999,6 +2041,7 @@ export function ManagementPage() {
                       setScheduleImportFileName(file.name);
                       setScheduleImportFileMimeType(file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/png'));
                       setScheduleImportFileDataUrl(dataUrl);
+                      setImportProgress({ status: 'ready', percent: 10 });
                       setError(null);
                     } catch (err) {
                       setError(err instanceof Error ? err.message : 'Could not read schedule file');
@@ -2035,11 +2078,36 @@ export function ManagementPage() {
                   setAddedParsedClassKeys([]);
                   setGenerationProgress(null);
                   setCorrectionProgress(null);
+                  setImportProgress(null);
                 }}
               >
                 Clear
               </button>
             </div>
+
+            {importProgress ? (
+              <div className="import-status-panel" aria-live="polite">
+                <div>
+                  <strong>
+                    {importProgress.status === 'ready'
+                      ? 'File ready to process'
+                      : importProgress.status === 'uploading'
+                        ? 'Uploading schedule...'
+                        : importProgress.status === 'processing'
+                          ? 'Reading schedule and building classes...'
+                          : 'Schedule review ready'}
+                  </strong>
+                  <span>
+                    {importProgress.status === 'complete'
+                      ? 'Your course, class-group, and meeting-time review is ready.'
+                      : 'Keep this page open while the schedule reader processes your file.'}
+                  </span>
+                </div>
+                <div className="import-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={importProgress.percent}>
+                  <span style={{ width: `${importProgress.percent}%` }} />
+                </div>
+              </div>
+            ) : null}
 
             {scheduleImportJobId ? (
               <div className="import-status-panel">
@@ -2145,7 +2213,9 @@ export function ManagementPage() {
                           : 'Your correction is being processed by the schedule reader.'}
                       </span>
                     </div>
-                    <progress max={100} value={correctionProgress.percent} />
+                    <div className="import-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={correctionProgress.percent}>
+                      <span style={{ width: `${correctionProgress.percent}%` }} />
+                    </div>
                   </div>
                 ) : null}
                 {generationProgress ? (
@@ -2162,7 +2232,9 @@ export function ManagementPage() {
                           : `Creating ${generationProgress.completed + 1} of ${generationProgress.total} class groups...`}
                       </span>
                     </div>
-                    <progress max={generationProgress.total} value={generationProgress.completed} />
+                    <div className="import-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={generationProgress.total} aria-valuenow={generationProgress.completed}>
+                      <span style={{ width: `${Math.round((generationProgress.completed / generationProgress.total) * 100)}%` }} />
+                    </div>
                   </div>
                 ) : null}
                 <div className="parsed-class-list">

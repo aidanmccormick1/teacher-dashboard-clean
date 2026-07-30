@@ -1562,8 +1562,14 @@ export async function v1Routes(app: FastifyInstance) {
         model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
         schemaName: 'schedule_import',
         schema: InternalParseScheduleSchema,
-        systemPrompt:
+        systemPrompt: [
           'Extract schedule classes and assignments. Return JSON only. Ignore non-teaching blocks like lunch/planning.',
+          'A class object represents one class group. Its `name` is the shared course curriculum; its `period` is the separate group or bell period.',
+          'When class names differ only by a trailing section letter, group label, or period suffix, treat them as one course curriculum.',
+          'For example, Spanish 5A, Spanish 5B, and Spanish 5C must use `name: "Spanish 5"` with separate `period` values such as "Group A", "Group B", and "Group C".',
+          'If a bell period is also present, preserve it in the period label, such as "Group A / Period 4".',
+          'Do not create separate courses merely because A, B, C or a bell-period label differs.'
+        ].join(' '),
         userPrompt: scheduleImportUserPrompt(body),
         fileDataUrl: scheduleImportFileDataUrl(body),
         fileName: body.fileName
