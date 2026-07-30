@@ -149,9 +149,9 @@ export function LoginPage() {
       <main className="login-page">
         <section className="login-panel">
           <div className="login-intro">
-            <p className="eyebrow">Such Teacher OS</p>
+            <p className="eyebrow">TeacherOS by Calico Edu</p>
             <h1>Sign in or create an account.</h1>
-            <p className="muted">Use your secure Such Teacher OS account to keep courses and plans private.</p>
+            <p className="muted">Use your secure TeacherOS by Calico Edu account to keep courses and plans private.</p>
             <div className="login-proof-list">
               <span>Courses</span>
               <span>Periods</span>
@@ -214,7 +214,7 @@ export function LoginPage() {
     <main className="login-page">
       <section className="login-panel">
         <div className="login-intro">
-          <p className="eyebrow">Such Teacher OS</p>
+          <p className="eyebrow">TeacherOS by Calico Edu</p>
           <h1>{allowLocalDevLogin ? 'Local development access' : 'Your teaching workspace'}</h1>
           <p className="muted">
             {allowLocalDevLogin
@@ -310,7 +310,7 @@ export function LoginPage() {
               }}
             >
               <div>
-                <strong>Such Teacher OS pilot account</strong>
+                <strong>TeacherOS by Calico Edu pilot account</strong>
                 <p className="muted">Use this shared workspace to explore the app.</p>
               </div>
               <button

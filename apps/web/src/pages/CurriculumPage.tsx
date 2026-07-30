@@ -37,7 +37,7 @@ function loadCourseDraft(): CourseDraft {
 
 function buildCourseListSummary(courses: CourseRow[]): string {
   return [
-    'Such Teacher OS courses',
+    'TeacherOS by Calico Edu courses',
     '',
     courses.length
       ? courses
