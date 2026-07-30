@@ -7,7 +7,8 @@ import { createAiJobsWorker } from '@teacheros/ai-worker';
 const EnvSchema = z.object({
   REDIS_URL: z.string().min(1).optional(),
   OPENAI_API_KEY: z.string().min(1),
-  OPENAI_MODEL_PARSE_SCHEDULE: z.string().default('gpt-4o-mini'),
+  OPENAI_MODEL_PARSE_SCHEDULE: z.string().default('gpt-5.6-terra'),
+  OPENAI_REASONING_EFFORT_PARSE_SCHEDULE: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
   OPENAI_MODEL_GENERATE_SEGMENTS: z.string().default('gpt-4o'),
   OPENAI_MODEL_CONTINUITY: z.string().default('gpt-4o')
 });
@@ -23,6 +24,7 @@ const worker = createAiJobsWorker({
   redisUrl: env.REDIS_URL,
   openAiApiKey: env.OPENAI_API_KEY,
   modelParseSchedule: env.OPENAI_MODEL_PARSE_SCHEDULE,
+  reasoningEffortParseSchedule: env.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
   modelGenerateSegments: env.OPENAI_MODEL_GENERATE_SEGMENTS,
   modelContinuity: env.OPENAI_MODEL_CONTINUITY
 });

@@ -1509,6 +1509,11 @@ button.button-link {
   background: #ffffff;
 }
 
+.schedule-processing-panel {
+  border-color: rgba(70, 114, 93, 0.3);
+  background: #f4f8f5;
+}
+
 .import-status-panel div {
   display: flex;
   justify-content: space-between;

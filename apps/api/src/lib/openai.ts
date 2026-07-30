@@ -10,6 +10,7 @@ type PromptInput = {
   userPrompt: string;
   fileDataUrl?: string;
   fileName?: string;
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 };
 
 const unsupportedStrictSchemaKeywords = new Set([
@@ -144,7 +145,8 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
               strict: true,
               schema: schemaJson
             }
-          }
+          },
+          ...(params.reasoningEffort ? { reasoning: { effort: params.reasoningEffort } } : {})
         })
       });
 

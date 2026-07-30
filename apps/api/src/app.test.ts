@@ -16,6 +16,7 @@ beforeAll(async () => {
     OPENAI_MODEL_CONTINUITY: 'gpt-4o',
     OPENAI_MODEL_GENERATE_SEGMENTS: 'gpt-4o',
     OPENAI_MODEL_PARSE_SCHEDULE: 'gpt-4o-mini',
+    OPENAI_REASONING_EFFORT_PARSE_SCHEDULE: 'high',
     RUN_EMBEDDED_AI_WORKER: false,
     REDIS_URL: undefined,
     OPENAI_API_KEY: undefined,

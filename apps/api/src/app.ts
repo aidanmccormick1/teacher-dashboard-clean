@@ -57,6 +57,7 @@ export async function createApp(config: AppConfig) {
           redisUrl: config.REDIS_URL,
           openAiApiKey: config.OPENAI_API_KEY,
           modelParseSchedule: config.OPENAI_MODEL_PARSE_SCHEDULE,
+          reasoningEffortParseSchedule: config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
           modelGenerateSegments: config.OPENAI_MODEL_GENERATE_SEGMENTS,
           modelContinuity: config.OPENAI_MODEL_CONTINUITY
         })

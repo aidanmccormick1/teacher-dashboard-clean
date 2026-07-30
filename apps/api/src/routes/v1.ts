@@ -118,7 +118,16 @@ function scheduleImportFileDataUrl(body: ScheduleImportBody): string | undefined
 }
 
 function scheduleImportUserPrompt(body: ScheduleImportBody): string {
-  if (body.text) return `Parse this teacher schedule and assignments:\n${body.text}`;
+  if (body.text) {
+    return [
+      'Parse this teacher schedule and assignments.',
+      'Before returning JSON, compare every class title. Separate trailing A/B/C letters and Block, Period, Section, or Group numbers are class-group labels—not separate curricula—when their remaining course title matches.',
+      'Examples: Spanish 5A, Spanish 5B, and Spanish 5C are one course named Spanish 5. Pre-Calculus Block 1, Block 3, and Block 4 are one course named Pre-Calculus.',
+      'Keep each class group and its own meeting time. Return JSON only.',
+      '',
+      body.text
+    ].join('\n');
+  }
   if (body.fileMimeType === 'application/pdf' || body.fileName?.toLowerCase().endsWith('.pdf')) {
     return 'Parse the uploaded PDF schedule. Extract teaching classes and assignments. Return JSON only.';
   }
@@ -1560,6 +1569,7 @@ export async function v1Routes(app: FastifyInstance) {
       const response = await runStructuredPrompt<z.infer<typeof InternalParseScheduleSchema>>({
         apiKey: app.config.OPENAI_API_KEY,
         model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+        reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
         schemaName: 'schedule_import',
         schema: InternalParseScheduleSchema,
         systemPrompt: [
@@ -1602,6 +1612,7 @@ export async function v1Routes(app: FastifyInstance) {
       const response = await runStructuredPrompt<z.infer<typeof InternalParseScheduleSchema>>({
         apiKey: app.config.OPENAI_API_KEY,
         model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+        reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
         schemaName: 'schedule_import_correction',
         schema: InternalParseScheduleSchema,
         systemPrompt:
@@ -2235,6 +2246,7 @@ export async function v1Routes(app: FastifyInstance) {
         const output = await runStructuredPrompt<z.infer<typeof InternalParseScheduleSchema>>({
           apiKey: app.config.OPENAI_API_KEY,
           model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+          reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
           schemaName: 'parse_schedule',
           schema: InternalParseScheduleSchema,
           systemPrompt:

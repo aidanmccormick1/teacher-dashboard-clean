@@ -11,6 +11,7 @@ import type {
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { courseNameKey, normalizeImportedCourseVariants } from '../lib/scheduleImport.js';
 
 type ManagementTab = 'start' | 'courses' | 'periods' | 'weekly' | 'curriculum' | 'progress' | 'import';
 type YearPlanView = 'outline' | 'timeline';
@@ -333,49 +334,6 @@ function draftToParsedClass(draft: ParsedClassEditDraft): ParsedScheduleClass {
     days: days.length ? days : ['Monday'],
     time: draft.time.trim() || null,
     room: draft.room.trim() || null
-  };
-}
-
-function courseNameKey(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .sort()
-    .join(' ');
-}
-
-function normalizeImportedCourseVariants(schedule: ParseScheduleResponse): ParseScheduleResponse {
-  const courseNameBySource = new Map<string, string>();
-  const classes = schedule.classes.map((parsedClass) => {
-    const variant = parsedClass.name.trim().match(/^(.+?\b\d{1,2})\s*[-–—]?\s*([A-Za-z])$/);
-    if (!variant) return parsedClass;
-
-    const courseName = variant[1]?.trim();
-    const group = variant[2]?.toUpperCase();
-    if (!courseName || !group) return parsedClass;
-    const period = parsedClass.period.trim();
-    const groupLabel = period && courseNameKey(period) !== courseNameKey(group)
-      ? `Group ${group} / ${period}`
-      : `Group ${group}`;
-    courseNameBySource.set(courseNameKey(parsedClass.name), courseName);
-    return {
-      ...parsedClass,
-      name: courseName,
-      period: groupLabel,
-      subject: parsedClass.subject || courseName
-    };
-  });
-
-  return {
-    ...schedule,
-    classes,
-    assignments: schedule.assignments.map((assignment) => ({
-      ...assignment,
-      courseName: courseNameBySource.get(courseNameKey(assignment.courseName)) ?? assignment.courseName
-    }))
   };
 }
 
@@ -2175,8 +2133,10 @@ export function ManagementPage() {
               </button>
             </div>
 
+          </article>
+
             {importProgress ? (
-              <div className="import-status-panel" aria-live="polite">
+              <section className="import-status-panel schedule-processing-panel" aria-live="polite">
                 <div>
                   <strong>
                     {importProgress.status === 'ready'
@@ -2196,7 +2156,7 @@ export function ManagementPage() {
                 <div className="import-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={importProgress.percent}>
                   <span style={{ width: `${importProgress.percent}%` }} />
                 </div>
-              </div>
+              </section>
             ) : null}
 
             {scheduleImportJobId ? (
@@ -2444,7 +2404,6 @@ export function ManagementPage() {
                 ) : null}
               </div>
             ) : null}
-          </article>
         </section>
       ) : null}
 

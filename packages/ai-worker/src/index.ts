@@ -18,6 +18,7 @@ export type AiWorkerConfig = {
   redisUrl: string;
   openAiApiKey: string;
   modelParseSchedule: string;
+  reasoningEffortParseSchedule: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   modelGenerateSegments: string;
   modelContinuity: string;
 };
@@ -51,7 +52,16 @@ function scheduleImportFileDataUrl(input: ScheduleImportInput): string | undefin
 }
 
 function scheduleImportUserPrompt(input: ScheduleImportInput): string {
-  if (input.text) return `Parse this schedule and assignments:\n${input.text}`;
+  if (input.text) {
+    return [
+      'Parse this teacher schedule and assignments.',
+      'Compare every class title before returning JSON. A/B/C suffixes and Block, Period, Section, or Group labels are class groups when the remaining course title matches.',
+      'For example, Spanish 5A, Spanish 5B, and Spanish 5C are one course named Spanish 5; Pre-Calculus Block 1, Block 3, and Block 4 are one course named Pre-Calculus.',
+      'Keep every class group and its meeting time. Return JSON only.',
+      '',
+      input.text
+    ].join('\n');
+  }
   if (input.fileMimeType === 'application/pdf' || input.fileName?.toLowerCase().endsWith('.pdf')) {
     return 'Parse the uploaded PDF schedule. Extract teaching classes and assignments. Return JSON only.';
   }
@@ -59,7 +69,7 @@ function scheduleImportUserPrompt(input: ScheduleImportInput): string {
 }
 
 export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayload> {
-  const { redisUrl, openAiApiKey, modelParseSchedule, modelGenerateSegments, modelContinuity } =
+  const { redisUrl, openAiApiKey, modelParseSchedule, reasoningEffortParseSchedule, modelGenerateSegments, modelContinuity } =
     config;
   const connection = new Redis(redisUrl, {
     maxRetriesPerRequest: null
@@ -141,6 +151,7 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
           output = await runStructuredPrompt({
             apiKey: openAiApiKey,
             model: modelParseSchedule,
+            reasoningEffort: reasoningEffortParseSchedule,
             schemaName: 'parse_schedule',
             schema: ParseScheduleResponseSchema,
             systemPrompt:
