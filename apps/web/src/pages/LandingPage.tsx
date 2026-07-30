@@ -97,7 +97,7 @@ const previewModes = [
 export function LandingPage() {
   const auth = useAppAuth();
   const appTarget = auth.isSignedIn ? '/dashboard' : '/login';
-  const appLabel = auth.isSignedIn ? 'Open dashboard' : 'Try TeacherOS by Calico Edu';
+  const appLabel = auth.isSignedIn ? 'Open dashboard' : 'Try TeacherDesk';
   const [activePreviewId, setActivePreviewId] = useState<(typeof previewModes)[number]['id']>('desk');
   const activePreview = previewModes.find((preview) => preview.id === activePreviewId) ?? previewModes[0];
 
@@ -109,9 +109,10 @@ export function LandingPage() {
         <span />
       </div>
 
-      <nav className="landing-nav" aria-label="TeacherOS by Calico Edu website navigation">
-        <Link className="landing-brand" to="/">
-          TeacherOS by Calico Edu
+      <nav className="landing-nav" aria-label="TeacherDesk website navigation">
+        <Link className="landing-brand brand-lockup" to="/">
+          <span>TeacherDesk</span>
+          <small>Calico EDU</small>
         </Link>
         <div className="landing-nav-links">
           <a href="#how-it-works">How it works</a>
@@ -129,7 +130,7 @@ export function LandingPage() {
           <p className="eyebrow">Daily teaching desk</p>
           <h1>Know what to teach next.</h1>
           <p>
-            TeacherOS by Calico Edu connects courses, class periods, schedules, year plans, and section progress so
+            TeacherDesk connects courses, class periods, schedules, year plans, and section progress so
             teachers can move through the day without guessing where each class left off.
           </p>
           <div className="landing-actions">
@@ -140,7 +141,7 @@ export function LandingPage() {
               See the flow
             </a>
           </div>
-          <div className="landing-hero-metrics" aria-label="TeacherOS by Calico Edu product focus">
+          <div className="landing-hero-metrics" aria-label="TeacherDesk product focus">
             <div>
               <strong>1</strong>
               <span>shared course plan</span>
@@ -156,7 +157,7 @@ export function LandingPage() {
           </div>
         </div>
 
-        <div className="landing-product-shot" aria-label="TeacherOS by Calico Edu product preview">
+        <div className="landing-product-shot" aria-label="TeacherDesk product preview">
           <div className="landing-preview-tabs" role="tablist" aria-label="Preview mode">
             {previewModes.map((preview) => (
               <button
@@ -291,7 +292,7 @@ export function LandingPage() {
           <p className="eyebrow">Practical helpers</p>
           <h2>AI only where it saves time.</h2>
           <p>
-            TeacherOS by Calico Edu keeps AI in the background: read a messy schedule, draft starter segments, suggest
+            TeacherDesk keeps AI in the background: read a messy schedule, draft starter segments, suggest
             pacing, or clean up notes. Teachers review before anything is saved.
           </p>
         </div>
@@ -318,7 +319,7 @@ export function LandingPage() {
       </section>
 
       <section className="landing-final-cta">
-        <p className="eyebrow">TeacherOS by Calico Edu</p>
+        <p className="eyebrow">TeacherDesk · Calico EDU</p>
         <h2>Your course plan, your periods, your next move.</h2>
         <p>
           A calmer way to manage the school year, built around the real rhythm of teaching.

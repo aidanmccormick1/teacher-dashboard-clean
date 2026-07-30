@@ -97,7 +97,7 @@ export function AppShell() {
 
   const copyApiStatus = async () => {
     const report = [
-      'TeacherOS by Calico Edu backend status',
+      'TeacherDesk backend status',
       `Status: ${apiStatus}`,
       `API base URL: ${apiBaseUrl}`,
       `Checked at: ${apiCheckedAt ?? 'Not checked yet'}`,
@@ -158,7 +158,7 @@ export function AppShell() {
           : 'Saved locally. Backend feedback save failed.'
       );
     }
-    await navigator.clipboard?.writeText(`TeacherOS by Calico Edu feedback\n${formatFeedbackEntry(entry)}`).catch(() => undefined);
+    await navigator.clipboard?.writeText(`TeacherDesk feedback\n${formatFeedbackEntry(entry)}`).catch(() => undefined);
     setFeedbackText('');
   };
 
@@ -211,7 +211,7 @@ export function AppShell() {
 
   const copyAllFeedback = async () => {
     const report = feedbackEntries.map((entry, index) => `#${index + 1}\n${formatFeedbackEntry(entry)}`).join('\n\n---\n\n');
-    await navigator.clipboard?.writeText(report || 'No TeacherOS by Calico Edu feedback yet.').catch(() => undefined);
+    await navigator.clipboard?.writeText(report || 'No TeacherDesk feedback yet.').catch(() => undefined);
     setFeedbackSaved(true);
   };
 
@@ -227,7 +227,10 @@ export function AppShell() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <h2>TeacherOS by Calico Edu</h2>
+        <div className="brand-lockup">
+          <h2>TeacherDesk</h2>
+          <span>Calico EDU</span>
+        </div>
         <p className="muted">{auth.email ?? auth.userId ?? 'Signed in'}</p>
         <div className="api-status-card">
           <div className={`api-status ${apiStatus}`}>

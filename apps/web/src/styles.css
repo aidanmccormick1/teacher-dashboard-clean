@@ -255,6 +255,21 @@ a {
   font-weight: 650;
 }
 
+.brand-lockup {
+  display: grid;
+  gap: 2px;
+}
+
+.brand-lockup > span,
+.brand-lockup > small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
 .sidebar p {
   margin: 8px 0 0;
   font-size: 0.92rem;
@@ -2834,6 +2849,10 @@ progress::-webkit-progress-value {
   font-size: 1.08rem;
   font-weight: 650;
   letter-spacing: -0.04em;
+}
+
+.landing-brand > span {
+  line-height: 1.1;
 }
 
 .landing-nav-links {

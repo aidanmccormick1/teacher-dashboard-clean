@@ -110,7 +110,7 @@ function loadProgress(): string[] {
 
 function buildWelcomeProgressSummary(completedIds: string[]): string {
   return [
-    'TeacherOS by Calico Edu welcome progress',
+    'TeacherDesk welcome progress',
     '',
     ...steps.map((step, index) => {
       const status = completedIds.includes(step.id) ? 'done' : 'not done';

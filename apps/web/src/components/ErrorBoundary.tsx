@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<PropsWithChildren, ErrorBoundarySta
 
   private copyReport = async () => {
     const report = [
-      'TeacherOS by Calico Edu frontend error',
+      'TeacherDesk frontend error',
       `Page: ${window.location.pathname}`,
       `Message: ${this.state.error?.message ?? 'Unknown error'}`,
       '',
