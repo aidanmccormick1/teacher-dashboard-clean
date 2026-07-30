@@ -79,6 +79,10 @@ type GenerationProgress = {
   total: number;
   status: 'creating' | 'complete';
 };
+type PendingCourseDeletion = {
+  course: CourseDetail;
+  confirmationText: string;
+};
 type CorrectionProgress = {
   status: 'sending' | 'processing' | 'complete';
   percent: number;
@@ -605,6 +609,7 @@ export function ManagementPage() {
   const [newCoursePeriods, setNewCoursePeriods] = useState(savedNewCourseDraft.periods);
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
   const [courseEditDrafts, setCourseEditDrafts] = useState<Record<string, CourseEditDraft>>({});
+  const [pendingCourseDeletion, setPendingCourseDeletion] = useState<PendingCourseDeletion | null>(null);
   const [quickCourseName, setQuickCourseName] = useState('');
   const [quickCourseSubject, setQuickCourseSubject] = useState('');
 
@@ -1399,12 +1404,15 @@ export function ManagementPage() {
     }
   };
 
-  const deleteCourse = async (course: CourseDetail) => {
-    const attachedSections = courseSections(course, sections);
-    const confirmation = attachedSections.length
-      ? `Delete “${course.name}” and its ${attachedSections.length} class ${attachedSections.length === 1 ? 'group' : 'groups'}? This also removes its curriculum, lessons, and meeting times.`
-      : `Delete “${course.name}” and its curriculum?`;
-    if (!window.confirm(confirmation)) return;
+  const requestCourseDeletion = (course: CourseDetail) => {
+    setPendingCourseDeletion({ course, confirmationText: '' });
+  };
+
+  const deleteCourse = async () => {
+    const pendingDeletion = pendingCourseDeletion;
+    if (!pendingDeletion || pendingDeletion.confirmationText.trim().toUpperCase() !== 'DELETE COURSE') return;
+
+    const { course } = pendingDeletion;
 
     try {
       setBusy(true);
@@ -1423,6 +1431,7 @@ export function ManagementPage() {
       if (selectedCourseId === course.id) setSelectedCourseId('');
       if (selectedCourseForSchedule === course.id) setSelectedCourseForSchedule('');
       setEditingCourseId(null);
+      setPendingCourseDeletion(null);
       setError(null);
       flashCopyStatus(`Deleted ${course.name}.`);
     } catch (err) {
@@ -2008,7 +2017,7 @@ export function ManagementPage() {
                           <button className="secondary" type="button" onClick={() => setEditingCourseId(null)}>
                             Cancel
                           </button>
-                          <button className="secondary danger" type="button" disabled={busy} onClick={() => void deleteCourse(course)}>
+                          <button className="secondary danger" type="button" disabled={busy} onClick={() => requestCourseDeletion(course)}>
                             Delete course
                           </button>
                         </>
@@ -3526,6 +3535,57 @@ export function ManagementPage() {
             )}
           </div>
         </section>
+      ) : null}
+
+      {pendingCourseDeletion ? (
+        <div className="confirmation-dialog-backdrop" role="presentation">
+          <section
+            className="confirmation-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-course-title"
+            aria-describedby="delete-course-description"
+          >
+            <p className="eyebrow">Permanent action</p>
+            <h2 id="delete-course-title">Delete {pendingCourseDeletion.course.name}?</h2>
+            <p id="delete-course-description">
+              This permanently removes the course, its curriculum, lessons, class groups, and meeting times. This cannot be undone.
+            </p>
+            <label htmlFor="delete-course-confirmation">
+              Type <strong>DELETE COURSE</strong> to continue
+            </label>
+            <input
+              id="delete-course-confirmation"
+              className="input"
+              autoFocus
+              value={pendingCourseDeletion.confirmationText}
+              onChange={(event) =>
+                setPendingCourseDeletion((current) =>
+                  current ? { ...current, confirmationText: event.target.value } : current
+                )
+              }
+              placeholder="DELETE COURSE"
+            />
+            <div className="profile-actions">
+              <button
+                className="secondary"
+                type="button"
+                disabled={busy}
+                onClick={() => setPendingCourseDeletion(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-button"
+                type="button"
+                disabled={busy || pendingCourseDeletion.confirmationText.trim().toUpperCase() !== 'DELETE COURSE'}
+                onClick={() => void deleteCourse()}
+              >
+                {busy ? 'Deleting…' : 'Permanently delete course'}
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
     </div>
   );

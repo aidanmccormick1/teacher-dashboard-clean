@@ -63,7 +63,12 @@ async function request<TResponse>(
 ): Promise<TResponse> {
   const token = await auth.getToken();
   const headers = new Headers(init.headers);
-  headers.set('Content-Type', 'application/json');
+  // An empty DELETE request with an application/json header is rejected by
+  // Fastify as an empty JSON body. Only advertise JSON when we actually send
+  // a JSON payload. This also keeps body-less GET/DELETE requests simple.
+  if (init.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
 
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
