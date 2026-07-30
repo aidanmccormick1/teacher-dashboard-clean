@@ -1441,6 +1441,39 @@ export function ManagementPage() {
     }
   };
 
+  const deleteCourse = async (course: CourseDetail) => {
+    const attachedSections = courseSections(course, sections);
+    const confirmation = attachedSections.length
+      ? `Delete “${course.name}” and its ${attachedSections.length} class ${attachedSections.length === 1 ? 'group' : 'groups'}? This also removes its curriculum, lessons, and meeting times.`
+      : `Delete “${course.name}” and its curriculum?`;
+    if (!window.confirm(confirmation)) return;
+
+    try {
+      setBusy(true);
+      await api.deleteCourse(course.id);
+      const schedule = await api.getSchedule();
+      const remainingSectionIds = new Set(schedule.sections.map((section) => section.sectionId));
+      setState((previous) => ({
+        ...previous,
+        courses: previous.courses.filter((item) => item.id !== course.id),
+        courseDetails: previous.courseDetails.filter((item) => item.id !== course.id),
+        schedule,
+        resumesBySectionId: Object.fromEntries(
+          Object.entries(previous.resumesBySectionId).filter(([sectionId]) => remainingSectionIds.has(sectionId))
+        )
+      }));
+      if (selectedCourseId === course.id) setSelectedCourseId('');
+      if (selectedCourseForSchedule === course.id) setSelectedCourseForSchedule('');
+      setEditingCourseId(null);
+      setError(null);
+      flashCopyStatus(`Deleted ${course.name}.`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to delete course');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const findCourseForParsedClass = (parsedClass: ParsedScheduleClass) => {
     const nameKey = courseNameKey(parsedClass.name);
     return state.courses.find((course) => courseNameKey(course.name) === nameKey) ?? null;
@@ -1903,25 +1936,79 @@ export function ManagementPage() {
                       <span className="status-pill upcoming">{isSelected ? 'Selected' : 'Course'}</span>
                     </div>
                     {isEditing ? (
-                      <div className="course-inline-edit">
-                        <input
-                          className="input"
-                          value={editDraft.name}
-                          onChange={(event) => updateCourseDraft(course.id, { name: event.target.value })}
-                          placeholder="Course name"
-                        />
-                        <input
-                          className="input"
-                          value={editDraft.subject}
-                          onChange={(event) => updateCourseDraft(course.id, { subject: event.target.value })}
-                          placeholder="Subject"
-                        />
-                        <input
-                          className="input"
-                          value={editDraft.gradeLevel}
-                          onChange={(event) => updateCourseDraft(course.id, { gradeLevel: event.target.value })}
-                          placeholder="Grade level"
-                        />
+                      <div className="course-detail-editor">
+                        <section className="course-editor-subgroup">
+                          <div>
+                            <p className="eyebrow">Shared curriculum</p>
+                            <h4>Course details</h4>
+                          </div>
+                          <div className="course-inline-edit">
+                            <label>
+                              Course name
+                              <input
+                                className="input"
+                                value={editDraft.name}
+                                onChange={(event) => updateCourseDraft(course.id, { name: event.target.value })}
+                                placeholder="Course name"
+                              />
+                            </label>
+                            <label>
+                              Subject
+                              <input
+                                className="input"
+                                value={editDraft.subject}
+                                onChange={(event) => updateCourseDraft(course.id, { subject: event.target.value })}
+                                placeholder="Subject"
+                              />
+                            </label>
+                            <label>
+                              Grade level
+                              <input
+                                className="input"
+                                value={editDraft.gradeLevel}
+                                onChange={(event) => updateCourseDraft(course.id, { gradeLevel: event.target.value })}
+                                placeholder="Grade level"
+                              />
+                            </label>
+                          </div>
+                        </section>
+                        <section className="course-editor-subgroup">
+                          <div className="section-heading">
+                            <div>
+                              <p className="eyebrow">Class groups</p>
+                              <h4>Separate progress and meeting times</h4>
+                            </div>
+                            <button className="secondary" type="button" onClick={() => selectCourse(course.id, 'periods')}>
+                              Add class group
+                            </button>
+                          </div>
+                          {attachedSections.length ? (
+                            <div className="course-subgroup-list">
+                              {attachedSections.map((section) => (
+                                <div key={section.sectionId}>
+                                  <div>
+                                    <strong>{section.sectionName}</strong>
+                                    <span>{formatMeeting(section)}</span>
+                                  </div>
+                                  <button
+                                    className="secondary"
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedCourseId(course.id);
+                                      setSelectedSectionId(section.sectionId);
+                                      beginSectionEdit(section);
+                                      setActiveTab('periods');
+                                    }}
+                                  >
+                                    Edit group
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="muted">No class groups yet. Add A, B, C—or a bell period—under this shared curriculum.</p>
+                          )}
+                        </section>
                       </div>
                     ) : null}
                     <div className="mini-stats">
@@ -1962,6 +2049,9 @@ export function ManagementPage() {
                           </button>
                           <button className="secondary" type="button" onClick={() => setEditingCourseId(null)}>
                             Cancel
+                          </button>
+                          <button className="secondary danger" type="button" disabled={busy} onClick={() => void deleteCourse(course)}>
+                            Delete course
                           </button>
                         </>
                       ) : (

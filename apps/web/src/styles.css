@@ -1212,6 +1212,71 @@ button.button-link {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
+.course-detail-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.course-editor-subgroup {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(216, 200, 170, 0.8);
+  border-radius: 6px;
+  padding: 14px;
+  background: #fffaf0;
+}
+
+.course-editor-subgroup h4 {
+  margin: 2px 0 0;
+}
+
+.course-inline-edit label,
+.course-subgroup-list > div > div {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.course-inline-edit .input {
+  font-size: 0.94rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.course-subgroup-list {
+  display: grid;
+  gap: 8px;
+}
+
+.course-subgroup-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 10px;
+  background: #fffdf7;
+}
+
+.course-subgroup-list strong {
+  color: var(--ink);
+  font-size: 0.96rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.course-subgroup-list span {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .parsed-class-fields {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   min-width: 0;
