@@ -343,6 +343,53 @@ function courseNameKey(value: string): string {
     .join(' ');
 }
 
+function correctionReferenceMatches(reference: string, parsedClass: ParsedScheduleClass): boolean {
+  const referenceTokens = courseNameKey(reference).split(' ').filter(Boolean);
+  if (!referenceTokens.length) return false;
+  return [parsedClass.name, parsedClass.period, `${parsedClass.name} ${parsedClass.period}`].some((candidate) => {
+    const candidateTokens = courseNameKey(candidate).split(' ').filter(Boolean);
+    return (
+      candidateTokens.join(' ') === referenceTokens.join(' ') ||
+      referenceTokens.every((referenceToken) => candidateTokens.includes(referenceToken))
+    );
+  });
+}
+
+function applyInlineScheduleCorrection(
+  schedule: ParseScheduleResponse,
+  instruction: string
+): ParseScheduleResponse | null {
+  const normalizedInstruction = instruction.trim().replace(/\s+/g, ' ');
+  const groupingMatch = normalizedInstruction.match(
+    /^(.+?)\s+(?:(?:are|is)\s+)?(?:just\s+)?(?:different\s+)?(?:class(?:\s+groups?)?|groups?|periods?|part\s+of|under|in)\s+(?:of|under|in|for)?\s*(.+?)[.!]?$/i
+  );
+  const mergeMatch = normalizedInstruction.match(/(?:merge|combine|treat)\s+(.+?)\s+(?:into|as|called)\s+(.+?)[.!]?$/i);
+  const renameMatch = normalizedInstruction.match(/rename\s+(.+?)\s+to\s+(.+?)[.!]?$/i);
+  const match = groupingMatch ?? mergeMatch ?? renameMatch;
+  if (!match?.[1] || !match[2]) return null;
+
+  const sourceNames = match[1]
+    .replace(/\b(the|classes?|class\s+groups?|groups?|sections?)\b/gi, '')
+    .split(/,|\band\b/i)
+    .map((name) => name.trim())
+    .filter(Boolean);
+  const target = match[2]
+    .split(/[.!?]/, 1)[0]
+    ?.replace(/^(?:one|the same)\s+course\s+(?:called\s+)?/i, '')
+    .replace(/^called\s+/i, '')
+    .replace(/\s+curriculum$/i, '')
+    .trim();
+  if (!sourceNames.length || !target) return null;
+
+  const correctedClasses = schedule.classes.map((parsedClass) =>
+    sourceNames.some((source) => correctionReferenceMatches(source, parsedClass))
+      ? { ...parsedClass, name: target, subject: parsedClass.subject || target }
+      : parsedClass
+  );
+  const changed = correctedClasses.some((parsedClass, index) => parsedClass.name !== schedule.classes[index]?.name);
+  return changed ? { ...schedule, classes: correctedClasses } : null;
+}
+
 function parseMeetingDaysInput(value: string): Array<(typeof meetingDays)[number]> {
   const days = value
     .split(',')
@@ -1387,14 +1434,14 @@ export function ManagementPage() {
     if (!scheduleImportOutput) return;
     const instruction = scheduleImportChanges.trim().replace(/\s+/g, ' ');
     if (!instruction) return;
+    const currentSchedule = {
+      classes: scheduleImportOutput.classes.map((parsedClass) => parsedClassFromDraft(parsedClass)),
+      assignments: scheduleImportOutput.assignments
+    };
 
     try {
       setBusy(true);
       setCorrectionProgress({ status: 'sending', percent: 20 });
-      const currentSchedule = {
-        classes: scheduleImportOutput.classes.map((parsedClass) => parsedClassFromDraft(parsedClass)),
-        assignments: scheduleImportOutput.assignments
-      };
       setCorrectionProgress({ status: 'processing', percent: 55 });
       const correctedSchedule = await api.correctScheduleImport({
         ...currentSchedule,
@@ -1406,6 +1453,18 @@ export function ManagementPage() {
       setError(null);
       flashCopyStatus('Correction processed. Rebuilt the complete schedule review.');
     } catch (err) {
+      const fallbackSchedule =
+        err instanceof ApiError && err.status === 404
+          ? applyInlineScheduleCorrection(currentSchedule, instruction)
+          : null;
+      if (fallbackSchedule) {
+        applyScheduleParseResult(fallbackSchedule);
+        setScheduleImportChanges('');
+        setCorrectionProgress({ status: 'complete', percent: 100 });
+        setError(null);
+        flashCopyStatus('Correction processed. Rebuilt the complete schedule review.');
+        return;
+      }
       setCorrectionProgress(null);
       setError(err instanceof ApiError ? err.message : 'Failed to process the schedule correction');
     } finally {
