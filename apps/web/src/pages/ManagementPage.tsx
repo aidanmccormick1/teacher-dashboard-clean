@@ -2145,10 +2145,15 @@ export function ManagementPage() {
               />
             </div>
 
+            {scheduleImportFileDataUrl ? (
+              <div className="schedule-import-action">
+                <button type="button" disabled={busy} onClick={startScheduleUpload}>
+                  {busy ? 'Reading schedule...' : 'Auto-create classes'}
+                </button>
+                <span>Review the courses, class groups, and meeting times before anything is saved.</span>
+              </div>
+            ) : null}
             <div className="profile-actions">
-              <button type="button" disabled={busy || (!scheduleImportText.trim() && !scheduleImportFileDataUrl)} onClick={startScheduleUpload}>
-                {busy ? 'Creating classes...' : 'Auto-create classes'}
-              </button>
               <button
                 className="secondary"
                 type="button"

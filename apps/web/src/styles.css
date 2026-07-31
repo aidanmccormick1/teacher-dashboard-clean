@@ -590,6 +590,25 @@ button.danger-button {
   font-size: 0.92rem;
 }
 
+.schedule-import-action {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 16px;
+  border: 1px solid #c4d7c2;
+  border-radius: var(--radius-md);
+  background: #eef4e9;
+}
+
+.schedule-import-action button {
+  width: 100%;
+}
+
+.schedule-import-action span {
+  color: var(--green);
+  font-size: 0.9rem;
+}
+
 .muted {
   color: color-mix(in srgb, var(--muted) 88%, var(--ink));
   font-size: 0.94em;
