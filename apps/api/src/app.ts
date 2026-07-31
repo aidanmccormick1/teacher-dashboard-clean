@@ -81,7 +81,11 @@ export async function createApp(config: AppConfig) {
 
   await app.register(cors, {
     origin: true,
-    credentials: true
+    credentials: true,
+    // Course and class-group editing uses PATCH and permanent deletion uses
+    // DELETE. Include them in preflight responses so browser requests reach
+    // the API instead of failing as a generic network error.
+    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS']
   });
 
   await app.register(helmet);
