@@ -78,4 +78,17 @@ describe('normalizeImportedCourseVariants', () => {
       { name: 'Spanish 8', period: 'Group B' }
     ]);
   });
+
+  it('removes duplicate meeting records returned by a visual audit', () => {
+    const result = normalizeImportedCourseVariants({
+      classes: [
+        { ...baseClass, name: 'Spanish 8B', period: '3', days: ['Thursday'], time: '10:08', room: 'Jones HR' },
+        { ...baseClass, name: 'Spanish 8B', period: '4', days: ['Thursday'], time: '10:08', room: 'Jones HR' }
+      ],
+      assignments: []
+    });
+
+    expect(result.classes).toHaveLength(1);
+    expect(result.classes[0]).toMatchObject({ name: 'Spanish 8', period: 'Group B', days: ['Thursday'], time: '10:08' });
+  });
 });

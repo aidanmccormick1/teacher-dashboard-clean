@@ -95,10 +95,23 @@ export function normalizeImportedCourseVariants(schedule: ParseScheduleResponse)
     ...parsedClass,
     period: normalizedGroupLabel(parsedClass.period)
   }));
+  const seenMeetings = new Set<string>();
+  const deduplicatedClasses = normalizedClasses.filter((parsedClass) => {
+    const key = [
+      courseNameKey(parsedClass.name),
+      courseNameKey(parsedClass.period),
+      [...parsedClass.days].sort().join(','),
+      parsedClass.time ?? '',
+      parsedClass.room ?? ''
+    ].join('|');
+    if (seenMeetings.has(key)) return false;
+    seenMeetings.add(key);
+    return true;
+  });
 
   return {
     ...schedule,
-    classes: normalizedClasses,
+    classes: deduplicatedClasses,
     assignments: schedule.assignments.map((assignment) => ({
       ...assignment,
       courseName: courseNameBySource.get(sourceVariantKey(assignment.courseName)) ?? assignment.courseName
