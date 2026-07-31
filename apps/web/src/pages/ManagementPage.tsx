@@ -368,6 +368,32 @@ function meetingsFromParsedClasses(classes: ParsedScheduleClass[]) {
   );
 }
 
+function preserveMissingCorrectionClasses(
+  original: ParseScheduleResponse,
+  corrected: ParseScheduleResponse
+): ParseScheduleResponse {
+  // The correction model is asked for a complete schedule, but a partial model
+  // reply must never erase reviewed classes. Match by the durable class-group
+  // meeting slot so course-name corrections still replace the original record.
+  const correctedSlots = new Set(
+    corrected.classes.map((parsedClass) =>
+      [
+        courseNameKey(parsedClass.period),
+        [...parsedClass.days].sort().join(','),
+        parsedClass.room ?? ''
+      ].join('|')
+    )
+  );
+  const missingClasses = original.classes.filter((parsedClass) => {
+    const key = [courseNameKey(parsedClass.period), [...parsedClass.days].sort().join(','), parsedClass.room ?? ''].join('|');
+    return !correctedSlots.has(key);
+  });
+
+  return missingClasses.length
+    ? { ...corrected, classes: [...corrected.classes, ...missingClasses] }
+    : corrected;
+}
+
 function correctionReferenceMatches(reference: string, parsedClass: ParsedScheduleClass): boolean {
   const referenceTokens = courseNameKey(reference).split(' ').filter(Boolean);
   if (!referenceTokens.length) return false;
@@ -1511,7 +1537,7 @@ export function ManagementPage() {
         ...currentSchedule,
         instruction
       });
-      applyScheduleParseResult(correctedSchedule);
+      applyScheduleParseResult(preserveMissingCorrectionClasses(currentSchedule, correctedSchedule));
       setScheduleImportChanges('');
       setCorrectionProgress({ status: 'complete', percent: 100 });
       setError(null);

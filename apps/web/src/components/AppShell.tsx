@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { ApiError, useApiClient } from '../lib/api.js';
@@ -16,7 +16,6 @@ type FeedbackEntry = {
 };
 
 const feedbackStorageKey = 'teacheros_feedback_notes';
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
 
 const links = [
   { path: '/dashboard', label: 'Dashboard' },
@@ -59,56 +58,6 @@ export function AppShell() {
   const [feedbackApiStatus, setFeedbackApiStatus] = useState<string | null>(null);
   const [feedbackEntries, setFeedbackEntries] = useState<FeedbackEntry[]>([]);
   const [isSyncingFeedback, setIsSyncingFeedback] = useState(false);
-  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
-  const [apiCheckedAt, setApiCheckedAt] = useState<string | null>(null);
-  const [apiStatusCopied, setApiStatusCopied] = useState(false);
-
-  const checkApi = useCallback(
-    async (options?: { silent?: boolean }) => {
-      if (!options?.silent) setApiStatus('checking');
-      try {
-        const response = await fetch(`${apiBaseUrl}/health/liveness`, { cache: 'no-store' });
-        setApiStatus(response.ok ? 'online' : 'offline');
-      } catch {
-        setApiStatus('offline');
-      } finally {
-        setApiCheckedAt(new Date().toLocaleTimeString());
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const guardedCheck = async (options?: { silent?: boolean }) => {
-      if (cancelled) return;
-      await checkApi(options);
-    };
-
-    void guardedCheck();
-    const timer = window.setInterval(() => void guardedCheck({ silent: true }), 60_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [checkApi]);
-
-  const copyApiStatus = async () => {
-    const report = [
-      'TeacherDesk backend status',
-      `Status: ${apiStatus}`,
-      `API base URL: ${apiBaseUrl}`,
-      `Checked at: ${apiCheckedAt ?? 'Not checked yet'}`,
-      `Page: ${window.location.pathname}`,
-      `User: ${auth.email ?? auth.userId ?? 'unknown'}`
-    ].join('\n');
-    await navigator.clipboard?.writeText(report).catch(() => undefined);
-    setApiStatusCopied(true);
-    window.setTimeout(() => setApiStatusCopied(false), 1600);
-  };
-
   const openFeedback = () => {
     setFeedbackEntries(readFeedbackEntries());
     setIsFeedbackOpen(true);
@@ -232,21 +181,6 @@ export function AppShell() {
           <span>Calico EDU</span>
         </div>
         <p className="muted">{auth.email ?? auth.userId ?? 'Signed in'}</p>
-        <div className="api-status-card">
-          <div className={`api-status ${apiStatus}`}>
-            <span />
-            {apiStatus === 'checking' ? 'Checking backend' : apiStatus === 'online' ? 'Backend online' : 'Backend offline'}
-          </div>
-          {apiCheckedAt ? <small>Checked {apiCheckedAt}</small> : null}
-          <div className="api-status-actions">
-            <button className="secondary" type="button" onClick={() => void checkApi()}>
-              Recheck
-            </button>
-            <button className="secondary" type="button" onClick={() => void copyApiStatus()}>
-              {apiStatusCopied ? 'Copied' : 'Copy'}
-            </button>
-          </div>
-        </div>
         <nav>
           {links.map((link) => (
             <NavLink key={link.path} to={link.path}>
