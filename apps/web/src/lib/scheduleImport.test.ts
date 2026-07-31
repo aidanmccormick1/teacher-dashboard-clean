@@ -23,9 +23,9 @@ describe('normalizeImportedCourseVariants', () => {
     });
 
     expect(result.classes.map(({ name, period }) => ({ name, period }))).toEqual([
-      { name: 'Spanish 5', period: 'Group A / Period 1' },
-      { name: 'Spanish 5', period: 'Group B / Period 3' },
-      { name: 'Spanish 5', period: 'Group C / Period 5' }
+      { name: 'Spanish 5', period: 'Group A' },
+      { name: 'Spanish 5', period: 'Group B' },
+      { name: 'Spanish 5', period: 'Group C' }
     ]);
     expect(result.assignments[0]?.courseName).toBe('Spanish 5');
   });
@@ -42,8 +42,23 @@ describe('normalizeImportedCourseVariants', () => {
 
     expect(result.classes.map(({ name, period }) => ({ name, period }))).toEqual([
       { name: 'Pre-Calculus', period: 'Block 1' },
-      { name: 'Pre-Calculus', period: 'Block 3 / Period 3' },
-      { name: 'Pre-Calculus', period: 'Block 4 / Period 4' }
+      { name: 'Pre-Calculus', period: 'Block 3' },
+      { name: 'Pre-Calculus', period: 'Block 4' }
+    ]);
+  });
+
+  it('keeps repeated class-group labels together while preserving their meeting occurrences', () => {
+    const result = normalizeImportedCourseVariants({
+      classes: [
+        { ...baseClass, name: 'Spanish 5', period: 'Group B / Period 1', days: ['Monday'], time: '08:10' },
+        { ...baseClass, name: 'Spanish 5', period: 'Group B / Period 5', days: ['Thursday'], time: '13:35' }
+      ],
+      assignments: []
+    });
+
+    expect(result.classes.map(({ name, period, days, time }) => ({ name, period, days, time }))).toEqual([
+      { name: 'Spanish 5', period: 'Group B', days: ['Monday'], time: '08:10' },
+      { name: 'Spanish 5', period: 'Group B', days: ['Thursday'], time: '13:35' }
     ]);
   });
 });

@@ -44,7 +44,7 @@ services:
           name: teacheros-redis
           property: connectionString
       - key: OPENAI_MODEL_PARSE_SCHEDULE
-        value: gpt-5.6-terra
+        value: gpt-5.6-sol
       - key: OPENAI_REASONING_EFFORT_PARSE_SCHEDULE
         value: high
       - key: OPENAI_MODEL_GENERATE_SEGMENTS

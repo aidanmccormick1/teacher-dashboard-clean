@@ -123,7 +123,9 @@ function scheduleImportUserPrompt(body: ScheduleImportBody): string {
       'Parse this teacher schedule and assignments.',
       'Before returning JSON, compare every class title. Separate trailing A/B/C letters and Block, Period, Section, or Group numbers are class-group labels—not separate curricula—when their remaining course title matches.',
       'Examples: Spanish 5A, Spanish 5B, and Spanish 5C are one course named Spanish 5. Pre-Calculus Block 1, Block 3, and Block 4 are one course named Pre-Calculus.',
-      'Keep each class group and its own meeting time. Return JSON only.',
+      'A schedule may show the same class group on more than one day at different times. Emit one class object per meeting occurrence, but repeat the exact same course name and class-group label for every occurrence of that group.',
+      'The `period` field is the class-group label, not the grid row or bell-period number. For example, Spanish 5B on Monday at 08:10 and Thursday at 13:35 must both use `name: "Spanish 5"` and `period: "Group B"`; only `days` and `time` change.',
+      'Keep each class group and all of its meeting times. Return JSON only.',
       '',
       body.text
     ].join('\n');
@@ -137,7 +139,8 @@ function scheduleImportUserPrompt(body: ScheduleImportBody): string {
 function scheduleImportCorrectionPrompt(body: ScheduleImportCorrectionBody): string {
   return [
     'Correct this already-parsed teacher schedule according to the teacher instruction.',
-    'The `name` field is the shared course curriculum. The `period` field is a distinct class group or period under that course.',
+    'The `name` field is the shared course curriculum. The `period` field is a distinct class-group label under that course, never a bell-period number.',
+    'When one class group meets at more than one time, return one class object per meeting occurrence with the same `name` and `period`; the app will combine them into one group with multiple meeting times.',
     'Keep every class group, its meeting days, time, room, subject, grade, and assignments unless the instruction explicitly changes one.',
     'When the teacher says groups or periods share a course, update their `name` fields to the shared course while retaining separate `period` entries.',
     'Return the complete corrected schedule as JSON only, not a partial patch.',
@@ -1574,10 +1577,10 @@ export async function v1Routes(app: FastifyInstance) {
         schema: InternalParseScheduleSchema,
         systemPrompt: [
           'Extract schedule classes and assignments. Return JSON only. Ignore non-teaching blocks like lunch/planning.',
-          'A class object represents one class group. Its `name` is the shared course curriculum; its `period` is the separate group or bell period.',
+          'Each class object represents one meeting occurrence. Its `name` is the shared course curriculum; its `period` is the separate class-group label, never the bell-period/grid row.',
           'When class names differ only by a trailing section letter, group label, or period suffix, treat them as one course curriculum.',
           'For example, Spanish 5A, Spanish 5B, and Spanish 5C must use `name: "Spanish 5"` with separate `period` values such as "Group A", "Group B", and "Group C".',
-          'If a bell period is also present, preserve it in the period label, such as "Group A / Period 4".',
+          'If Spanish 5B meets Monday at 08:10 and Thursday at 13:35, return two records with `name: "Spanish 5"` and `period: "Group B"`; give each record its own day and time. Do not append "Period 1" or another bell period to the group label.',
           'Do not create separate courses merely because A, B, C or a bell-period label differs.'
         ].join(' '),
         userPrompt: scheduleImportUserPrompt(body),

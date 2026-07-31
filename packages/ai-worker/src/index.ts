@@ -57,7 +57,9 @@ function scheduleImportUserPrompt(input: ScheduleImportInput): string {
       'Parse this teacher schedule and assignments.',
       'Compare every class title before returning JSON. A/B/C suffixes and Block, Period, Section, or Group labels are class groups when the remaining course title matches.',
       'For example, Spanish 5A, Spanish 5B, and Spanish 5C are one course named Spanish 5; Pre-Calculus Block 1, Block 3, and Block 4 are one course named Pre-Calculus.',
-      'Keep every class group and its meeting time. Return JSON only.',
+      'A schedule may show the same class group on more than one day at different times. Emit one class object per meeting occurrence, but repeat the exact same course name and class-group label for each occurrence.',
+      'The `period` field is the class-group label, not a bell-period/grid row. Spanish 5B on Monday at 08:10 and Thursday at 13:35 must both use `name: "Spanish 5"` and `period: "Group B"`; only the day and time change.',
+      'Keep every class group and all of its meeting times. Return JSON only.',
       '',
       input.text
     ].join('\n');
@@ -155,7 +157,7 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
             schemaName: 'parse_schedule',
             schema: ParseScheduleResponseSchema,
             systemPrompt:
-              'Extract classes and assignments from teacher schedule text. Return JSON only and skip non-teaching events.',
+              'Extract classes and assignments from teacher schedules. Return JSON only and skip non-teaching events. Each record is one meeting occurrence: `name` is the shared curriculum and `period` is the class-group label, never the bell-period/grid row. Repeat a class group label for every one of its distinct meeting times so the app can merge them.',
             userPrompt: scheduleImportUserPrompt(input),
             fileDataUrl: scheduleImportFileDataUrl(input),
             fileName: input.fileName

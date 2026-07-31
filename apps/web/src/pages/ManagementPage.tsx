@@ -61,6 +61,14 @@ type ParsedClassEditDraft = {
   time: string;
   room: string;
 };
+type ImportedClassGroupReview = {
+  name: string;
+  classes: ParsedScheduleClass[];
+};
+type ImportedCourseGroupReview = {
+  name: string;
+  classGroups: ImportedClassGroupReview[];
+};
 type NewCourseDraft = {
   name: string;
   subject: string;
@@ -339,6 +347,25 @@ function draftToParsedClass(draft: ParsedClassEditDraft): ParsedScheduleClass {
     time: draft.time.trim() || null,
     room: draft.room.trim() || null
   };
+}
+
+function meetingsFromParsedClasses(classes: ParsedScheduleClass[]) {
+  const meetings = classes.flatMap((parsedClass) =>
+    parsedClass.days.map((day) => ({
+      day,
+      time: parsedClass.time,
+      room: parsedClass.room
+    }))
+  );
+  return meetings.filter(
+    (meeting, index) =>
+      meetings.findIndex(
+        (candidate) =>
+          candidate.day === meeting.day &&
+          candidate.time === meeting.time &&
+          candidate.room === meeting.room
+      ) === index
+  );
 }
 
 function correctionReferenceMatches(reference: string, parsedClass: ParsedScheduleClass): boolean {
@@ -1555,34 +1582,36 @@ export function ManagementPage() {
     }
   };
 
-  const addParsedClassToSchedule = async (parsedClass: ParsedScheduleClass, reviewKey = parsedClassKey(parsedClass)) => {
+  const addParsedClassGroupToSchedule = async (classGroup: ImportedClassGroupReview) => {
+    const editedClasses = classGroup.classes.map((parsedClass) => parsedClassFromDraft(parsedClass));
+    const firstClass = editedClasses[0];
+    if (!firstClass?.name || !firstClass.period) return;
+
     try {
       setBusy(true);
       setGenerationProgress({ completed: 0, total: 1, status: 'creating' });
-      const existingCourse = findCourseForParsedClass(parsedClass);
+      const existingCourse = findCourseForParsedClass(firstClass);
       const course =
         existingCourse ??
-        (await createCourse(parsedClass.name, parsedClass.subject, parsedClass.grade ?? ''));
+        (await createCourse(firstClass.name, firstClass.subject, firstClass.grade ?? ''));
 
       const schedule = await api.createSection({
         courseId: course.id,
-        sectionName: parsedClass.period,
-        meetings: parsedClass.days.map((day) => ({
-          day,
-          time: parsedClass.time,
-          room: parsedClass.room
-        }))
+        sectionName: firstClass.period,
+        meetings: meetingsFromParsedClasses(editedClasses)
       });
 
       setState((previous) => ({ ...previous, schedule }));
       setSelectedCourseId(course.id);
       setSelectedCourseForSchedule(course.id);
-      setAddedParsedClassKeys((previous) => [...new Set([...previous, reviewKey])]);
+      setAddedParsedClassKeys((previous) => [
+        ...new Set([...previous, ...classGroup.classes.map((parsedClass) => parsedClassKey(parsedClass))])
+      ]);
       setError(null);
       setGenerationProgress({ completed: 1, total: 1, status: 'complete' });
     } catch (err) {
       setGenerationProgress(null);
-      setError(err instanceof ApiError ? err.message : 'Failed to add parsed period');
+      setError(err instanceof ApiError ? err.message : 'Failed to add parsed class group');
     } finally {
       setBusy(false);
     }
@@ -1591,21 +1620,25 @@ export function ManagementPage() {
   const addAllParsedClassesToSchedule = async () => {
     if (!scheduleImportOutput) return;
 
-    const pendingClasses = scheduleImportOutput.classes
-      .map((parsedClass) => ({
-        edited: parsedClassFromDraft(parsedClass),
-        key: parsedClassKey(parsedClass)
+    const pendingClassGroups = importedCourseGroups.flatMap((courseGroup) =>
+      courseGroup.classGroups.map((classGroup) => ({
+        classGroup,
+        editedClasses: classGroup.classes.map((parsedClass) => parsedClassFromDraft(parsedClass))
       }))
-      .filter(({ edited, key }) => !addedParsedClassKeys.includes(key) && edited.name && edited.period);
+    ).filter(({ classGroup, editedClasses }) =>
+      editedClasses[0]?.name &&
+      editedClasses[0]?.period &&
+      classGroup.classes.some((parsedClass) => !addedParsedClassKeys.includes(parsedClassKey(parsedClass)))
+    );
 
-    if (!pendingClasses.length) {
+    if (!pendingClassGroups.length) {
       flashCopyStatus('No reviewed classes left to add.');
       return;
     }
 
     try {
       setBusy(true);
-      setGenerationProgress({ completed: 0, total: pendingClasses.length, status: 'creating' });
+      setGenerationProgress({ completed: 0, total: pendingClassGroups.length, status: 'creating' });
       const coursesByKey = new Map(
         state.courses.map((course) => [courseNameKey(course.name), course] as const)
       );
@@ -1613,27 +1646,25 @@ export function ManagementPage() {
       let latestSchedule: GetScheduleResponse | null = null;
       let lastCourseId = selectedCourseId;
 
-      for (const { edited, key } of pendingClasses) {
-        const lookupKey = parsedCourseKey(edited);
-        const existingCourse = coursesByKey.get(lookupKey) ?? findCourseForParsedClass(edited);
+      for (const [index, { classGroup, editedClasses }] of pendingClassGroups.entries()) {
+        const firstClass = editedClasses[0];
+        if (!firstClass) continue;
+        const lookupKey = parsedCourseKey(firstClass);
+        const existingCourse = coursesByKey.get(lookupKey) ?? findCourseForParsedClass(firstClass);
         const course =
           existingCourse ??
-          (await createCourse(edited.name, edited.subject, edited.grade ?? ''));
+          (await createCourse(firstClass.name, firstClass.subject, firstClass.grade ?? ''));
 
-        coursesByKey.set(parsedCourseKey(edited), course);
+        coursesByKey.set(lookupKey, course);
 
         latestSchedule = await api.createSection({
           courseId: course.id,
-          sectionName: edited.period,
-          meetings: edited.days.map((day) => ({
-            day,
-            time: edited.time,
-            room: edited.room
-          }))
+          sectionName: firstClass.period,
+          meetings: meetingsFromParsedClasses(editedClasses)
         });
         lastCourseId = course.id;
-        addedKeys.push(key);
-        setGenerationProgress({ completed: addedKeys.length, total: pendingClasses.length, status: 'creating' });
+        addedKeys.push(...classGroup.classes.map((parsedClass) => parsedClassKey(parsedClass)));
+        setGenerationProgress({ completed: index + 1, total: pendingClassGroups.length, status: 'creating' });
       }
 
       if (latestSchedule) {
@@ -1645,8 +1676,8 @@ export function ManagementPage() {
       }
       setAddedParsedClassKeys((previous) => [...new Set([...previous, ...addedKeys])]);
       setError(null);
-      setGenerationProgress({ completed: pendingClasses.length, total: pendingClasses.length, status: 'complete' });
-      flashCopyStatus(`Created ${addedKeys.length} reviewed ${addedKeys.length === 1 ? 'class group' : 'class groups'}.`);
+      setGenerationProgress({ completed: pendingClassGroups.length, total: pendingClassGroups.length, status: 'complete' });
+      flashCopyStatus(`Created ${pendingClassGroups.length} reviewed ${pendingClassGroups.length === 1 ? 'class group' : 'class groups'}.`);
     } catch (err) {
       setGenerationProgress(null);
       setError(err instanceof ApiError ? err.message : 'Failed to create reviewed class groups');
@@ -1668,8 +1699,28 @@ export function ManagementPage() {
           },
           new Map<string, { name: string; classes: ParsedScheduleClass[] }>()
         ).values()
-      )
+      ).map<ImportedCourseGroupReview>((courseGroup) => ({
+        name: courseGroup.name,
+        classGroups: Array.from(
+          courseGroup.classes.reduce(
+            (groups, parsedClass) => {
+              const editedClass = parsedClassFromDraft(parsedClass);
+              const key = courseNameKey(editedClass.period) || parsedClassKey(parsedClass);
+              const group = groups.get(key) ?? { name: editedClass.period, classes: [] as ParsedScheduleClass[] };
+              group.classes.push(parsedClass);
+              groups.set(key, group);
+              return groups;
+            },
+            new Map<string, ImportedClassGroupReview>()
+          ).values()
+        )
+      }))
     : [];
+
+  const importedClassGroupCount = importedCourseGroups.reduce(
+    (count, courseGroup) => count + courseGroup.classGroups.length,
+    0
+  );
 
   return (
     <div className="management-page stack">
@@ -2228,7 +2279,7 @@ export function ManagementPage() {
                 <div className="section-heading">
                   <div>
                     <p className="eyebrow">Review before saving</p>
-                    <h3>{scheduleImportOutput.classes.length} class groups found</h3>
+                    <h3>{importedClassGroupCount} class groups and {scheduleImportOutput.classes.length} meeting times found</h3>
                   </div>
                   <div className="profile-actions">
                     <button type="button" disabled={busy} onClick={() => void addAllParsedClassesToSchedule()}>
@@ -2298,7 +2349,7 @@ export function ManagementPage() {
                 ) : null}
                 <div className="parsed-class-list">
                   {importedCourseGroups.map((group) => {
-                    const firstClass = group.classes[0];
+                    const firstClass = group.classGroups[0]?.classes[0];
                     const matchingCourse = firstClass ? findCourseForParsedClass(parsedClassFromDraft(firstClass)) : null;
                     return (
                       <article key={group.name} className="card stack">
@@ -2307,7 +2358,7 @@ export function ManagementPage() {
                             <p className="eyebrow">Shared curriculum</p>
                             <h4>Course</h4>
                           </div>
-                          <span className="status-pill upcoming">{group.classes.length} class {group.classes.length === 1 ? 'group' : 'groups'}</span>
+                          <span className="status-pill upcoming">{group.classGroups.length} class {group.classGroups.length === 1 ? 'group' : 'groups'}</span>
                         </div>
                         <label>
                           Course name
@@ -2319,7 +2370,7 @@ export function ManagementPage() {
                               setParsedClassEditDrafts((previous) => ({
                                 ...previous,
                                 ...Object.fromEntries(
-                                  group.classes.map((parsedClass) => {
+                                  group.classGroups.flatMap((classGroup) => classGroup.classes).map((parsedClass) => {
                                     const key = parsedClassKey(parsedClass);
                                     return [key, { ...(previous[key] ?? parsedClassToDraft(parsedClass)), name }];
                                   })
@@ -2334,61 +2385,85 @@ export function ManagementPage() {
                             : `Will create one ${group.name} curriculum for these class groups.`}
                         </p>
                         <div className="parsed-class-list">
-                          {group.classes.map((parsedClass) => {
-                            const key = parsedClassKey(parsedClass);
-                            const editedClass = parsedClassFromDraft(parsedClass);
-                            const draft = parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
-                            const isAdded = addedParsedClassKeys.includes(key);
+                          {group.classGroups.map((classGroup) => {
+                            const firstClass = classGroup.classes[0];
+                            if (!firstClass) return null;
+                            const firstKey = parsedClassKey(firstClass);
+                            const firstDraft = parsedClassEditDrafts[firstKey] ?? parsedClassToDraft(firstClass);
+                            const isAdded = classGroup.classes.every((parsedClass) =>
+                              addedParsedClassKeys.includes(parsedClassKey(parsedClass))
+                            );
                             return (
-                              <article key={key} className="parsed-class-card">
+                              <article key={`${group.name}-${classGroup.name}`} className="parsed-class-card">
                                 <div className="section-heading">
                                   <div>
                                     <p className="eyebrow">Class group</p>
-                                    <h4>{draft.period || 'Unnamed class group'}</h4>
+                                    <h4>{firstDraft.period || 'Unnamed class group'}</h4>
                                   </div>
-                                  <span className="status-pill upcoming">Meeting times</span>
+                                  <span className="status-pill upcoming">{classGroup.classes.length} meeting {classGroup.classes.length === 1 ? 'time' : 'times'}</span>
                                 </div>
                                 <div className="parsed-class-fields">
                                   <label>
-                                    Group name or period
+                                    Class group
                                     <input
                                       className="input"
-                                      value={draft.period}
-                                      onChange={(event) => updateParsedClassDraft(parsedClass, { period: event.target.value })}
-                                      placeholder="A, B, C, or Period 1"
-                                    />
-                                  </label>
-                                  <label>
-                                    Meeting days
-                                    <input
-                                      className="input"
-                                      value={draft.days}
-                                      onChange={(event) => updateParsedClassDraft(parsedClass, { days: event.target.value })}
-                                      placeholder="Monday, Wednesday, Friday"
-                                    />
-                                  </label>
-                                  <label>
-                                    Meeting time
-                                    <input
-                                      className="input"
-                                      type="time"
-                                      value={draft.time}
-                                      onChange={(event) => updateParsedClassDraft(parsedClass, { time: event.target.value })}
-                                    />
-                                  </label>
-                                  <label>
-                                    Room
-                                    <input
-                                      className="input"
-                                      value={draft.room}
-                                      onChange={(event) => updateParsedClassDraft(parsedClass, { room: event.target.value })}
+                                      value={firstDraft.period}
+                                      onChange={(event) => {
+                                        const period = event.target.value;
+                                        setParsedClassEditDrafts((previous) => ({
+                                          ...previous,
+                                          ...Object.fromEntries(
+                                            classGroup.classes.map((parsedClass) => {
+                                              const key = parsedClassKey(parsedClass);
+                                              return [key, { ...(previous[key] ?? parsedClassToDraft(parsedClass)), period }];
+                                            })
+                                          )
+                                        }));
+                                      }}
+                                      placeholder="A, B, C, or Block 1"
                                     />
                                   </label>
                                 </div>
+                                <div className="parsed-class-list">
+                                  {classGroup.classes.map((parsedClass) => {
+                                    const key = parsedClassKey(parsedClass);
+                                    const draft = parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
+                                    return (
+                                      <div key={key} className="parsed-class-fields">
+                                        <label>
+                                          Meeting days
+                                          <input
+                                            className="input"
+                                            value={draft.days}
+                                            onChange={(event) => updateParsedClassDraft(parsedClass, { days: event.target.value })}
+                                            placeholder="Monday, Wednesday, Friday"
+                                          />
+                                        </label>
+                                        <label>
+                                          Meeting time
+                                          <input
+                                            className="input"
+                                            type="time"
+                                            value={draft.time}
+                                            onChange={(event) => updateParsedClassDraft(parsedClass, { time: event.target.value })}
+                                          />
+                                        </label>
+                                        <label>
+                                          Room
+                                          <input
+                                            className="input"
+                                            value={draft.room}
+                                            onChange={(event) => updateParsedClassDraft(parsedClass, { room: event.target.value })}
+                                          />
+                                        </label>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                                 <button
                                   type="button"
-                                  disabled={busy || isAdded || !editedClass.name || !editedClass.period}
-                                  onClick={() => void addParsedClassToSchedule(editedClass, key)}
+                                  disabled={busy || isAdded || !firstDraft.name || !firstDraft.period}
+                                  onClick={() => void addParsedClassGroupToSchedule(classGroup)}
                                 >
                                   {isAdded ? 'Added' : matchingCourse ? 'Create class group' : 'Create course + class group'}
                                 </button>

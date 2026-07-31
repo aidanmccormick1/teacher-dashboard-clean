@@ -50,11 +50,13 @@ function inferCourseVariant(name: string): CourseVariant | null {
   return null;
 }
 
-function groupLabelWithBellPeriod(groupLabel: string, sourcePeriod: string): string {
-  const period = sourcePeriod.trim();
-  if (!period || courseNameKey(period) === courseNameKey(groupLabel)) return groupLabel;
-  const bellPeriod = /^\d+$/.test(period) ? `Period ${period}` : period;
-  return `${groupLabel} / ${bellPeriod}`;
+function normalizedGroupLabel(period: string): string {
+  const trimmed = period.trim().replace(/\s+/g, ' ');
+  const explicitGroup = trimmed.match(/^(group|block|section|class)\s+([a-z0-9]+)(?:\s*\/.*)?$/i);
+  if (!explicitGroup?.[1] || !explicitGroup[2]) return trimmed;
+
+  const kind = explicitGroup[1];
+  return `${kind.charAt(0).toUpperCase()}${kind.slice(1).toLowerCase()} ${explicitGroup[2].toUpperCase()}`;
 }
 
 export function normalizeImportedCourseVariants(schedule: ParseScheduleResponse): ParseScheduleResponse {
@@ -67,14 +69,25 @@ export function normalizeImportedCourseVariants(schedule: ParseScheduleResponse)
     return {
       ...parsedClass,
       name: variant.courseName,
-      period: groupLabelWithBellPeriod(variant.groupLabel, parsedClass.period),
+      // The grid row or bell period describes a meeting occurrence, not the
+      // identity of the class group. The review groups all matching labels and
+      // retains their separate meeting times.
+      period: variant.groupLabel,
       subject: parsedClass.subject || variant.courseName
     };
   });
 
+  // Vision can correctly split the course title but still append a bell-period
+  // row to a group label (for example "Group B / Period 5"). Strip the row
+  // from the group identity so the meetings merge in the review.
+  const normalizedClasses = classes.map((parsedClass) => ({
+    ...parsedClass,
+    period: normalizedGroupLabel(parsedClass.period)
+  }));
+
   return {
     ...schedule,
-    classes,
+    classes: normalizedClasses,
     assignments: schedule.assignments.map((assignment) => ({
       ...assignment,
       courseName: courseNameBySource.get(sourceVariantKey(assignment.courseName)) ?? assignment.courseName
