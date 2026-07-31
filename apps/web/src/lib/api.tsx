@@ -47,6 +47,7 @@ import { useAppAuth } from './auth.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
 const API_REQUEST_TIMEOUT_MS = 25_000;
+const AI_REQUEST_TIMEOUT_MS = 120_000;
 
 export class ApiError extends Error {
   constructor(
@@ -60,7 +61,8 @@ export class ApiError extends Error {
 async function request<TResponse>(
   path: string,
   init: RequestInit,
-  auth: ReturnType<typeof useAppAuth>
+  auth: ReturnType<typeof useAppAuth>,
+  timeoutMs = API_REQUEST_TIMEOUT_MS
 ): Promise<TResponse> {
   const token = await auth.getToken();
   const headers = new Headers(init.headers);
@@ -79,7 +81,7 @@ async function request<TResponse>(
   }
 
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
 
   try {
@@ -185,9 +187,19 @@ export function useApiClient() {
       deleteSegment: (segmentId: string) =>
         request<DeleteEntityResponse>(`/v1/segments/${segmentId}`, { method: 'DELETE' }, auth),
       importSchedule: (body: ScheduleImportRequest) =>
-        request<ParseScheduleResponse>('/v1/schedule/import', { method: 'POST', body: JSON.stringify(body) }, auth),
+        request<ParseScheduleResponse>(
+          '/v1/schedule/import',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth,
+          AI_REQUEST_TIMEOUT_MS
+        ),
       correctScheduleImport: (body: ScheduleImportCorrectionRequest) =>
-        request<ParseScheduleResponse>('/v1/schedule/import/correct', { method: 'POST', body: JSON.stringify(body) }, auth),
+        request<ParseScheduleResponse>(
+          '/v1/schedule/import/correct',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth,
+          AI_REQUEST_TIMEOUT_MS
+        ),
       applyScheduleImport: (body: ScheduleImportApplyRequest) =>
         request<GetScheduleResponse>('/v1/schedule/import/apply', { method: 'POST', body: JSON.stringify(body) }, auth),
       enqueueParseSchedule: (body: ScheduleImportRequest) =>
