@@ -8,7 +8,7 @@ const EnvSchema = z.object({
   REDIS_URL: z.string().min(1).optional(),
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_MODEL_PARSE_SCHEDULE: z.string().default('gpt-5.6-sol'),
-  OPENAI_REASONING_EFFORT_PARSE_SCHEDULE: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
+  OPENAI_REASONING_EFFORT_PARSE_SCHEDULE: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('xhigh'),
   OPENAI_MODEL_GENERATE_SEGMENTS: z.string().default('gpt-4o'),
   OPENAI_MODEL_CONTINUITY: z.string().default('gpt-4o')
 });

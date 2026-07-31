@@ -46,7 +46,7 @@ services:
       - key: OPENAI_MODEL_PARSE_SCHEDULE
         value: gpt-5.6-sol
       - key: OPENAI_REASONING_EFFORT_PARSE_SCHEDULE
-        value: high
+        value: xhigh
       - key: OPENAI_MODEL_GENERATE_SEGMENTS
         value: gpt-4o
       - key: OPENAI_MODEL_CONTINUITY

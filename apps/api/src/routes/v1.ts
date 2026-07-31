@@ -125,6 +125,7 @@ function scheduleImportUserPrompt(body: ScheduleImportBody): string {
       'Examples: Spanish 5A, Spanish 5B, and Spanish 5C are one course named Spanish 5. Pre-Calculus Block 1, Block 3, and Block 4 are one course named Pre-Calculus.',
       'A schedule may show the same class group on more than one day at different times. Emit one class object per meeting occurrence, but repeat the exact same course name and class-group label for every occurrence of that group.',
       'The `period` field is the class-group label, not the grid row or bell-period number. For example, Spanish 5B on Monday at 08:10 and Thursday at 13:35 must both use `name: "Spanish 5"` and `period: "Group B"`; only `days` and `time` change.',
+      'For a visual grid, audit every nonempty teaching cell across all weekday columns before returning. A shorthand such as 7B means Spanish 7, Group B; text in parentheses such as a homeroom teacher is the room/location. Do not omit a group just because another group from the same grade appears elsewhere.',
       'Keep each class group and all of its meeting times. Return JSON only.',
       '',
       body.text
@@ -1581,6 +1582,7 @@ export async function v1Routes(app: FastifyInstance) {
           'When class names differ only by a trailing section letter, group label, or period suffix, treat them as one course curriculum.',
           'For example, Spanish 5A, Spanish 5B, and Spanish 5C must use `name: "Spanish 5"` with separate `period` values such as "Group A", "Group B", and "Group C".',
           'If Spanish 5B meets Monday at 08:10 and Thursday at 13:35, return two records with `name: "Spanish 5"` and `period: "Group B"`; give each record its own day and time. Do not append "Period 1" or another bell period to the group label.',
+          'For a grid image, make a complete row-and-column pass over every nonempty teaching cell. Translate shorthand like 7B into `name: "Spanish 7"`, `period: "Group B"`, and capture text in parentheses as the room/location. Before returning, verify that every visible class-group label has a record.',
           'Do not create separate courses merely because A, B, C or a bell-period label differs.'
         ].join(' '),
         userPrompt: scheduleImportUserPrompt(body),

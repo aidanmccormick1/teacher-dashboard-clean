@@ -31,7 +31,7 @@ const ConfigSchema = z.object({
   REDIS_URL: optionalStringFromEnv,
   OPENAI_API_KEY: optionalStringFromEnv,
   OPENAI_MODEL_PARSE_SCHEDULE: z.string().default('gpt-5.6-sol'),
-  OPENAI_REASONING_EFFORT_PARSE_SCHEDULE: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('high'),
+  OPENAI_REASONING_EFFORT_PARSE_SCHEDULE: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('xhigh'),
   OPENAI_MODEL_GENERATE_SEGMENTS: z.string().default('gpt-4o'),
   OPENAI_MODEL_CONTINUITY: z.string().default('gpt-4o'),
   RUN_EMBEDDED_AI_WORKER: booleanFromEnv.default(false),
