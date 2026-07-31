@@ -35,6 +35,7 @@ import type {
   SegmentCreateRequest,
   SegmentUpdateRequest,
   ScheduleImportCorrectionRequest,
+  ScheduleImportApplyRequest,
   ScheduleImportRequest,
   SectionMutationRequest,
   SectionUpdateRequest,
@@ -187,6 +188,8 @@ export function useApiClient() {
         request<ParseScheduleResponse>('/v1/schedule/import', { method: 'POST', body: JSON.stringify(body) }, auth),
       correctScheduleImport: (body: ScheduleImportCorrectionRequest) =>
         request<ParseScheduleResponse>('/v1/schedule/import/correct', { method: 'POST', body: JSON.stringify(body) }, auth),
+      applyScheduleImport: (body: ScheduleImportApplyRequest) =>
+        request<GetScheduleResponse>('/v1/schedule/import/apply', { method: 'POST', body: JSON.stringify(body) }, auth),
       enqueueParseSchedule: (body: ScheduleImportRequest) =>
         request<AiJobEnqueueResponse>(
           '/v1/ai/parse-schedule/queue',

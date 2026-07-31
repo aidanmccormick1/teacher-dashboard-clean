@@ -40,6 +40,7 @@ import {
   SegmentUpdateRequestSchema,
   ScheduleImportRequestSchema,
   ScheduleImportCorrectionRequestSchema,
+  ScheduleImportApplyRequestSchema,
   ScheduleImportResponseSchema,
   SectionMutationRequestSchema,
   SectionUpdateRequestSchema,
@@ -177,6 +178,10 @@ function requirePrincipal(request: FastifyRequest, reply: FastifyReply) {
 
 function dateToIso(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+function importNameKey(value: string): string {
+  return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ');
 }
 
 function dayName(date: Date): string {
@@ -1660,6 +1665,108 @@ export async function v1Routes(app: FastifyInstance) {
       });
 
       return ParseScheduleResponseSchema.parse(response);
+    }
+  );
+
+  app.post(
+    '/v1/schedule/import/apply',
+    {
+      schema: {
+        body: ScheduleImportApplyRequestSchema,
+        response: {
+          200: GetScheduleResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const schoolId = await loadTeacherSchoolId(user.id);
+      const body = ScheduleImportApplyRequestSchema.parse(request.body);
+
+      const classGroups = Array.from(
+        body.classes.reduce((groups, parsedClass) => {
+          const key = `${importNameKey(parsedClass.name)}|${importNameKey(parsedClass.period)}`;
+          const group = groups.get(key) ?? { classes: [] as typeof body.classes };
+          group.classes.push(parsedClass);
+          groups.set(key, group);
+          return groups;
+        }, new Map<string, { classes: typeof body.classes }>()).values()
+      );
+
+      await db.transaction(async (tx) => {
+        const existingCourses = await tx
+          .select({ id: courses.id, name: courses.name })
+          .from(courses)
+          .where(eq(courses.teacherId, user.id));
+        const coursesByName = new Map(existingCourses.map((course) => [importNameKey(course.name), course.id]));
+        const existingSections = await tx
+          .select({ courseId: sections.courseId, sectionName: sections.name })
+          .from(sections)
+          .innerJoin(courses, eq(sections.courseId, courses.id))
+          .where(eq(courses.teacherId, user.id));
+        const sectionKeys = new Set(
+          existingSections.map((section) => `${section.courseId}|${importNameKey(section.sectionName)}`)
+        );
+
+        for (const classGroup of classGroups) {
+          const firstClass = classGroup.classes[0];
+          if (!firstClass) continue;
+          const courseKey = importNameKey(firstClass.name);
+          let courseId = coursesByName.get(courseKey);
+          if (!courseId) {
+            const [course] = await tx
+              .insert(courses)
+              .values({
+                teacherId: user.id,
+                schoolId,
+                name: firstClass.name,
+                subject: firstClass.subject || null,
+                gradeLevel: firstClass.grade || null
+              })
+              .returning({ id: courses.id });
+            if (!course) throw new Error('Failed to create course');
+            courseId = course.id;
+            coursesByName.set(courseKey, courseId);
+          }
+
+          const sectionKey = `${courseId}|${importNameKey(firstClass.period)}`;
+          if (sectionKeys.has(sectionKey)) continue;
+          const [section] = await tx
+            .insert(sections)
+            .values({ courseId, name: firstClass.period })
+            .returning({ id: sections.id });
+          if (!section) throw new Error('Failed to create class group');
+
+          const meetings = classGroup.classes
+            .flatMap((parsedClass) =>
+              parsedClass.days.map((day) => ({ day, time: parsedClass.time, room: parsedClass.room }))
+            )
+            .filter(
+              (meeting, index, allMeetings) =>
+                allMeetings.findIndex(
+                  (candidate) =>
+                    candidate.day === meeting.day &&
+                    candidate.time === meeting.time &&
+                    candidate.room === meeting.room
+                ) === index
+            );
+          if (meetings.length) {
+            await tx.insert(sectionMeetings).values(
+              meetings.map((meeting) => ({
+                sectionId: section.id,
+                day: meeting.day,
+                meetingTime: meeting.time,
+                room: meeting.room
+              }))
+            );
+          }
+          sectionKeys.add(sectionKey);
+        }
+      });
+
+      return buildScheduleResponse(user.id, schoolId);
     }
   );
 

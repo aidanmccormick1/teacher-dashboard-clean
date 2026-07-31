@@ -1639,40 +1639,18 @@ export function ManagementPage() {
     try {
       setBusy(true);
       setGenerationProgress({ completed: 0, total: pendingClassGroups.length, status: 'creating' });
-      const coursesByKey = new Map(
-        state.courses.map((course) => [courseNameKey(course.name), course] as const)
+      const schedule = await api.applyScheduleImport({
+        classes: pendingClassGroups.flatMap(({ editedClasses }) => editedClasses)
+      });
+      const addedKeys = pendingClassGroups.flatMap(({ classGroup }) =>
+        classGroup.classes.map((parsedClass) => parsedClassKey(parsedClass))
       );
-      const addedKeys: string[] = [];
-      let latestSchedule: GetScheduleResponse | null = null;
-      let lastCourseId = selectedCourseId;
-
-      for (const [index, { classGroup, editedClasses }] of pendingClassGroups.entries()) {
-        const firstClass = editedClasses[0];
-        if (!firstClass) continue;
-        const lookupKey = parsedCourseKey(firstClass);
-        const existingCourse = coursesByKey.get(lookupKey) ?? findCourseForParsedClass(firstClass);
-        const course =
-          existingCourse ??
-          (await createCourse(firstClass.name, firstClass.subject, firstClass.grade ?? ''));
-
-        coursesByKey.set(lookupKey, course);
-
-        latestSchedule = await api.createSection({
-          courseId: course.id,
-          sectionName: firstClass.period,
-          meetings: meetingsFromParsedClasses(editedClasses)
-        });
-        lastCourseId = course.id;
-        addedKeys.push(...classGroup.classes.map((parsedClass) => parsedClassKey(parsedClass)));
-        setGenerationProgress({ completed: index + 1, total: pendingClassGroups.length, status: 'creating' });
-      }
-
-      if (latestSchedule) {
-        setState((previous) => ({ ...previous, schedule: latestSchedule }));
-      }
-      if (lastCourseId) {
-        setSelectedCourseId(lastCourseId);
-        setSelectedCourseForSchedule(lastCourseId);
+      setState((previous) => ({ ...previous, schedule }));
+      const firstCourse = pendingClassGroups[0]?.editedClasses[0];
+      const firstCreatedCourse = firstCourse ? state.courses.find((course) => courseNameKey(course.name) === parsedCourseKey(firstCourse)) : null;
+      if (firstCreatedCourse) {
+        setSelectedCourseId(firstCreatedCourse.id);
+        setSelectedCourseForSchedule(firstCreatedCourse.id);
       }
       setAddedParsedClassKeys((previous) => [...new Set([...previous, ...addedKeys])]);
       setError(null);
@@ -2283,7 +2261,7 @@ export function ManagementPage() {
                   </div>
                   <div className="profile-actions">
                     <button type="button" disabled={busy} onClick={() => void addAllParsedClassesToSchedule()}>
-                      Create all reviewed classes
+                      Make all classes
                     </button>
                     <button className="secondary" type="button" onClick={() => void copyImportSummary()}>
                       Copy import summary
@@ -2465,7 +2443,7 @@ export function ManagementPage() {
                                   disabled={busy || isAdded || !firstDraft.name || !firstDraft.period}
                                   onClick={() => void addParsedClassGroupToSchedule(classGroup)}
                                 >
-                                  {isAdded ? 'Added' : matchingCourse ? 'Create class group' : 'Create course + class group'}
+                                  {isAdded ? 'Added' : 'Make class'}
                                 </button>
                               </article>
                             );
