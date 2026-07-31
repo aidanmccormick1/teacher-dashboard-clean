@@ -1665,9 +1665,35 @@ export function ManagementPage() {
     try {
       setBusy(true);
       setGenerationProgress({ completed: 0, total: pendingClassGroups.length, status: 'creating' });
-      const schedule = await api.applyScheduleImport({
-        classes: pendingClassGroups.flatMap(({ editedClasses }) => editedClasses)
-      });
+      // Create through the same durable course and class-group endpoints used by
+      // the manual setup flow. The previous batch endpoint was returning an
+      // opaque 400 in production, which meant a reviewed schedule could never
+      // be saved even though each reviewed class was valid.
+      const coursesByImportedName = new Map(
+        state.courses.map((course) => [courseNameKey(course.name), course])
+      );
+      let schedule: GetScheduleResponse | null = null;
+
+      for (const [index, { editedClasses }] of pendingClassGroups.entries()) {
+        const firstClass = editedClasses[0];
+        if (!firstClass) continue;
+
+        const courseKey = parsedCourseKey(firstClass);
+        let course = coursesByImportedName.get(courseKey);
+        if (!course) {
+          course = await createCourse(firstClass.name, firstClass.subject, firstClass.grade ?? '');
+          coursesByImportedName.set(courseKey, course);
+        }
+
+        schedule = await api.createSection({
+          courseId: course.id,
+          sectionName: firstClass.period,
+          meetings: meetingsFromParsedClasses(editedClasses)
+        });
+        setGenerationProgress({ completed: index + 1, total: pendingClassGroups.length, status: 'creating' });
+      }
+
+      if (!schedule) throw new Error('No reviewed class groups were created.');
       const addedKeys = pendingClassGroups.flatMap(({ classGroup }) =>
         classGroup.classes.map((parsedClass) => parsedClassKey(parsedClass))
       );
