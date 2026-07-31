@@ -23,6 +23,17 @@ type CourseVariant = {
 function inferCourseVariant(name: string): CourseVariant | null {
   const trimmed = name.trim().replace(/\s+/g, ' ');
 
+  // Table-reading models sometimes transcribe the grid shorthand before the
+  // subject, e.g. "5A Spanish" instead of "Spanish 5A". It means the same
+  // thing: grade/course 5, class group A, subject Spanish.
+  const leadingGradeAndGroup = trimmed.match(/^(\d+)\s*([A-Za-z])\s+(.+)$/);
+  if (leadingGradeAndGroup?.[1] && leadingGradeAndGroup[2] && leadingGradeAndGroup[3]) {
+    return {
+      courseName: `${leadingGradeAndGroup[3].trim()} ${leadingGradeAndGroup[1]}`,
+      groupLabel: `Group ${leadingGradeAndGroup[2].toUpperCase()}`
+    };
+  }
+
   // "Spanish 5A", "Spanish 5 B", and "Spanish 5 - C" are sections of a
   // numbered course, rather than independent curricula.
   const letterSuffix = trimmed.match(/^(.+?\d(?:[\d\s./-]*\d)?)\s*(?:[-–—,:]?\s*|\(\s*)([A-Za-z])\)?$/);

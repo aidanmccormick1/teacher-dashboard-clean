@@ -61,4 +61,21 @@ describe('normalizeImportedCourseVariants', () => {
       { name: 'Spanish 5', period: 'Group B', days: ['Thursday'], time: '13:35' }
     ]);
   });
+
+  it('normalizes grid shorthand written before the subject', () => {
+    const result = normalizeImportedCourseVariants({
+      classes: [
+        { ...baseClass, name: '5A Spanish', period: '4' },
+        { ...baseClass, name: '5B Spanish', period: '1' },
+        { ...baseClass, name: '8B Spanish', period: '3/4' }
+      ],
+      assignments: []
+    });
+
+    expect(result.classes.map(({ name, period }) => ({ name, period }))).toEqual([
+      { name: 'Spanish 5', period: 'Group A' },
+      { name: 'Spanish 5', period: 'Group B' },
+      { name: 'Spanish 8', period: 'Group B' }
+    ]);
+  });
 });
