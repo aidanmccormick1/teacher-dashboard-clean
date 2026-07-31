@@ -152,6 +152,21 @@ function scheduleImportCorrectionPrompt(body: ScheduleImportCorrectionBody): str
   ].join('\n');
 }
 
+function scheduleImportAuditPrompt(
+  body: ScheduleImportBody,
+  initialExtraction: z.infer<typeof InternalParseScheduleSchema>
+): string {
+  return [
+    'Audit the attached schedule image against the candidate extraction below. Return a complete corrected JSON schedule.',
+    'Make a row-and-column pass through every weekday. Preserve all valid candidate records, add any omitted class group, and split a group into separate records whenever it meets at different times on different days.',
+    'A class-group label is never a bell-period row. Keep the same `name` and `period` for repeated meetings of one group. For example, if Spanish 5B is Monday 08:10 and Thursday 13:35, return two records with `name: "Spanish 5"`, `period: "Group B"`—do not combine those days under one time.',
+    'Use the visible text in parentheses as the room/location when present. Ignore lunch, homeroom, breaks, planning, Mass, and dismissal.',
+    '',
+    `Candidate extraction: ${JSON.stringify(initialExtraction)}`,
+    body.text ? `\nOriginal text, if helpful:\n${body.text}` : ''
+  ].join('\n');
+}
+
 function requirePrincipal(request: FastifyRequest, reply: FastifyReply) {
   if (!request.principal) {
     reply.code(401).send({ error: 'Unauthorized', requestId: request.id });
@@ -1590,7 +1605,26 @@ export async function v1Routes(app: FastifyInstance) {
         fileName: body.fileName
       });
 
-      return ParseScheduleResponseSchema.parse(response);
+      // A second visual pass prevents a common grid-reading mistake: combining
+      // a class group's different weekday time slots into a single meeting.
+      const auditedResponse = await runStructuredPrompt<z.infer<typeof InternalParseScheduleSchema>>({
+        apiKey: app.config.OPENAI_API_KEY,
+        model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+        reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
+        schemaName: 'schedule_import_audit',
+        schema: InternalParseScheduleSchema,
+        systemPrompt: [
+          'You are the verification pass for a teacher schedule extracted from a visual grid. Return JSON only.',
+          'A record represents one meeting occurrence: `name` is the shared course and `period` is its class-group label, never a bell-period/grid row.',
+          'Audit every nonempty teaching cell. Keep groups with the same time on multiple days together, but emit separate records when their times differ.',
+          'Use normalized names such as `Spanish 5` with `Group A`, `Group B`, and `Group C`.'
+        ].join(' '),
+        userPrompt: scheduleImportAuditPrompt(body, response),
+        fileDataUrl: scheduleImportFileDataUrl(body),
+        fileName: body.fileName
+      });
+
+      return ParseScheduleResponseSchema.parse(auditedResponse);
     }
   );
 
