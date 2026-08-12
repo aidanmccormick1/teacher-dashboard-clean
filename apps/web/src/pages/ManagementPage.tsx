@@ -119,6 +119,8 @@ const tabs: Array<{ id: ManagementTab; label: string }> = [
 
 const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'] as const;
 const maxScheduleUploadBytes = 10 * 1024 * 1024;
+const maxScheduleImageDimension = 1800;
+const scheduleImageQuality = 0.88;
 const schoolYearStorageKey = 'teacheros_school_year_settings';
 const walkthroughStorageKey = 'teacheros_management_walkthrough_v1';
 const newCourseDraftStorageKey = 'teacheros_management_new_course_draft_v1';
@@ -285,7 +287,7 @@ function readAddPeriodDraft(): AddPeriodDraft {
   }
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
+function readFileAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -295,6 +297,37 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error('Could not read file'));
     reader.readAsDataURL(file);
   });
+}
+
+async function prepareScheduleUpload(file: File): Promise<{ dataUrl: string; mimeType: string; compressed: boolean }> {
+  const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(file.name);
+  if (!isImage || typeof createImageBitmap !== 'function') {
+    return { dataUrl: await readFileAsDataUrl(file), mimeType: file.type || 'application/pdf', compressed: false };
+  }
+
+  const image = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, maxScheduleImageDimension / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Could not prepare schedule image');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', scheduleImageQuality));
+    if (!blob) throw new Error('Could not compress schedule image');
+    return {
+      dataUrl: await readFileAsDataUrl(blob),
+      mimeType: 'image/jpeg',
+      compressed: scale < 1 || blob.size < file.size
+    };
+  } finally {
+    image.close();
+  }
 }
 
 function toNullable(value: string): string | null {
@@ -2175,12 +2208,15 @@ export function ManagementPage() {
                       return;
                     }
                     try {
-                      const dataUrl = await readFileAsDataUrl(file);
+                      const preparedUpload = await prepareScheduleUpload(file);
                       setScheduleImportFileName(file.name);
-                      setScheduleImportFileMimeType(file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/png'));
-                      setScheduleImportFileDataUrl(dataUrl);
+                      setScheduleImportFileMimeType(preparedUpload.mimeType);
+                      setScheduleImportFileDataUrl(preparedUpload.dataUrl);
                       setImportProgress({ status: 'ready', percent: 10 });
                       setError(null);
+                      if (preparedUpload.compressed) {
+                        flashCopyStatus('Image optimized for a faster schedule read.');
+                      }
                     } catch (err) {
                       setError(err instanceof Error ? err.message : 'Could not read schedule file');
                     }
