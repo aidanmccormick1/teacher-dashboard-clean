@@ -112,16 +112,16 @@ function extractOutputText(payload: unknown): string {
       if (output && typeof output === 'object' && 'content' in output) {
         const content = output.content;
         if (Array.isArray(content)) {
-        const textPart = content.find(
-          (part) =>
-            part &&
-            typeof part === 'object' &&
-            ((part.type === 'output_text' && 'text' in part && typeof part.text === 'string') ||
-              ('text' in part && typeof part.text === 'string' && part.text.trim().length > 0))
-        );
-        if (textPart && typeof textPart === 'object' && 'text' in textPart && typeof textPart.text === 'string') {
-          return textPart.text;
-        }
+          const textPart = content.find(
+            (part): part is { type?: unknown; text: string } =>
+              Boolean(part) &&
+              typeof part === 'object' &&
+              'text' in part &&
+              typeof part.text === 'string' &&
+              part.text.trim().length > 0 &&
+              (part.type === undefined || part.type === 'output_text')
+          );
+          if (textPart) return textPart.text;
         }
       }
     }
@@ -130,16 +130,18 @@ function extractOutputText(payload: unknown): string {
   const response = payload as {
     status?: unknown;
     incomplete_details?: { reason?: unknown } | null;
-    output?: Array<{ type?: unknown; content?: Array<{ type?: unknown }> }>;
+    output?: Array<{ type?: string; content?: Array<{ type?: string }> }>;
   };
   const outputTypes = Array.isArray(response?.output)
     ? response.output
-        .flatMap((item) => item.content?.map((content) => `${String(item.type ?? 'unknown')}/${String(content.type ?? 'unknown')}`) ?? [])
+        .flatMap((item) => item.content?.map((content) => `${item.type ?? 'unknown'}/${content.type ?? 'unknown'}`) ?? [])
         .join(', ')
     : 'none';
-  const incompleteReason = response?.incomplete_details?.reason;
+  const status = typeof response?.status === 'string' ? response.status : 'unknown';
+  const incompleteReason =
+    typeof response?.incomplete_details?.reason === 'string' ? response.incomplete_details.reason : 'none';
   throw new Error(
-    `OpenAI returned no structured schedule result (status: ${String(response?.status ?? 'unknown')}; incomplete: ${String(incompleteReason ?? 'none')}; output: ${outputTypes || 'none'})`
+    `OpenAI returned no structured schedule result (status: ${status}; incomplete: ${incompleteReason}; output: ${outputTypes || 'none'})`
   );
 }
 
