@@ -103,15 +103,16 @@ function extractOutputText(payload: unknown): string {
   }
 
   if (payload && typeof payload === 'object' && 'output' in payload && Array.isArray(payload.output)) {
-    const firstOutput = payload.output[0];
-    if (firstOutput && typeof firstOutput === 'object' && 'content' in firstOutput) {
-      const content = firstOutput.content;
-      if (Array.isArray(content)) {
-        const textPart = content.find(
-          (part) => part && typeof part === 'object' && 'text' in part && typeof part.text === 'string'
-        );
-        if (textPart && typeof textPart === 'object' && 'text' in textPart) {
-          return textPart.text as string;
+    for (const output of payload.output) {
+      if (output && typeof output === 'object' && 'content' in output) {
+        const content = output.content;
+        if (Array.isArray(content)) {
+          const textPart = content.find(
+            (part) => part && typeof part === 'object' && 'text' in part && typeof part.text === 'string'
+          );
+          if (textPart && typeof textPart === 'object' && 'text' in textPart) {
+            return textPart.text as string;
+          }
         }
       }
     }
