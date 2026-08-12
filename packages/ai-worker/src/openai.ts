@@ -99,7 +99,8 @@ function extractOutputText(payload: unknown): string {
     payload &&
     typeof payload === 'object' &&
     'output_text' in payload &&
-    typeof payload.output_text === 'string'
+    typeof payload.output_text === 'string' &&
+    payload.output_text.trim().length > 0
   ) {
     return payload.output_text;
   }
@@ -111,12 +112,16 @@ function extractOutputText(payload: unknown): string {
       if (output && typeof output === 'object' && 'content' in output) {
         const content = output.content;
         if (Array.isArray(content)) {
-          const textPart = content.find(
-            (part) => part && typeof part === 'object' && 'text' in part && typeof part.text === 'string'
-          );
-          if (textPart && typeof textPart === 'object' && 'text' in textPart) {
-            return textPart.text as string;
-          }
+        const textPart = content.find(
+          (part) =>
+            part &&
+            typeof part === 'object' &&
+            ((part.type === 'output_text' && 'text' in part && typeof part.text === 'string') ||
+              ('text' in part && typeof part.text === 'string' && part.text.trim().length > 0))
+        );
+        if (textPart && typeof textPart === 'object' && 'text' in textPart && typeof textPart.text === 'string') {
+          return textPart.text;
+        }
         }
       }
     }
@@ -136,6 +141,32 @@ function extractOutputText(payload: unknown): string {
   throw new Error(
     `OpenAI returned no structured schedule result (status: ${String(response?.status ?? 'unknown')}; incomplete: ${String(incompleteReason ?? 'none')}; output: ${outputTypes || 'none'})`
   );
+}
+
+function normalizeScheduleTimes(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as { classes?: unknown }).classes)) return value;
+
+  const normalizeTime = (time: unknown): unknown => {
+    if (typeof time !== 'string') return time;
+    const match = time.trim().match(/^(\d{1,2}):(\d{2})(?:\s*([AaPp][Mm]))?/);
+    if (!match?.[1] || !match[2]) return time;
+    let hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour > 12 || minute > 59) return time;
+    const suffix = match[3]?.toLowerCase();
+    if (suffix === 'pm' && hour < 12) hour += 12;
+    if (suffix === 'am' && hour === 12) hour = 0;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  };
+
+  return {
+    ...(value as Record<string, unknown>),
+    classes: (value as { classes: unknown[] }).classes.map((item) =>
+      item && typeof item === 'object'
+        ? { ...(item as Record<string, unknown>), time: normalizeTime((item as { time?: unknown }).time) }
+        : item
+    )
+  };
 }
 
 export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
@@ -189,5 +220,5 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
   const outputText = extractOutputText(payload);
   const parsedOutput = JSON.parse(outputText) as unknown;
 
-  return params.schema.parse(parsedOutput) as T;
+  return params.schema.parse(normalizeScheduleTimes(parsedOutput)) as T;
 }
