@@ -177,6 +177,8 @@ Implemented in the canonical repository:
 - Pasted schedule text now exposes the same “Read my schedule” action as an uploaded image or PDF.
 - The UI polls the queued job, shows background progress, and keeps the existing cancellation/retry controls instead of leaving the teacher with a request timeout.
 - The API accepts up to 16 MiB JSON request bodies so the documented 10 MiB schedule-file limit still works after base64 encoding. Fastify's default 1 MiB limit previously caused HTTP 413 “Payload Too Large” before a job could be queued.
+- The schedule reader uses `gpt-4o` in the Render service configuration. The prior schedule model could return a completed response with no usable final JSON message; `gpt-4o` completed a production queue test successfully.
+- AI worker calls have a 75-second hard timeout, so an upstream stall becomes a retryable/visible failure instead of a permanently running 35% job. The response parser scans all model output items (reasoning models can put the final message after an internal reasoning item) and normalizes common teacher-readable time ranges for review.
 
 ### Scheduling
 
@@ -288,7 +290,7 @@ Run commands from `/Users/aidanmccormick/Desktop/teacher-dashboard-clean`.
 | --- | --- | --- | --- |
 | High | Render API cold starts | Teachers can see backend timeout/waking messages. | Upgrade the Render API web service to an always-on paid plan. |
 | High | Cloudflare Pages old production bundle | The live frontend does not yet show the dashboard import gate. | Sign in to Cloudflare and deploy current `main`. |
-| High | Full AI import E2E verification | AI capability health is not the same as a successful schedule import. | Authorize use of the production OpenAI key and test with a safe schedule sample. |
+| Medium | File-based AI import E2E verification | A production queue test with a safe pasted schedule succeeded; a representative image/PDF should still be checked after major model or upload changes. | Run a safe image/PDF sample through upload → read → review → apply. |
 | High | R2/storage capability unavailable | File upload persistence may be incomplete or use an alternate path. | Configure and verify Cloudflare R2 in Render; confirm `s3` capability becomes true. |
 | Medium | Guided import UX | Existing flow must become visibly step-by-step and low-overwhelm. | Design and implement the explicit upload → read → review → confirm journey. |
 | Medium | Start/end time support and weekly view | Core teacher scheduling requirements are not fully confirmed as implemented. | Inspect schema/UI, add data migration/API/UI, and test importer parsing. |
