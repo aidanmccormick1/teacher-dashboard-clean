@@ -156,7 +156,7 @@ Implemented in the canonical repository:
 
 - Commit `f5cbd8c` adds an empty-workspace dashboard gate.
 - It shows **“Import your schedule to unlock TeacherDesk”** and routes the teacher to the schedule-import area.
-- The gate should be verified after Cloudflare Pages deploys the current `main` build.
+- The gate is deployed to Cloudflare Pages and verified in the production bundle.
 
 ### Schedule import journey
 
@@ -169,6 +169,13 @@ The import flow needs to be a clear, sequential walkthrough:
 5. **Finish setup** — direct them to courses, plans, and the next recommended action.
 
 The importer must parse both start and end times when that information is in the uploaded schedule. It should explain what was recognized and clearly identify anything that needs the teacher to correct.
+
+Implemented in the canonical repository:
+
+- Commit `f2a7095` changes schedule reading from a long synchronous browser request to the existing queued AI-job flow.
+- The import UI now presents clear stages: **Step 1: add a schedule**, **Step 2: read it**, and **Step 3: review before saving**.
+- Pasted schedule text now exposes the same “Read my schedule” action as an uploaded image or PDF.
+- The UI polls the queued job, shows background progress, and keeps the existing cancellation/retry controls instead of leaving the teacher with a request timeout.
 
 ### Scheduling
 
@@ -249,16 +256,9 @@ The backend is currently healthy and deployed from the correct GitHub project. T
 
 ### Frontend
 
-The Cloudflare production URL was still serving an older asset bundle after the GitHub/Render work completed. This means the dashboard empty-state commit is in GitHub and the backend is repaired, but the public frontend needs a successful Pages production deployment before the user will see the UI change.
+The Cloudflare Pages project uses manual asset uploads rather than a GitHub deployment connection. The production bundle for commit `f2a7095` was uploaded successfully on August 12, 2026 and verified to contain the guided queued-import UI. Public web routes and API health/capability checks passed after deployment.
 
-To finish that release:
-
-1. Sign in to the Cloudflare dashboard.
-2. Open the Pages project for `teacher-dashboard-clean`.
-3. Verify that production tracks GitHub `main`.
-4. Retry or trigger a production deployment for the current `main` commit (at least `f5cbd8c`).
-5. Confirm the build settings and `VITE_API_BASE_URL` shown above.
-6. Open the production site in a private/incognito window or hard refresh and verify the empty dashboard shows the import-to-unlock state.
+For future frontend releases, build the web workspace, deploy `apps/web/dist` with Wrangler to the `teacher-dashboard-clean` Pages project, then verify the production bundle and smoke checks. Do not assume a GitHub push will deploy Pages automatically while the project remains manually-uploaded.
 
 ## Operational checks
 
@@ -313,6 +313,8 @@ Run commands from `/Users/aidanmccormick/Desktop/teacher-dashboard-clean`.
 | Aug. 12, 2026 | Keep Cloudflare Pages for the frontend and Render for API/database/Valkey. | Existing services are already wired; migrating backend/database to Cloudflare would be unnecessary scope and risk. |
 | Aug. 12, 2026 | Repoint Render API to `teacher-dashboard-clean/main`. | It was incorrectly building the parallel legacy repository. |
 | Aug. 12, 2026 | Add a dashboard import gate before normal empty statistics/readiness. | An unconfigured account should be guided into setup rather than shown misleading empty dashboard content. |
+| Aug. 12, 2026 | Use queued AI jobs for schedule reading. | Synchronous schedule parsing held the browser request open and could surface a timeout even when the worker infrastructure was available. |
+| Aug. 12, 2026 | Deploy Pages manually with Wrangler. | The Cloudflare Pages project has no active Git connection; a GitHub push alone does not update the public frontend. |
 
 ## Useful references in the repository
 
@@ -334,4 +336,3 @@ Run commands from `/Users/aidanmccormick/Desktop/teacher-dashboard-clean`.
 5. Add start/end time data support and a weekly schedule view.
 6. Add the year timeline, duration calculations, stackable/reorderable lessons, and private teacher notes.
 7. Repeat end-to-end tests from a first-time teacher’s perspective after each major stage.
-
