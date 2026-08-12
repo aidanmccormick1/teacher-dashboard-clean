@@ -13,6 +13,8 @@ type PromptInput = {
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 };
 
+const openAiRequestTimeoutMs = 75_000;
+
 const unsupportedStrictSchemaKeywords = new Set([
   '$schema',
   'default',
@@ -126,29 +128,43 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const response = await fetch('https://api.openai.com/v1/responses', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${params.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: params.model,
-          input: [
-            { role: 'system', content: params.systemPrompt },
-            { role: 'user', content: buildUserContent(params) }
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: params.schemaName,
-              strict: true,
-              schema: schemaJson
-            }
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), openAiRequestTimeoutMs);
+      let response: Response;
+
+      try {
+        response = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${params.apiKey}`,
+            'Content-Type': 'application/json'
           },
-          ...(params.reasoningEffort ? { reasoning: { effort: params.reasoningEffort } } : {})
-        })
-      });
+          body: JSON.stringify({
+            model: params.model,
+            input: [
+              { role: 'system', content: params.systemPrompt },
+              { role: 'user', content: buildUserContent(params) }
+            ],
+            text: {
+              format: {
+                type: 'json_schema',
+                name: params.schemaName,
+                strict: true,
+                schema: schemaJson
+              }
+            },
+            ...(params.reasoningEffort ? { reasoning: { effort: params.reasoningEffort } } : {})
+          }),
+          signal: controller.signal
+        });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          throw new Error('The AI schedule reader timed out after 75 seconds. Please try again.');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!response.ok) {
         throw new Error(await openAiErrorMessage(response));
