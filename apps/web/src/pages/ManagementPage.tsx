@@ -1784,6 +1784,23 @@ export function ManagementPage() {
     (count, courseGroup) => count + courseGroup.classGroups.length,
     0
   );
+  const hasStartedScheduleRead = Boolean(scheduleImportJobId) || Boolean(scheduleImportOutput) ||
+    (importProgress !== null && importProgress.status !== 'ready');
+  const resetScheduleImport = () => {
+    setScheduleImportText('');
+    setScheduleImportFileName('');
+    setScheduleImportFileMimeType('');
+    setScheduleImportFileDataUrl('');
+    setScheduleImportJobId(null);
+    setScheduleImportJob(null);
+    setScheduleImportOutput(null);
+    setParsedClassEditDrafts({});
+    setAddedParsedClassKeys([]);
+    setGenerationProgress(null);
+    setCorrectionProgress(null);
+    setImportProgress(null);
+    setError(null);
+  };
 
   return (
     <div className="management-page stack">
@@ -2176,6 +2193,7 @@ export function ManagementPage() {
             </div>
           </article>
 
+          {!hasStartedScheduleRead ? (
           <article className="card stack schedule-upload-card">
             <div className="section-heading">
               <div>
@@ -2245,26 +2263,14 @@ export function ManagementPage() {
               <button
                 className="secondary"
                 type="button"
-                onClick={() => {
-                  setScheduleImportText('');
-                  setScheduleImportFileName('');
-                  setScheduleImportFileMimeType('');
-                  setScheduleImportFileDataUrl('');
-                  setScheduleImportJobId(null);
-                  setScheduleImportJob(null);
-                  setScheduleImportOutput(null);
-                  setParsedClassEditDrafts({});
-                  setAddedParsedClassKeys([]);
-                  setGenerationProgress(null);
-                  setCorrectionProgress(null);
-                  setImportProgress(null);
-                }}
+                onClick={resetScheduleImport}
               >
                 Clear
               </button>
             </div>
 
           </article>
+          ) : null}
 
             {importProgress ? (
               <section className="import-status-panel schedule-processing-panel" aria-live="polite">
@@ -2360,6 +2366,9 @@ export function ManagementPage() {
                     </button>
                     <button className="secondary" type="button" onClick={() => void copyImportSummary()}>
                       Copy import summary
+                    </button>
+                    <button className="secondary" type="button" disabled={busy} onClick={resetScheduleImport}>
+                      Import a different schedule
                     </button>
                   </div>
                 </div>
