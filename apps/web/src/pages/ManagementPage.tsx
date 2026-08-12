@@ -838,6 +838,11 @@ export function ManagementPage() {
           setError(status.error);
         }
         if (isTerminalStatus(status.status)) {
+          setImportProgress(
+            status.status === 'succeeded'
+              ? { status: 'complete', percent: 100 }
+              : null
+          );
           window.clearInterval(timer);
         }
       } catch (err) {
@@ -1586,19 +1591,14 @@ export function ManagementPage() {
       setScheduleImportOutput(null);
       setGenerationProgress(null);
       setCorrectionProgress(null);
-      setImportProgress({ status: 'processing', percent: 65 });
-      // Run schedule imports directly. The production deployment does not run a
-      // separate queue worker, so queueing would leave the review stuck at 0%.
-      const parsed = await api.importSchedule({
+      const queued = await api.enqueueParseSchedule({
         text: scheduleImportText.trim() || undefined,
-        // The production API reads uploaded schedule images from imageBase64.
-        // Keep the data URL intact so the vision request receives its MIME type.
         imageBase64: scheduleImportFileDataUrl || undefined,
         fileName: scheduleImportFileName || undefined,
         fileMimeType: scheduleImportFileMimeType || undefined
       });
-      applyScheduleParseResult(parsed);
-      setImportProgress({ status: 'complete', percent: 100 });
+      setScheduleImportJobId(queued.jobId);
+      setImportProgress({ status: 'processing', percent: 35 });
       setError(null);
     } catch (err) {
       setImportProgress(null);
@@ -2146,10 +2146,10 @@ export function ManagementPage() {
           <article className="card stack schedule-upload-card">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Schedule reader</p>
+                <p className="eyebrow">Step 1 of 3 · Add your schedule</p>
                 <h3>Upload a schedule image or PDF</h3>
                 <p className="muted">
-                  Use a screenshot, PDF, or pasted text. You review the classes before anything is saved.
+                  Use a screenshot, PDF, or pasted text. We will not add any classes until you review them.
                 </p>
               </div>
               {scheduleImportFileName ? <span className="status-pill upcoming">{scheduleImportFileName}</span> : null}
@@ -2197,12 +2197,12 @@ export function ManagementPage() {
               />
             </div>
 
-            {scheduleImportFileDataUrl ? (
+            {scheduleImportFileDataUrl || scheduleImportText.trim() ? (
               <div className="schedule-import-action">
                 <button type="button" disabled={busy} onClick={startScheduleUpload}>
-                  {busy ? 'Reading schedule...' : 'Auto-create classes'}
+                  {busy ? 'Starting schedule reader...' : 'Step 2: Read my schedule'}
                 </button>
-                <span>Review the courses, class groups, and meeting times before anything is saved.</span>
+                <span>Your upload is ready. Next, TeacherDesk will draft your classes for review.</span>
               </div>
             ) : null}
             <div className="profile-actions">
@@ -2235,17 +2235,19 @@ export function ManagementPage() {
                 <div>
                   <strong>
                     {importProgress.status === 'ready'
-                      ? 'File ready to process'
+                      ? 'Step 1 complete: schedule ready'
                       : importProgress.status === 'uploading'
                         ? 'Uploading schedule...'
                         : importProgress.status === 'processing'
-                          ? 'Reading schedule and building classes...'
-                          : 'Schedule review ready'}
+                          ? 'Step 2: reading your schedule...'
+                          : 'Step 3: schedule review ready'}
                   </strong>
                   <span>
                     {importProgress.status === 'complete'
-                      ? 'Your course, class-group, and meeting-time review is ready.'
-                      : 'Keep this page open while the schedule reader processes your file.'}
+                      ? 'Check the draft below, make any corrections, and then choose which classes to add.'
+                      : importProgress.status === 'ready'
+                        ? 'When you are ready, select “Step 2: Read my schedule.”'
+                        : 'This happens in the background. You can keep this page open while we prepare your review.'}
                   </span>
                 </div>
                 <div className="import-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={importProgress.percent}>
@@ -2313,12 +2315,12 @@ export function ManagementPage() {
               <div className="parsed-schedule-review">
                 <div className="section-heading">
                   <div>
-                    <p className="eyebrow">Review before saving</p>
+                    <p className="eyebrow">Step 3 of 3 · Review before saving</p>
                     <h3>{importedClassGroupCount} class groups and {scheduleImportOutput.classes.length} meeting times found</h3>
                   </div>
                   <div className="profile-actions">
                     <button type="button" disabled={busy} onClick={() => void addAllParsedClassesToSchedule()}>
-                      Make all classes
+                      Add all reviewed classes
                     </button>
                     <button className="secondary" type="button" onClick={() => void copyImportSummary()}>
                       Copy import summary
