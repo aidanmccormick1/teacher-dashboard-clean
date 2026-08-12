@@ -496,6 +496,59 @@ export function DashboardPage() {
     navigate('/management');
   };
 
+  const isEmptyWorkspace =
+    !loading &&
+    !error &&
+    state.today !== null &&
+    state.schedule !== null &&
+    state.courses.length === 0 &&
+    state.schedule.sections.length === 0 &&
+    summary.lessonCount === 0;
+
+  if (isEmptyWorkspace) {
+    return (
+      <div className="dashboard-page empty-dashboard-page">
+        <section className="card empty-dashboard-card">
+          <p className="eyebrow">Your workspace is ready</p>
+          <h1>Import your schedule to unlock TeacherDesk</h1>
+          <p className="empty-dashboard-intro">
+            Once you import your teaching week, TeacherDesk can show today’s classes, your next class,
+            and the planning tools that match your real schedule.
+          </p>
+
+          <div className="empty-dashboard-checklist" aria-label="What importing your schedule unlocks">
+            <div>
+              <span>1</span>
+              <strong>Upload your schedule</strong>
+              <small>A PDF, photo, or pasted schedule all work.</small>
+            </div>
+            <div>
+              <span>2</span>
+              <strong>Review each class</strong>
+              <small>Check the class name, days, start time, end time, and room.</small>
+            </div>
+            <div>
+              <span>3</span>
+              <strong>Unlock your dashboard</strong>
+              <small>See your day, your weekly schedule, and the plan ahead.</small>
+            </div>
+          </div>
+
+          <button
+            className="empty-dashboard-import"
+            type="button"
+            onClick={() => openManagementTab('import')}
+          >
+            Import my schedule
+          </button>
+          <p className="muted empty-dashboard-reassurance">
+            Nothing is saved until you review and confirm it.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard-page">
       <section className="dashboard-hero">
