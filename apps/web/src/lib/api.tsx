@@ -48,6 +48,11 @@ import { useAppAuth } from './auth.js';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
 const API_REQUEST_TIMEOUT_MS = 25_000;
 const AI_REQUEST_TIMEOUT_MS = 120_000;
+// Queueing is normally fast, but Render can need longer than the ordinary API
+// timeout to wake a sleeping service. Let the first schedule-read request wait
+// long enough to create its job; the actual AI work then happens in the
+// background and is polled by the page.
+const AI_QUEUE_REQUEST_TIMEOUT_MS = 90_000;
 
 export class ApiError extends Error {
   constructor(
@@ -92,7 +97,11 @@ async function request<TResponse>(
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new ApiError('The backend is taking too long to respond. It may be waking up; try again in a moment.', 408);
+      const message =
+        timeoutMs === AI_QUEUE_REQUEST_TIMEOUT_MS
+          ? 'TeacherDesk is starting its schedule reader. The service took longer than expected to wake, so your schedule was not sent. Please try “Read my schedule” once more.'
+          : 'The backend is taking too long to respond. It may be waking up; try again in a moment.';
+      throw new ApiError(message, 408);
     }
     throw new ApiError('Could not reach the backend. Check the backend status indicator and try again.', 0);
   } finally {
@@ -209,7 +218,8 @@ export function useApiClient() {
         request<AiJobEnqueueResponse>(
           '/v1/ai/parse-schedule/queue',
           { method: 'POST', body: JSON.stringify(body) },
-          auth
+          auth,
+          AI_QUEUE_REQUEST_TIMEOUT_MS
         ),
       enqueueGenerateSegments: (body: GenerateSegmentsRequest) =>
         request<AiJobEnqueueResponse>(
