@@ -117,7 +117,20 @@ function extractOutputText(payload: unknown): string {
     }
   }
 
-  throw new Error('Could not extract output text from OpenAI response');
+  const response = payload as {
+    status?: unknown;
+    incomplete_details?: { reason?: unknown } | null;
+    output?: Array<{ type?: unknown; content?: Array<{ type?: unknown }> }>;
+  };
+  const outputTypes = Array.isArray(response?.output)
+    ? response.output
+        .flatMap((item) => item.content?.map((content) => `${String(item.type ?? 'unknown')}/${String(content.type ?? 'unknown')}`) ?? [])
+        .join(', ')
+    : 'none';
+  const incompleteReason = response?.incomplete_details?.reason;
+  throw new Error(
+    `OpenAI returned no structured schedule result (status: ${String(response?.status ?? 'unknown')}; incomplete: ${String(incompleteReason ?? 'none')}; output: ${outputTypes || 'none'})`
+  );
 }
 
 export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
