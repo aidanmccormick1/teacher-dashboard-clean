@@ -23,6 +23,13 @@ import { healthRoutes } from './routes/health.js';
 import { testAuthRoutes } from './routes/test-auth.js';
 import { v1Routes } from './routes/v1.js';
 
+// Schedule screenshots and PDFs are read in the browser and sent as data URLs
+// to the AI queue. A 10 MiB file grows to roughly 13.4 MiB when base64 encoded,
+// so Fastify's default 1 MiB body limit rejects a valid upload before the route
+// can create a job. Leave headroom for the JSON envelope while keeping an
+// intentional ceiling on application request sizes.
+const apiBodyLimitBytes = 16 * 1024 * 1024;
+
 export async function createApp(config: AppConfig) {
   if (config.SENTRY_DSN) {
     Sentry.init({
@@ -32,6 +39,7 @@ export async function createApp(config: AppConfig) {
   }
 
   const app = Fastify({
+    bodyLimit: apiBodyLimitBytes,
     logger: {
       level: config.NODE_ENV === 'production' ? 'info' : 'debug'
     },

@@ -176,6 +176,7 @@ Implemented in the canonical repository:
 - The import UI now presents clear stages: **Step 1: add a schedule**, **Step 2: read it**, and **Step 3: review before saving**.
 - Pasted schedule text now exposes the same “Read my schedule” action as an uploaded image or PDF.
 - The UI polls the queued job, shows background progress, and keeps the existing cancellation/retry controls instead of leaving the teacher with a request timeout.
+- The API accepts up to 16 MiB JSON request bodies so the documented 10 MiB schedule-file limit still works after base64 encoding. Fastify's default 1 MiB limit previously caused HTTP 413 “Payload Too Large” before a job could be queued.
 
 ### Scheduling
 

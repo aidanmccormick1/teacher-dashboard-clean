@@ -102,6 +102,9 @@ async function request<TResponse>(
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
     const fallback =
+      response.status === 413
+        ? 'That schedule file is too large to send. Please use a file smaller than 10 MB.'
+        :
       response.status >= 500
         ? 'The backend hit an error. Try again, and send feedback if it repeats.'
         : `Request failed (${response.status})`;
