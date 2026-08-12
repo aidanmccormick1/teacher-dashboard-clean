@@ -143,12 +143,13 @@ function normalizeScheduleTimes(value: unknown): unknown {
   if (!value || typeof value !== 'object' || !Array.isArray((value as { classes?: unknown }).classes)) return value;
 
   const normalizeTime = (time: unknown): unknown => {
-    if (typeof time !== 'string') return time;
-    const match = time.trim().match(/^(\d{1,2}):(\d{2})(?:\s*([AaPp][Mm]))?/);
-    if (!match?.[1] || !match[2]) return time;
+    if (time === null || time === undefined) return null;
+    if (typeof time !== 'string') return null;
+    const match = time.trim().match(/(\d{1,2})[:.](\d{2})(?:\s*([AaPp][Mm]))?/);
+    if (!match?.[1] || !match[2]) return null;
     let hour = Number(match[1]);
     const minute = Number(match[2]);
-    if (hour > 12 || minute > 59) return time;
+    if (hour > 23 || minute > 59) return null;
     const suffix = match[3]?.toLowerCase();
     if (suffix === 'pm' && hour < 12) hour += 12;
     if (suffix === 'am' && hour === 12) hour = 0;
