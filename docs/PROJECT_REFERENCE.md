@@ -37,7 +37,7 @@ flowchart LR
 
 ### Important repository warning
 
-`/Users/aidanmccormick/Desktop/teacher-platform-clean` and GitHub repository `aidanmccormick1/teacher-platform` are a legacy/parallel project. They were initially confused with the live application, but the TeacherDesk screenshot and Cloudflare Pages site correspond to **`teacher-dashboard-clean`**. Do not move changes between the repositories blindly or describe changes in the legacy repository as deployed production work.
+`/Users/aidanmccormick/Desktop/teacher-platform-clean-ARCHIVED-DO-NOT-DEPLOY` and GitHub repository `aidanmccormick1/teacher-platform` are archived legacy projects. They were initially confused with the live application, but the TeacherDesk screenshot and Cloudflare Pages site correspond to **`teacher-dashboard-clean`**. Never deploy from, develop against, or describe changes in the archived repository as production work. Production changes must originate in this repository and be deployed to the `teacher-dashboard-clean` Pages project.
 
 ## Technology and repository layout
 
