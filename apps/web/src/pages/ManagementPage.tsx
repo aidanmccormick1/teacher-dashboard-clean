@@ -99,6 +99,10 @@ type ImportProgress = {
   status: 'ready' | 'uploading' | 'processing' | 'complete';
   percent: number;
 };
+type ImportCompletion = {
+  classGroupCount: number;
+  meetingTimeCount: number;
+};
 
 type ManagementState = {
   courses: CourseSummary[];
@@ -401,32 +405,6 @@ function meetingsFromParsedClasses(classes: ParsedScheduleClass[]) {
   );
 }
 
-function preserveMissingCorrectionClasses(
-  original: ParseScheduleResponse,
-  corrected: ParseScheduleResponse
-): ParseScheduleResponse {
-  // The correction model is asked for a complete schedule, but a partial model
-  // reply must never erase reviewed classes. Match by the durable class-group
-  // meeting slot so course-name corrections still replace the original record.
-  const correctedSlots = new Set(
-    corrected.classes.map((parsedClass) =>
-      [
-        courseNameKey(parsedClass.period),
-        [...parsedClass.days].sort().join(','),
-        parsedClass.room ?? ''
-      ].join('|')
-    )
-  );
-  const missingClasses = original.classes.filter((parsedClass) => {
-    const key = [courseNameKey(parsedClass.period), [...parsedClass.days].sort().join(','), parsedClass.room ?? ''].join('|');
-    return !correctedSlots.has(key);
-  });
-
-  return missingClasses.length
-    ? { ...corrected, classes: [...corrected.classes, ...missingClasses] }
-    : corrected;
-}
-
 function correctionReferenceMatches(reference: string, parsedClass: ParsedScheduleClass): boolean {
   const referenceTokens = courseNameKey(reference).split(' ').filter(Boolean);
   if (!referenceTokens.length) return false;
@@ -719,6 +697,7 @@ export function ManagementPage() {
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [correctionProgress, setCorrectionProgress] = useState<CorrectionProgress | null>(null);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
+  const [importCompletion, setImportCompletion] = useState<ImportCompletion | null>(null);
   const [completedWalkthroughIds, setCompletedWalkthroughIds] = useState<string[]>(() => readStringList(walkthroughStorageKey));
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [confirmedScheduleSignature, setConfirmedScheduleSignature] = useState(
@@ -1560,6 +1539,10 @@ export function ManagementPage() {
 
   const applyScheduleImportChanges = async () => {
     if (!scheduleImportOutput) return;
+    if (addedParsedClassKeys.length) {
+      setError('Some classes from this review have already been saved. To avoid duplicates, edit those classes in Meeting times or start a new import. Corrections replace only an unsaved review.');
+      return;
+    }
     const instruction = scheduleImportChanges.trim().replace(/\s+/g, ' ');
     if (!instruction) return;
     const currentSchedule = {
@@ -1575,7 +1558,10 @@ export function ManagementPage() {
         ...currentSchedule,
         instruction
       });
-      applyScheduleParseResult(preserveMissingCorrectionClasses(currentSchedule, correctedSchedule));
+      // A correction returns the authoritative, complete replacement review.
+      // Never merge the original draft back in: doing so makes a renamed or
+      // rescheduled class appear twice when the teacher saves the review.
+      applyScheduleParseResult(correctedSchedule);
       setScheduleImportChanges('');
       setCorrectionProgress({ status: 'complete', percent: 100 });
       setError(null);
@@ -1608,6 +1594,7 @@ export function ManagementPage() {
     );
     setAddedParsedClassKeys([]);
     setGenerationProgress(null);
+    setImportCompletion(null);
   };
 
   const startScheduleUpload = async () => {
@@ -1624,6 +1611,7 @@ export function ManagementPage() {
       setScheduleImportOutput(null);
       setGenerationProgress(null);
       setCorrectionProgress(null);
+      setImportCompletion(null);
       const queued = await api.enqueueParseSchedule({
         text: scheduleImportText.trim() || undefined,
         imageBase64: scheduleImportFileDataUrl || undefined,
@@ -1740,6 +1728,14 @@ export function ManagementPage() {
       setAddedParsedClassKeys((previous) => [...new Set([...previous, ...addedKeys])]);
       setError(null);
       setGenerationProgress({ completed: pendingClassGroups.length, total: pendingClassGroups.length, status: 'complete' });
+      setImportCompletion({
+        classGroupCount: pendingClassGroups.length,
+        meetingTimeCount: pendingClassGroups.reduce(
+          (count, { editedClasses }) => count + meetingsFromParsedClasses(editedClasses).length,
+          0
+        )
+      });
+      setCompletedWalkthroughIds((previous) => [...new Set([...previous, 'course', 'periods', 'schedule'])]);
       flashCopyStatus(`Created ${pendingClassGroups.length} reviewed ${pendingClassGroups.length === 1 ? 'class group' : 'class groups'}.`);
     } catch (err) {
       setGenerationProgress(null);
@@ -1799,6 +1795,7 @@ export function ManagementPage() {
     setGenerationProgress(null);
     setCorrectionProgress(null);
     setImportProgress(null);
+    setImportCompletion(null);
     setError(null);
   };
 
@@ -2173,25 +2170,49 @@ export function ManagementPage() {
 
       {activeTab === 'import' ? (
         <section className="management-panel stack">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Start here</p>
-              <h2>Import your schedule</h2>
-              <p className="muted">We will organize one shared curriculum into course, class groups, and meeting times for your review.</p>
-            </div>
-          </div>
+          {!hasStartedScheduleRead ? (
+            <>
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Start here</p>
+                  <h2>Import your schedule</h2>
+                  <p className="muted">We will organize one shared curriculum into course, class groups, and meeting times for your review.</p>
+                </div>
+              </div>
 
-          <article className="card terminology-card">
-            <div>
-              <p className="eyebrow">How your schedule is organized</p>
-              <h3>Course → class group → meeting times</h3>
-            </div>
-            <div className="terminology-grid">
-              <p><strong>Course:</strong> one shared curriculum, such as Spanish 5.</p>
-              <p><strong>Class group:</strong> a group taking that course, such as A, B, C—or Period 1, 2, 3.</p>
-              <p><strong>Meeting times:</strong> the days, time, and room for each class group.</p>
-            </div>
-          </article>
+              <article className="card terminology-card">
+                <div>
+                  <p className="eyebrow">How your schedule is organized</p>
+                  <h3>Course → class group → meeting times</h3>
+                </div>
+                <div className="terminology-grid">
+                  <p><strong>Course:</strong> one shared curriculum, such as Spanish 5.</p>
+                  <p><strong>Class group:</strong> a group taking that course, such as A, B, C—or Period 1, 2, 3.</p>
+                  <p><strong>Meeting times:</strong> the days, time, and room for each class group.</p>
+                </div>
+              </article>
+            </>
+          ) : importCompletion ? null : (
+            <section className="import-focus-header" aria-live="polite">
+              <div>
+                <p className="eyebrow">
+                  {scheduleImportOutput ? 'Step 3 of 3 · Review your schedule' : 'Step 2 of 3 · Reading your schedule'}
+                </p>
+                <h2>{scheduleImportOutput ? 'Your schedule draft is ready' : 'Reading your schedule'}</h2>
+                <p className="muted">
+                  {scheduleImportOutput
+                    ? 'Review or correct this draft before you save anything.'
+                    : 'Your upload is safely in progress. You only need to watch this one status card.'}
+                </p>
+              </div>
+              <div className="profile-actions">
+                {scheduleImportFileName ? <span className="status-pill upcoming">{scheduleImportFileName}</span> : null}
+                <button className="secondary" type="button" disabled={busy} onClick={resetScheduleImport}>
+                  Start over
+                </button>
+              </div>
+            </section>
+          )}
 
           {!hasStartedScheduleRead ? (
           <article className="card stack schedule-upload-card">
@@ -2272,7 +2293,7 @@ export function ManagementPage() {
           </article>
           ) : null}
 
-            {importProgress ? (
+            {importProgress && !importCompletion ? (
               <section className="import-status-panel schedule-processing-panel" aria-live="polite">
                 <div>
                   <strong>
@@ -2295,65 +2316,97 @@ export function ManagementPage() {
                 <div className="import-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={importProgress.percent}>
                   <span style={{ width: `${importProgress.percent}%` }} />
                 </div>
+                {scheduleImportJobId ? (
+                  <div className="import-job-detail">
+                    <div>
+                      <strong>{scheduleImportJob ? `Reader status: ${scheduleImportJob.status}` : 'Connecting to the schedule reader...'}</strong>
+                      <span>
+                        {scheduleImportJob
+                          ? `${scheduleImportJob.progressPercent}% complete`
+                          : 'Preparing the file for review'}
+                      </span>
+                    </div>
+                    {scheduleImportJob ? <progress max={100} value={scheduleImportJob.progressPercent} /> : null}
+                    {scheduleImportJob?.error ? <p className="notice warning">{scheduleImportJob.error}</p> : null}
+                    {scheduleImportJob && !isTerminalStatus(scheduleImportJob.status) ? (
+                      <button
+                        className="secondary"
+                        type="button"
+                        disabled={!scheduleImportJob.canCancel || busy}
+                        onClick={async () => {
+                          try {
+                            setBusy(true);
+                            await api.cancelAiJob(scheduleImportJob.jobId);
+                            setScheduleImportJob(await api.getAiJobStatus(scheduleImportJob.jobId));
+                          } catch (err) {
+                            setError(err instanceof ApiError ? err.message : 'Failed to cancel schedule read');
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    ) : null}
+                    {scheduleImportJob?.canRetry ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={async () => {
+                          try {
+                            setBusy(true);
+                            await api.retryAiJob(scheduleImportJob.jobId);
+                            setScheduleImportJob(await api.getAiJobStatus(scheduleImportJob.jobId));
+                            setError(null);
+                          } catch (err) {
+                            setError(err instanceof ApiError ? err.message : 'Failed to retry schedule read');
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        Try again
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
             ) : null}
 
-            {scheduleImportJobId ? (
-              <div className="import-status-panel">
+            {importCompletion ? (
+              <section className="import-success-card" aria-live="polite">
+                <div className="import-success-mark" aria-hidden="true">✓</div>
                 <div>
-                  <strong>{scheduleImportJob ? `Status: ${scheduleImportJob.status}` : 'Reading schedule...'}</strong>
-                  <span>
-                    {scheduleImportJob
-                      ? `${scheduleImportJob.progressPercent}% complete`
-                      : 'Preparing the file for review'}
-                  </span>
+                  <p className="eyebrow">Schedule imported</p>
+                  <h3>Your teaching week is ready.</h3>
+                  <p className="muted">
+                    {importCompletion.classGroupCount} {importCompletion.classGroupCount === 1 ? 'class group' : 'class groups'} and{' '}
+                    {importCompletion.meetingTimeCount} {importCompletion.meetingTimeCount === 1 ? 'meeting time is' : 'meeting times are'} now in TeacherDesk.
+                  </p>
                 </div>
-                {scheduleImportJob ? <progress max={100} value={scheduleImportJob.progressPercent} /> : null}
-                {scheduleImportJob?.error ? <p className="notice warning">{scheduleImportJob.error}</p> : null}
-                {scheduleImportJob && !isTerminalStatus(scheduleImportJob.status) ? (
-                  <button
-                    className="secondary"
-                    type="button"
-                    disabled={!scheduleImportJob.canCancel || busy}
-                    onClick={async () => {
-                      try {
-                        setBusy(true);
-                        await api.cancelAiJob(scheduleImportJob.jobId);
-                        setScheduleImportJob(await api.getAiJobStatus(scheduleImportJob.jobId));
-                      } catch (err) {
-                        setError(err instanceof ApiError ? err.message : 'Failed to cancel schedule read');
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    Cancel
+                <div className="import-next-steps">
+                  <div>
+                    <p className="eyebrow">Next step</p>
+                    <strong>Take a quick look at your weekly schedule.</strong>
+                    <span>You can fix any day, time, or room there.</span>
+                  </div>
+                  <button type="button" onClick={() => setActiveTab('weekly')}>
+                    View weekly schedule
                   </button>
-                ) : null}
-                {scheduleImportJob?.canRetry ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      try {
-                        setBusy(true);
-                        await api.retryAiJob(scheduleImportJob.jobId);
-                        setScheduleImportJob(await api.getAiJobStatus(scheduleImportJob.jobId));
-                        setError(null);
-                      } catch (err) {
-                        setError(err instanceof ApiError ? err.message : 'Failed to retry schedule read');
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    Try again
+                </div>
+                <div className="profile-actions">
+                  <button className="secondary" type="button" onClick={() => setActiveTab('curriculum')}>
+                    Build my Year Plan
                   </button>
-                ) : null}
-              </div>
-            ) : null}
-
-            {scheduleImportOutput ? (
+                  <button className="secondary" type="button" onClick={() => navigate('/dashboard')}>
+                    Open dashboard
+                  </button>
+                  <button className="secondary" type="button" onClick={resetScheduleImport}>
+                    Import another schedule
+                  </button>
+                </div>
+              </section>
+            ) : scheduleImportOutput ? (
               <div className="parsed-schedule-review">
                 <div className="section-heading">
                   <div>
@@ -2374,7 +2427,7 @@ export function ManagementPage() {
                 </div>
                 <div className="local-parse-summary good import-changes-panel">
                   <strong>AI schedule correction</strong>
-                  <span>Tell us what to change. We will send it for processing, then rebuild the entire course, class-group, and meeting-time review before anything is saved.</span>
+                  <span>Tell us what to change. This replaces the entire unsaved draft with the corrected course, class-group, and meeting-time review—nothing from the old draft will be added.</span>
                   <div className="profile-actions">
                     <textarea
                       rows={2}

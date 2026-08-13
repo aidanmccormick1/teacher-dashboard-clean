@@ -1617,6 +1617,24 @@ button.button-link {
   background: #f4f8f5;
 }
 
+.import-focus-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+  padding: 2px 0 16px;
+}
+
+.import-focus-header h2,
+.import-focus-header p {
+  margin: 0;
+}
+
+.import-focus-header .muted {
+  margin-top: 4px;
+}
+
 .schedule-upload-grid {
   display: grid;
   grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1fr);
@@ -1670,12 +1688,32 @@ button.button-link {
   background: #f4f8f5;
 }
 
-.import-status-panel div {
+.import-status-panel > div {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   color: var(--muted);
   font-weight: 800;
+}
+
+.import-status-panel > .import-job-detail {
+  display: grid;
+  justify-content: initial;
+  gap: 8px;
+  border-top: 1px solid rgba(70, 114, 93, 0.18);
+  padding-top: 12px;
+}
+
+.import-job-detail > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.import-job-detail > button {
+  justify-self: start;
 }
 
 .import-progress-track {
@@ -1747,6 +1785,62 @@ button.button-link {
 
 .assignment-preview span {
   display: block;
+}
+
+.import-success-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid rgba(71, 108, 88, 0.38);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  background: linear-gradient(135deg, #eef4e9, #fffdf7 58%);
+}
+
+.import-success-card h3,
+.import-success-card p {
+  margin: 0;
+}
+
+.import-success-card .muted {
+  margin-top: 5px;
+}
+
+.import-success-mark {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 50%;
+  background: #345b4c;
+  color: #ffffff;
+  font-size: 1.55rem;
+  font-weight: 900;
+}
+
+.import-next-steps {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-top: 1px solid rgba(71, 108, 88, 0.2);
+  padding-top: 16px;
+}
+
+.import-next-steps > div {
+  display: grid;
+  gap: 3px;
+}
+
+.import-next-steps span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.import-success-card > .profile-actions {
+  grid-column: 1 / -1;
 }
 
 .management-metrics {
@@ -3781,6 +3875,11 @@ button,
     padding: 18px;
   }
   .editor-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .import-focus-header,
+  .import-next-steps {
     align-items: flex-start;
     flex-direction: column;
   }

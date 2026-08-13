@@ -144,6 +144,7 @@ function scheduleImportCorrectionPrompt(body: ScheduleImportCorrectionBody): str
     'The `name` field is the shared course curriculum. The `period` field is a distinct class-group label under that course, never a bell-period number.',
     'When one class group meets at more than one time, return one class object per meeting occurrence with the same `name` and `period`; the app will combine them into one group with multiple meeting times.',
     'Keep every class group, its meeting days, time, room, subject, grade, and assignments unless the instruction explicitly changes one.',
+    'When an instruction changes a class group, meeting time, day, room, or course name, return only the corrected replacement. Never return both the old and corrected versions, and never duplicate a meeting occurrence.',
     'When the teacher says groups or periods share a course, update their `name` fields to the shared course while retaining separate `period` entries.',
     'Return the complete corrected schedule as JSON only, not a partial patch.',
     '',
@@ -1660,7 +1661,7 @@ export async function v1Routes(app: FastifyInstance) {
         schemaName: 'schedule_import_correction',
         schema: InternalParseScheduleSchema,
         systemPrompt:
-          'You correct a parsed teacher schedule. Preserve all class groups and meeting details unless explicitly changed. Return the complete corrected JSON only.',
+          'You correct a parsed teacher schedule. Preserve all class groups and meeting details unless explicitly changed. For every changed record, return only its corrected version, never the original plus the correction. Return the complete corrected JSON only.',
         userPrompt: scheduleImportCorrectionPrompt(body)
       });
 

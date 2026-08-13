@@ -525,7 +525,7 @@ export function DashboardPage() {
             <div>
               <span>2</span>
               <strong>Review each class</strong>
-              <small>Check the class name, days, start time, end time, and room.</small>
+              <small>Check the class name, days, time, and room.</small>
             </div>
             <div>
               <span>3</span>
