@@ -555,7 +555,7 @@ button.danger-button {
 
 .confirmation-dialog-backdrop {
   position: fixed;
-  z-index: 30;
+  z-index: 110;
   inset: 0;
   display: grid;
   place-items: center;
@@ -1321,6 +1321,193 @@ button.button-link {
 .course-detail-editor {
   display: grid;
   gap: 12px;
+}
+
+body.course-editor-open {
+  overflow: hidden;
+}
+
+.course-edit-overlay {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  background: rgba(31, 38, 45, 0.48);
+  backdrop-filter: blur(5px);
+}
+
+.course-edit-workspace {
+  display: grid;
+  width: 100%;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: #f4f7f4;
+  outline: 0;
+}
+
+.course-edit-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px clamp(24px, 4vw, 56px);
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+
+.course-edit-topbar h2,
+.course-edit-topbar p,
+.course-edit-intro h3,
+.course-edit-intro p,
+.course-edit-card h3,
+.course-edit-card h4,
+.course-edit-card p {
+  margin-top: 0;
+}
+
+.course-edit-topbar h2 {
+  margin-bottom: 4px;
+}
+
+.course-edit-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding: clamp(20px, 3vw, 40px);
+}
+
+.course-edit-content {
+  width: min(1360px, 100%);
+  margin: 0 auto;
+}
+
+.course-edit-intro,
+.course-edit-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: clamp(18px, 2.5vw, 28px);
+  background: #fff;
+}
+
+.course-edit-intro,
+.course-edit-next-step {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.course-edit-intro {
+  border-color: rgba(71, 108, 88, 0.3);
+  background: linear-gradient(135deg, #f5faf6, #fff);
+}
+
+.course-edit-status,
+.course-edit-notice {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 5px 11px;
+  background: #e6f1e9;
+  color: var(--green);
+  font-size: 0.83rem;
+  font-weight: 800;
+}
+
+.course-edit-notice {
+  width: fit-content;
+  margin: 0;
+}
+
+.course-edit-fields {
+  display: grid;
+  grid-template-columns: 1.25fr repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.course-edit-fields label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 0.87rem;
+  font-weight: 800;
+}
+
+.course-edit-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.course-edit-group-card {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  border: 1px solid rgba(71, 108, 88, 0.26);
+  border-radius: var(--radius-sm);
+  padding: 18px;
+  background: #fbfdfb;
+}
+
+.course-edit-group-card h4 {
+  margin-bottom: 0;
+  font-size: 1.18rem;
+}
+
+.course-edit-meeting-list {
+  display: grid;
+  gap: 8px;
+}
+
+.course-edit-meeting-row {
+  display: grid;
+  grid-template-columns: minmax(86px, auto) minmax(92px, auto) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.course-edit-meeting-row strong {
+  color: var(--ink);
+}
+
+.course-edit-day {
+  width: fit-content;
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: #eef4e9;
+  color: var(--green);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.course-edit-empty {
+  display: grid;
+  gap: 5px;
+  border: 1px dashed rgba(71, 108, 88, 0.4);
+  border-radius: var(--radius-sm);
+  padding: 20px;
+  background: #fbfdfb;
+}
+
+.meeting-day-picker {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.meeting-day-picker legend {
+  margin-bottom: 7px;
+  color: var(--ink);
+  font-size: 0.87rem;
+  font-weight: 800;
 }
 
 .course-editor-subgroup {
@@ -3877,6 +4064,27 @@ button,
   .editor-topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .course-edit-topbar,
+  .course-edit-intro,
+  .course-edit-next-step {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .course-edit-topbar,
+  .course-edit-scroll {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+  .course-edit-fields,
+  .course-edit-group-grid {
+    grid-template-columns: 1fr;
+  }
+  .course-edit-meeting-row {
+    grid-template-columns: auto 1fr;
+  }
+  .course-edit-meeting-row > span:last-child {
+    grid-column: 2;
   }
   .import-focus-header,
   .import-next-steps {

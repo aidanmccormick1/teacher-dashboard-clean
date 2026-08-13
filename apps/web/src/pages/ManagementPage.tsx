@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import type {
@@ -463,6 +463,45 @@ function parseMeetingDaysInput(value: string): Array<(typeof meetingDays)[number
   return days.length ? days : ['Monday'];
 }
 
+type MeetingDayPickerProps = {
+  value: string;
+  onChange: (value: string) => void;
+  label?: string;
+};
+
+function MeetingDayPicker({ value, onChange, label = 'Meeting days' }: MeetingDayPickerProps) {
+  const selectedDays = parseMeetingDaysInput(value);
+
+  return (
+    <fieldset className="meeting-day-picker">
+      <legend>{label}</legend>
+      <div className="day-picker" role="group" aria-label={label}>
+        {meetingDays.map((day) => {
+          const isSelected = selectedDays.includes(day);
+          return (
+            <button
+              key={day}
+              className={isSelected ? 'active' : ''}
+              type="button"
+              aria-pressed={isSelected}
+              onClick={() => {
+                const nextDays = isSelected
+                  ? selectedDays.length === 1
+                    ? selectedDays
+                    : selectedDays.filter((selectedDay) => selectedDay !== day)
+                  : [...selectedDays, day];
+                onChange(meetingDays.filter((candidate) => nextDays.includes(candidate)).join(', '));
+              }}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 function sectionToDraft(section: ScheduleSection): SectionEditDraft {
   const firstMeeting = section.meetings[0];
   const days = section.meetings.length ? section.meetings.map((meeting) => meeting.day).join(', ') : 'Monday';
@@ -673,6 +712,8 @@ export function ManagementPage() {
   const [newCoursePeriods, setNewCoursePeriods] = useState(savedNewCourseDraft.periods);
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
   const [courseEditDrafts, setCourseEditDrafts] = useState<Record<string, CourseEditDraft>>({});
+  const [courseEditorNotice, setCourseEditorNotice] = useState<string | null>(null);
+  const courseEditorRef = useRef<HTMLElement>(null);
   const [pendingCourseDeletion, setPendingCourseDeletion] = useState<PendingCourseDeletion | null>(null);
   const [quickCourseName, setQuickCourseName] = useState('');
   const [quickCourseSubject, setQuickCourseSubject] = useState('');
@@ -889,7 +930,42 @@ export function ManagementPage() {
     [selectedSectionId, selectedSections]
   );
   const selectedYearPlanView = selectedCourse ? yearPlanViewByCourseId[selectedCourse.id] ?? 'outline' : 'outline';
+  const editingCourse = useMemo(
+    () => state.courseDetails.find((course) => course.id === editingCourseId) ?? null,
+    [editingCourseId, state.courseDetails]
+  );
+  const editingCourseDraft = editingCourse
+    ? courseEditDrafts[editingCourse.id] ?? {
+        name: editingCourse.name,
+        subject: editingCourse.subject ?? '',
+        gradeLevel: editingCourse.gradeLevel ?? ''
+      }
+    : null;
   const schoolProgress = schoolYearProgress(schoolYearSettings);
+
+  useEffect(() => {
+    if (!editingCourseId) return;
+
+    const priorFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.body.classList.add('course-editor-open');
+    const focusFrame = window.requestAnimationFrame(() => courseEditorRef.current?.focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) {
+        event.preventDefault();
+        setEditingCourseId(null);
+        setEditingSectionId(null);
+        setCourseEditorNotice(null);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.body.classList.remove('course-editor-open');
+      document.removeEventListener('keydown', onKeyDown);
+      priorFocus?.focus();
+    };
+  }, [busy, editingCourseId]);
 
   useEffect(() => {
     const firstCourse = state.courseDetails[0];
@@ -1196,7 +1272,10 @@ export function ManagementPage() {
   };
 
   const beginCourseEdit = (course: CourseDetail) => {
+    setSelectedCourseId(course.id);
     setEditingCourseId(course.id);
+    setEditingSectionId(null);
+    setCourseEditorNotice(null);
     setCourseEditDrafts((previous) => ({
       ...previous,
       [course.id]: {
@@ -1465,7 +1544,7 @@ export function ManagementPage() {
           gradeLevel: toNullable(draft.gradeLevel)
         })
       );
-      setEditingCourseId(null);
+      setCourseEditorNotice('Course details saved. Choose Done editing when you are finished.');
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to update course');
@@ -1501,6 +1580,7 @@ export function ManagementPage() {
       if (selectedCourseId === course.id) setSelectedCourseId('');
       if (selectedCourseForSchedule === course.id) setSelectedCourseForSchedule('');
       setEditingCourseId(null);
+      setCourseEditorNotice(null);
       setPendingCourseDeletion(null);
       setError(null);
       flashCopyStatus(`Deleted ${course.name}.`);
@@ -2015,12 +2095,6 @@ export function ManagementPage() {
                 const depth = courseDepth(course);
                 const attachedSections = courseSections(course, sections);
                 const isSelected = selectedCourse?.id === course.id;
-                const isEditing = editingCourseId === course.id;
-                const editDraft = courseEditDrafts[course.id] ?? {
-                  name: course.name,
-                  subject: course.subject ?? '',
-                  gradeLevel: course.gradeLevel ?? ''
-                };
                 return (
                   <article key={course.id} className={isSelected ? 'course-summary-card selected' : 'course-summary-card'}>
                     <div className="section-heading">
@@ -2030,82 +2104,6 @@ export function ManagementPage() {
                       </div>
                       <span className="status-pill upcoming">{isSelected ? 'Selected' : 'Course'}</span>
                     </div>
-                    {isEditing ? (
-                      <div className="course-detail-editor">
-                        <section className="course-editor-subgroup">
-                          <div>
-                            <p className="eyebrow">Shared curriculum</p>
-                            <h4>Course details</h4>
-                          </div>
-                          <div className="course-inline-edit">
-                            <label>
-                              Course name
-                              <input
-                                className="input"
-                                value={editDraft.name}
-                                onChange={(event) => updateCourseDraft(course.id, { name: event.target.value })}
-                                placeholder="Course name"
-                              />
-                            </label>
-                            <label>
-                              Subject
-                              <input
-                                className="input"
-                                value={editDraft.subject}
-                                onChange={(event) => updateCourseDraft(course.id, { subject: event.target.value })}
-                                placeholder="Subject"
-                              />
-                            </label>
-                            <label>
-                              Grade level
-                              <input
-                                className="input"
-                                value={editDraft.gradeLevel}
-                                onChange={(event) => updateCourseDraft(course.id, { gradeLevel: event.target.value })}
-                                placeholder="Grade level"
-                              />
-                            </label>
-                          </div>
-                        </section>
-                        <section className="course-editor-subgroup">
-                          <div className="section-heading">
-                            <div>
-                              <p className="eyebrow">Class groups</p>
-                              <h4>Separate progress and meeting times</h4>
-                            </div>
-                            <button className="secondary" type="button" onClick={() => selectCourse(course.id, 'periods')}>
-                              Add class group
-                            </button>
-                          </div>
-                          {attachedSections.length ? (
-                            <div className="course-subgroup-list">
-                              {attachedSections.map((section) => (
-                                <div key={section.sectionId}>
-                                  <div>
-                                    <strong>{section.sectionName}</strong>
-                                    <span>{formatMeeting(section)}</span>
-                                  </div>
-                                  <button
-                                    className="secondary"
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedCourseId(course.id);
-                                      setSelectedSectionId(section.sectionId);
-                                      beginSectionEdit(section);
-                                      setActiveTab('periods');
-                                    }}
-                                  >
-                                    Edit group
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="muted">No class groups yet. Add A, B, C—or a bell period—under this shared curriculum.</p>
-                          )}
-                        </section>
-                      </div>
-                    ) : null}
                     <div className="mini-stats">
                       <span>{depth.units} units</span>
                       <span>{depth.lessons} lessons</span>
@@ -2137,23 +2135,9 @@ export function ManagementPage() {
                       <button className="secondary" type="button" onClick={() => selectCourse(course.id, 'periods')}>
                         Add class group
                       </button>
-                      {isEditing ? (
-                        <>
-                          <button type="button" disabled={busy || !editDraft.name.trim()} onClick={() => void saveCourseEdit(course.id)}>
-                            Save
-                          </button>
-                          <button className="secondary" type="button" onClick={() => setEditingCourseId(null)}>
-                            Cancel
-                          </button>
-                          <button className="secondary danger" type="button" disabled={busy} onClick={() => requestCourseDeletion(course)}>
-                            Delete course
-                          </button>
-                        </>
-                      ) : (
-                        <button type="button" onClick={() => beginCourseEdit(course)}>
-                          Edit Course
-                        </button>
-                      )}
+                      <button type="button" onClick={() => beginCourseEdit(course)}>
+                        Edit Course
+                      </button>
                     </div>
                   </article>
                 );
@@ -2565,15 +2549,10 @@ export function ManagementPage() {
                                     const draft = parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
                                     return (
                                       <div key={key} className="parsed-class-fields">
-                                        <label>
-                                          Meeting days
-                                          <input
-                                            className="input"
-                                            value={draft.days}
-                                            onChange={(event) => updateParsedClassDraft(parsedClass, { days: event.target.value })}
-                                            placeholder="Monday, Wednesday, Friday"
-                                          />
-                                        </label>
+                                      <MeetingDayPicker
+                                        value={draft.days}
+                                        onChange={(days) => updateParsedClassDraft(parsedClass, { days })}
+                                      />
                                         <label>
                                           Meeting time
                                           <input
@@ -2771,15 +2750,10 @@ export function ManagementPage() {
                                   ))}
                                 </select>
                               </label>
-                              <label>
-                                Days
-                                <input
-                                  className="input"
-                                  value={draft.days}
-                                  onChange={(event) => updateSectionDraft(section.sectionId, { days: event.target.value })}
-                                  placeholder="Monday, Wednesday, Friday"
-                                />
-                              </label>
+                              <MeetingDayPicker
+                                value={draft.days}
+                                onChange={(days) => updateSectionDraft(section.sectionId, { days })}
+                              />
                               <label>
                                 Time
                                 <input
@@ -2937,15 +2911,10 @@ export function ManagementPage() {
                     <p className="muted">Set the meeting times for this class group or period.</p>
                   </div>
                   <div className="section-inline-edit">
-                    <label>
-                      Meeting days
-                      <input
-                        className="input"
-                        value={draft.days}
-                        onChange={(event) => updateSectionDraft(section.sectionId, { days: event.target.value })}
-                        placeholder="Monday, Wednesday, Friday"
-                      />
-                    </label>
+                    <MeetingDayPicker
+                      value={draft.days}
+                      onChange={(days) => updateSectionDraft(section.sectionId, { days })}
+                    />
                     <label>
                       Meeting time
                       <input
@@ -3745,6 +3714,228 @@ export function ManagementPage() {
             )}
           </div>
         </section>
+      ) : null}
+
+      {editingCourse && editingCourseDraft ? (
+        <div className="course-edit-overlay" role="presentation">
+          <section
+            ref={courseEditorRef}
+            className="course-edit-workspace"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="course-edit-title"
+            tabIndex={-1}
+          >
+            <header className="course-edit-topbar">
+              <div>
+                <p className="eyebrow">Editing Course</p>
+                <h2 id="course-edit-title">{editingCourse.name}</h2>
+                <p className="muted">
+                  Edit shared curriculum, then review each nested Class Group and its meeting times
+                  without compressing the rest of your Courses.
+                </p>
+              </div>
+              <button
+                className="secondary"
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setEditingCourseId(null);
+                  setEditingSectionId(null);
+                  setCourseEditorNotice(null);
+                }}
+              >
+                Done editing
+              </button>
+            </header>
+
+            <div className="course-edit-scroll">
+              <div className="course-edit-content stack">
+                <section className="course-edit-intro" aria-label="Course hierarchy">
+                  <div>
+                    <p className="eyebrow">Course → Class Groups → meeting times</p>
+                    <h3>One shared curriculum, separate teaching groups</h3>
+                    <p className="muted">
+                      Units and Lessons belong to this Course. Each Class Group below keeps its own
+                      schedule, progress, and classroom history.
+                    </p>
+                  </div>
+                  <span className="course-edit-status">Focused editing</span>
+                </section>
+
+                {courseEditorNotice ? <p className="course-edit-notice" role="status">{courseEditorNotice}</p> : null}
+
+                <section className="course-edit-card stack" aria-labelledby="course-edit-details-heading">
+                  <div className="section-heading">
+                    <div>
+                      <p className="eyebrow">Shared curriculum</p>
+                      <h3 id="course-edit-details-heading">Course details</h3>
+                    </div>
+                    <span className="status-pill upcoming">{courseDepth(editingCourse).units} units</span>
+                  </div>
+                  <div className="course-edit-fields">
+                    <label>
+                      Course name
+                      <input
+                        className="input"
+                        value={editingCourseDraft.name}
+                        onChange={(event) => updateCourseDraft(editingCourse.id, { name: event.target.value })}
+                        placeholder="Course name"
+                      />
+                    </label>
+                    <label>
+                      Subject
+                      <input
+                        className="input"
+                        value={editingCourseDraft.subject}
+                        onChange={(event) => updateCourseDraft(editingCourse.id, { subject: event.target.value })}
+                        placeholder="Optional"
+                      />
+                    </label>
+                    <label>
+                      Grade level
+                      <input
+                        className="input"
+                        value={editingCourseDraft.gradeLevel}
+                        onChange={(event) => updateCourseDraft(editingCourse.id, { gradeLevel: event.target.value })}
+                        placeholder="Optional"
+                      />
+                    </label>
+                  </div>
+                  <div className="profile-actions">
+                    <button
+                      type="button"
+                      disabled={busy || !editingCourseDraft.name.trim()}
+                      onClick={() => void saveCourseEdit(editingCourse.id)}
+                    >
+                      {busy ? 'Saving…' : 'Save Course details'}
+                    </button>
+                    <button
+                      className="secondary danger"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => requestCourseDeletion(editingCourse)}
+                    >
+                      Delete course
+                    </button>
+                  </div>
+                </section>
+
+                <section className="course-edit-card stack" aria-labelledby="course-edit-groups-heading">
+                  <div className="section-heading">
+                    <div>
+                      <p className="eyebrow">Nested teaching groups</p>
+                      <h3 id="course-edit-groups-heading">Class Groups & meeting times</h3>
+                      <p className="muted">
+                        Each card is a separate group sharing this Course curriculum. Meeting days are
+                        shown as boxes so every schedule is readable at a glance.
+                      </p>
+                    </div>
+                    <button
+                      className="secondary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setSelectedCourseId(editingCourse.id);
+                        setSelectedCourseForSchedule(editingCourse.id);
+                        setEditingCourseId(null);
+                        setActiveTab('periods');
+                      }}
+                    >
+                      Add Class Group
+                    </button>
+                  </div>
+
+                  {courseSections(editingCourse, sections).length ? (
+                    <div className="course-edit-group-grid">
+                      {courseSections(editingCourse, sections).map((section) => (
+                        <article className="course-edit-group-card" key={section.sectionId}>
+                          <div className="section-heading">
+                            <div>
+                              <p className="eyebrow">Class Group</p>
+                              <h4>{section.sectionName}</h4>
+                            </div>
+                            <span className="status-pill upcoming">
+                              {section.meetings.length} {section.meetings.length === 1 ? 'meeting pattern' : 'meeting patterns'}
+                            </span>
+                          </div>
+                          <div className="course-edit-meeting-list" aria-label={`${section.sectionName} meeting times`}>
+                            {section.meetings.length ? (
+                              section.meetings.map((meeting) => (
+                                <div className="course-edit-meeting-row" key={`${meeting.day}-${meeting.time ?? 'time'}-${meeting.room ?? 'room'}`}>
+                                  <span className="course-edit-day">{meeting.day}</span>
+                                  <strong>{meeting.time ?? 'Time not set'}</strong>
+                                  <span>{meeting.room ?? 'Room not set'}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="muted">No meeting times set yet.</p>
+                            )}
+                          </div>
+                          <div className="profile-actions">
+                            <button
+                              className="secondary"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setSelectedCourseId(editingCourse.id);
+                                setSelectedSectionId(section.sectionId);
+                                beginSectionEdit(section);
+                                setEditingCourseId(null);
+                                setActiveTab('periods');
+                              }}
+                            >
+                              Edit Class Group
+                            </button>
+                            <button
+                              className="secondary"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setSelectedCourseId(editingCourse.id);
+                                setSelectedSectionId(section.sectionId);
+                                beginSectionEdit(section);
+                                setEditingCourseId(null);
+                                setActiveTab('weekly');
+                              }}
+                            >
+                              Edit meeting times
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="course-edit-empty">
+                      <strong>No Class Groups yet.</strong>
+                      <span className="muted">Add a Class Group to give this shared Course its own meetings and progress.</span>
+                    </div>
+                  )}
+                </section>
+
+                <section className="course-edit-card course-edit-next-step">
+                  <div>
+                    <p className="eyebrow">Next</p>
+                    <h3>Build the shared Year Plan</h3>
+                    <p className="muted">Units and Lessons are edited once for this Course, then each Class Group follows its own pace.</p>
+                  </div>
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setSelectedCourseId(editingCourse.id);
+                      setEditingCourseId(null);
+                      setActiveTab('curriculum');
+                    }}
+                  >
+                    Open Year Plan
+                  </button>
+                </section>
+              </div>
+            </div>
+          </section>
+        </div>
       ) : null}
 
       {pendingCourseDeletion ? (
