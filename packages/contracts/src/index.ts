@@ -290,6 +290,28 @@ export const GenerateSegmentsResponseSchema = z.object({
   )
 });
 
+export const GenerateUnitDraftRequestSchema = z.object({
+  courseName: z.string().min(1),
+  gradeLevel: z.string().nullable(),
+  prompt: z.string().min(8),
+  meetingCount: z.number().int().min(2).max(30).default(6)
+});
+
+export const GenerateUnitDraftResponseSchema = z.object({
+  unit: z.object({
+    title: z.string(),
+    description: z.string(),
+    meetingCount: z.number().int().positive(),
+    lessons: z.array(
+      z.object({
+        title: z.string(),
+        description: z.string(),
+        estimatedDurationMinutes: z.number().int().positive()
+      })
+    )
+  })
+});
+
 export const GenerateContinuityRequestSchema = z.object({
   lessonTitle: z.string().min(1),
   lastSegmentTitle: z.string().nullable(),
@@ -306,7 +328,8 @@ export const GenerateContinuityResponseSchema = z.object({
 export const AiJobTypeSchema = z.enum([
   'parse_schedule',
   'generate_segments',
-  'generate_continuity'
+  'generate_continuity',
+  'generate_unit_draft'
 ]);
 
 export const AiJobStatusSchema = z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']);
@@ -383,6 +406,8 @@ export const UnitSchema = z.object({
   title: z.string(),
   description: z.string().nullable(),
   orderIndex: z.number().int(),
+  plannedStartMeeting: z.number().int().nonnegative().nullable(),
+  plannedMeetingCount: z.number().int().positive().nullable(),
   lessons: z.array(LessonSchema)
 });
 
@@ -395,13 +420,17 @@ export const CourseDetailResponseSchema = z.object({
 export const UnitCreateRequestSchema = z.object({
   title: z.string().min(1),
   description: z.string().nullable(),
-  orderIndex: z.number().int().nonnegative().optional()
+  orderIndex: z.number().int().nonnegative().optional(),
+  plannedStartMeeting: z.number().int().nonnegative().nullable().optional(),
+  plannedMeetingCount: z.number().int().positive().nullable().optional()
 });
 
 export const UnitUpdateRequestSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
-  orderIndex: z.number().int().nonnegative().optional()
+  orderIndex: z.number().int().nonnegative().optional(),
+  plannedStartMeeting: z.number().int().nonnegative().nullable().optional(),
+  plannedMeetingCount: z.number().int().positive().nullable().optional()
 });
 
 export const LessonCreateRequestSchema = z.object({
@@ -415,7 +444,8 @@ export const LessonUpdateRequestSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
   estimatedDurationMinutes: z.number().int().positive().nullable().optional(),
-  orderIndex: z.number().int().nonnegative().optional()
+  orderIndex: z.number().int().nonnegative().optional(),
+  unitId: UuidSchema.optional()
 });
 
 export const SegmentCreateRequestSchema = z.object({
@@ -507,6 +537,8 @@ export type ParseScheduleRequest = z.infer<typeof ParseScheduleRequestSchema>;
 export type ParseScheduleResponse = z.infer<typeof ParseScheduleResponseSchema>;
 export type GenerateSegmentsRequest = z.infer<typeof GenerateSegmentsRequestSchema>;
 export type GenerateSegmentsResponse = z.infer<typeof GenerateSegmentsResponseSchema>;
+export type GenerateUnitDraftRequest = z.infer<typeof GenerateUnitDraftRequestSchema>;
+export type GenerateUnitDraftResponse = z.infer<typeof GenerateUnitDraftResponseSchema>;
 export type GenerateContinuityRequest = z.infer<typeof GenerateContinuityRequestSchema>;
 export type GenerateContinuityResponse = z.infer<typeof GenerateContinuityResponseSchema>;
 export type CreateUploadUrlRequest = z.infer<typeof CreateUploadUrlRequestSchema>;

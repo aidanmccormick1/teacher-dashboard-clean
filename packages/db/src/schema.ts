@@ -163,6 +163,8 @@ export const units = pgTable(
     title: text('title').notNull(),
     description: text('description'),
     orderIndex: integer('order_index').notNull().default(0),
+    plannedStartMeeting: integer('planned_start_meeting'),
+    plannedMeetingCount: integer('planned_meeting_count'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },

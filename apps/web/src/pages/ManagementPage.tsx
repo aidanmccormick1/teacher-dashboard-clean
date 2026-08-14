@@ -12,6 +12,7 @@ import type {
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { courseNameKey, normalizeImportedCourseVariants } from '../lib/scheduleImport.js';
+import { CurriculumTimeline } from '../components/CurriculumTimeline.js';
 
 type ManagementTab = 'start' | 'courses' | 'periods' | 'weekly' | 'curriculum' | 'progress' | 'import';
 type YearPlanView = 'outline' | 'timeline';
@@ -118,8 +119,7 @@ const tabs: Array<{ id: ManagementTab; label: string }> = [
   { id: 'import', label: 'Import first' },
   { id: 'start', label: 'Guide' },
   { id: 'courses', label: 'Courses' },
-  { id: 'periods', label: 'Classes' },
-  { id: 'weekly', label: 'Meeting times' },
+  { id: 'periods', label: 'Class groups' },
   { id: 'curriculum', label: 'Year Plan' },
   { id: 'progress', label: 'Progress' }
 ];
@@ -238,6 +238,7 @@ function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
 function readManagementActiveTab(): ManagementTab {
   try {
     const saved = window.localStorage.getItem(activeTabStorageKey);
+    if (saved === 'weekly') return 'periods';
     const matchingTab = tabs.find((tab) => tab.id === saved);
     // Migrate the former default Guide tab into the new import-first experience.
     // Explicitly saved work tabs still open where the teacher left off.
@@ -567,19 +568,6 @@ function readSchoolYearSettings(): SchoolYearSettings | null {
   } catch {
     return null;
   }
-}
-
-function schoolYearProgress(settings: SchoolYearSettings | null) {
-  if (!settings) return null;
-  const start = new Date(`${settings.startDate}T12:00:00`);
-  const end = new Date(`${settings.endDate}T12:00:00`);
-  const today = new Date();
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null;
-  const total = end.getTime() - start.getTime();
-  const elapsed = Math.min(Math.max(today.getTime() - start.getTime(), 0), total);
-  const percent = Math.round((elapsed / total) * 100);
-  const remainingDays = Math.max(0, Math.ceil((end.getTime() - today.getTime()) / 86_400_000));
-  return { percent, remainingDays };
 }
 
 function courseDepth(course: CourseDetail) {
@@ -947,7 +935,7 @@ export function ManagementPage() {
     () => selectedSections.find((section) => section.sectionId === selectedSectionId) ?? selectedSections[0] ?? null,
     [selectedSectionId, selectedSections]
   );
-  const selectedYearPlanView = selectedCourse ? yearPlanViewByCourseId[selectedCourse.id] ?? 'outline' : 'outline';
+  const selectedYearPlanView = selectedCourse ? yearPlanViewByCourseId[selectedCourse.id] ?? 'timeline' : 'timeline';
   const editingCourse = useMemo(
     () => state.courseDetails.find((course) => course.id === editingCourseId) ?? null,
     [editingCourseId, state.courseDetails]
@@ -959,7 +947,6 @@ export function ManagementPage() {
         gradeLevel: editingCourse.gradeLevel ?? ''
       }
     : null;
-  const schoolProgress = schoolYearProgress(schoolYearSettings);
 
   useEffect(() => {
     if (!editingCourseId) return;
@@ -2651,9 +2638,9 @@ export function ManagementPage() {
         <section className="management-panel stack">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Classes</p>
-              <h2>Which class groups use each course?</h2>
-              <p className="muted">A course shares one curriculum. Add groups such as A, B, and C—or Period 1, 2, and 3—for separate progress and meeting times.</p>
+              <p className="eyebrow">Class groups</p>
+              <h2>Groups and meeting times</h2>
+              <p className="muted">Each course has one shared plan. Add A, B, C—or periods—and set when each group meets here.</p>
             </div>
           </div>
           {state.courses.length === 0 ? (
@@ -2700,7 +2687,7 @@ export function ManagementPage() {
                 <div className="section-heading">
                   <div>
                     <h3>Add class group</h3>
-                    <p className="muted">Choose the shared course, then name this group A, B, C—or Period 1, 2, 3.</p>
+                    <p className="muted">Choose a course, name the group, then add its meeting rhythm.</p>
                   </div>
                   <div className="profile-actions">
                     <button className="secondary" type="button" onClick={() => void copyAddPeriodDraft()}>
@@ -2728,22 +2715,40 @@ export function ManagementPage() {
                   onChange={(event) => setSectionName(event.target.value)}
                   placeholder="Class group, like A or Period 3"
                 />
-                <p className="muted">Set this group’s days, start time, end time, and room next in Meeting times.</p>
+                <MeetingDayPicker value={selectedMeetingDays.join(', ')} onChange={(days) => setSelectedMeetingDays(parseMeetingDaysInput(days))} />
+                <div className="meeting-time-fields">
+                  <label>
+                    Start time
+                    <input className="input" type="time" value={meetingTime} onChange={(event) => setMeetingTime(event.target.value)} />
+                  </label>
+                  <label>
+                    End time
+                    <input className="input" type="time" value={meetingEndTime} onChange={(event) => setMeetingEndTime(event.target.value)} />
+                  </label>
+                </div>
+                <input className="input" value={meetingRoom} onChange={(event) => setMeetingRoom(event.target.value)} placeholder="Room" />
                 <button
                   type="button"
-                  disabled={busy || !selectedCourseForSchedule || !sectionName.trim()}
+                  disabled={busy || !selectedCourseForSchedule || !sectionName.trim() || !meetingTime || !meetingEndTime || meetingEndTime <= meetingTime}
                   onClick={async () => {
                     try {
                       setBusy(true);
                       const schedule = await api.createSection({
                         courseId: selectedCourseForSchedule,
                         sectionName: sectionName.trim(),
-                        meetings: []
+                        meetings: selectedMeetingDays.map((day) => ({
+                          day,
+                          time: meetingTime,
+                          endTime: meetingEndTime,
+                          room: toNullable(meetingRoom)
+                        }))
                       });
                       setState((previous) => ({ ...previous, schedule }));
                       setSectionName('');
+                      setMeetingTime('');
+                      setMeetingEndTime('');
+                      setMeetingRoom('');
                       window.localStorage.removeItem(addPeriodDraftStorageKey);
-                      setActiveTab('weekly');
                       setError(null);
                     } catch (err) {
                       setError(err instanceof ApiError ? err.message : 'Failed to create section');
@@ -2902,20 +2907,17 @@ export function ManagementPage() {
         </section>
       ) : null}
 
-      {activeTab === 'weekly' ? (
+      {activeTab === 'periods' || activeTab === 'weekly' ? (
         <section className="management-panel stack">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Meeting times</p>
-              <h2>When does each class group meet?</h2>
-              <p className="muted">Each group under a course gets its own days, start time, end time, and room. Review and confirm the schedule below.</p>
+              <h2>Review the week</h2>
+              <p className="muted">Adjust a group’s days, start time, end time, or room without leaving this page.</p>
             </div>
             <div className="profile-actions">
               <button className="secondary" type="button" onClick={() => void copyWeeklyScheduleSummary()}>
                 Copy meeting times
-              </button>
-              <button className="secondary" type="button" onClick={() => setActiveTab('periods')}>
-                Add or edit classes
               </button>
             </div>
           </div>
@@ -3105,7 +3107,7 @@ export function ManagementPage() {
                       setYearPlanViewByCourseId((previous) => ({ ...previous, [selectedCourse.id]: 'timeline' }));
                     }}
                   >
-                    Year Timeline
+                    Timeline
                   </button>
                 </div>
               </div>
@@ -3619,66 +3621,15 @@ export function ManagementPage() {
           ) : null}
 
           {selectedCourse && selectedYearPlanView === 'timeline' ? (
-            <article className="card stack">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">Year Timeline</p>
-                  <h2>{selectedCourse.name}</h2>
-                </div>
-                <button
-                  className="secondary"
-                  type="button"
-                  onClick={() => setSchoolYearSettings(readSchoolYearSettings())}
-                >
-                  Refresh school dates
-                </button>
-              </div>
-              {schoolYearSettings && schoolProgress ? (
-                <div className="timeline-pacing-summary">
-                  <div>
-                    <strong>{schoolYearSettings.startDate}</strong>
-                    <span>Start</span>
-                  </div>
-                  <div>
-                    <strong>{schoolProgress.percent}%</strong>
-                    <span>Year elapsed</span>
-                  </div>
-                  <div>
-                    <strong>{schoolProgress.remainingDays}</strong>
-                    <span>Days remaining</span>
-                  </div>
-                  <div>
-                    <strong>{schoolYearSettings.bellScheduleType.toUpperCase()}</strong>
-                    <span>{schoolYearSettings.meetingDays.join(', ') || 'No rhythm set'}</span>
-                  </div>
-                </div>
-              ) : (
-                <p className="notice warning">Add school-year dates on the School page to unlock exact pacing. Showing unit timeline for now.</p>
-              )}
-              <div className="year-timeline">
-                <div className="today-marker">
-                  Today{schoolProgress ? ` / ${schoolProgress.percent}% through year` : ''}
-                </div>
-                {selectedCourse.units.map((unit) => (
-                  <section key={unit.id} className="timeline-unit">
-                    <strong>{unit.title}</strong>
-                    <div className="timeline-lessons">
-                      {unit.lessons.map((lesson) => (
-                        <div key={lesson.id} className="timeline-lesson">
-                          <span>{lesson.title}</span>
-                          <div className="section-indicators">
-                            {selectedSections.map((section) => {
-                              const active = state.resumesBySectionId[section.sectionId]?.lesson?.id === lesson.id;
-                              return <small key={section.sectionId}>{section.sectionName}{active ? ' is here' : ''}</small>;
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            </article>
+            <CurriculumTimeline
+              course={selectedCourse}
+              selectedSection={selectedSection}
+              holidays={(state.schedule?.holidays ?? []).map((holiday) => holiday.date)}
+              schoolYearSettings={schoolYearSettings}
+              currentLessonId={selectedSection ? state.resumesBySectionId[selectedSection.sectionId]?.lesson?.id ?? null : null}
+              onCourseChange={updateFromDetail}
+              onOpenSchool={() => navigate('/school')}
+            />
           ) : null}
         </section>
       ) : null}

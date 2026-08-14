@@ -1,7 +1,7 @@
 # TeacherDesk — Project Reference
 
 > Living reference for the TeacherDesk / Calico Edu application.  
-> Snapshot: August 12, 2026. Update this document whenever infrastructure, product scope, or deployment ownership changes. It intentionally excludes credentials, tokens, and passwords.
+> Snapshot: August 14, 2026. Update this document whenever infrastructure, product scope, or deployment ownership changes. It intentionally excludes credentials, tokens, and passwords.
 
 ## Executive summary
 
@@ -114,7 +114,7 @@ R2 is the intended home for uploaded artifacts, such as schedule source files. A
 | Production smoke test | Passed for public endpoints | `npm run ops:smoke:production` passed web root, SPA routes, and API liveness/readiness/capabilities. |
 | GitHub CI for dashboard gate commit | Passed | The GitHub quality workflow succeeded for commit `f5cbd8c`. It runs install, typecheck, lint, tests, and build. |
 | Full authenticated AI-import test | Pending | Requires authorization to use the production OpenAI key and an authenticated test flow. |
-| Cloudflare Pages deployment of latest dashboard gate | Pending | Site was still serving an older frontend bundle at the snapshot. |
+| Cloudflare Pages deployment | Passed | The canonical Pages project serves the current management UI from `assets/index-DRGPsMG4.js`, including the full-screen Course editor and boxed Class Group/meeting-time layout. |
 
 The exact capabilities response at the snapshot was logically equivalent to:
 

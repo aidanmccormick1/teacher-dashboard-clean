@@ -25,6 +25,8 @@ import {
   GenerateContinuityResponseSchema,
   GenerateSegmentsRequestSchema,
   GenerateSegmentsResponseSchema,
+  GenerateUnitDraftRequestSchema,
+  GenerateUnitDraftResponseSchema,
   GetScheduleResponseSchema,
   HolidaysUpsertRequestSchema,
   HolidaysUpsertResponseSchema,
@@ -401,7 +403,9 @@ async function buildCourseDetail(userId: string, courseId: string) {
       id: units.id,
       title: units.title,
       description: units.description,
-      orderIndex: units.orderIndex
+      orderIndex: units.orderIndex,
+      plannedStartMeeting: units.plannedStartMeeting,
+      plannedMeetingCount: units.plannedMeetingCount
     })
     .from(units)
     .where(eq(units.courseId, courseId))
@@ -473,6 +477,8 @@ async function buildCourseDetail(userId: string, courseId: string) {
         title: unit.title,
         description: unit.description,
         orderIndex: unit.orderIndex,
+        plannedStartMeeting: unit.plannedStartMeeting,
+        plannedMeetingCount: unit.plannedMeetingCount,
         lessons: (lessonsByUnitId.get(unit.id) ?? []).map((lesson) => ({
           id: lesson.id,
           title: lesson.title,
@@ -1291,7 +1297,9 @@ export async function v1Routes(app: FastifyInstance) {
         courseId: params.courseId,
         title: body.title,
         description: body.description,
-        orderIndex: body.orderIndex ?? (latestUnit?.orderIndex ?? -1) + 1
+        orderIndex: body.orderIndex ?? (latestUnit?.orderIndex ?? -1) + 1,
+        plannedStartMeeting: body.plannedStartMeeting ?? null,
+        plannedMeetingCount: body.plannedMeetingCount ?? null
       });
 
       const detail = await buildCourseDetail(user.id, params.courseId);
@@ -1330,6 +1338,8 @@ export async function v1Routes(app: FastifyInstance) {
       if (body.title !== undefined) updates.title = body.title;
       if (body.description !== undefined) updates.description = body.description;
       if (body.orderIndex !== undefined) updates.orderIndex = body.orderIndex;
+      if (body.plannedStartMeeting !== undefined) updates.plannedStartMeeting = body.plannedStartMeeting;
+      if (body.plannedMeetingCount !== undefined) updates.plannedMeetingCount = body.plannedMeetingCount;
 
       await db.update(units).set(updates).where(eq(units.id, params.unitId));
 
@@ -1444,6 +1454,14 @@ export async function v1Routes(app: FastifyInstance) {
         updates.estimatedDurationMinutes = body.estimatedDurationMinutes;
       }
       if (body.orderIndex !== undefined) updates.orderIndex = body.orderIndex;
+      if (body.unitId !== undefined) {
+        const destinationCourseId = await findOwnedCourseIdForUnit(user.id, body.unitId);
+        if (destinationCourseId !== ownedCourseId) {
+          (reply as any).code(400);
+          return { error: 'Lessons can only move within the same course', requestId: request.id };
+        }
+        updates.unitId = body.unitId;
+      }
 
       await db.update(lessons).set(updates).where(eq(lessons.id, params.lessonId));
 
@@ -2444,6 +2462,56 @@ export async function v1Routes(app: FastifyInstance) {
         await db.update(aiJobs).set({ status: 'succeeded', output, updatedAt: new Date() }).where(eq(aiJobs.id, job.id));
 
         return ParseScheduleResponseSchema.parse(output);
+      } catch (error) {
+        await db
+          .update(aiJobs)
+          .set({ status: 'failed', error: error instanceof Error ? error.message : 'Unknown error', updatedAt: new Date() })
+          .where(eq(aiJobs.id, job.id));
+        throw error;
+      }
+    }
+  );
+
+  app.post(
+    '/v1/ai/generate-unit-draft',
+    {
+      schema: {
+        body: GenerateUnitDraftRequestSchema,
+        response: {
+          200: GenerateUnitDraftResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+
+      if (!app.config.OPENAI_API_KEY) {
+        (reply as any).code(503);
+        return { error: 'Planning service is not configured', requestId: request.id };
+      }
+
+      const body = GenerateUnitDraftRequestSchema.parse(request.body);
+      const user = await ensureUserFromPrincipal(principal);
+      const [job] = await db
+        .insert(aiJobs)
+        .values({ userId: user.id, type: 'generate_unit_draft', status: 'running', input: body })
+        .returning({ id: aiJobs.id });
+      if (!job) throw new Error('Failed to create planning draft');
+
+      try {
+        const output = await runStructuredPrompt<z.infer<typeof GenerateUnitDraftResponseSchema>>({
+          apiKey: app.config.OPENAI_API_KEY,
+          model: app.config.OPENAI_MODEL_GENERATE_SEGMENTS,
+          schemaName: 'generate_unit_draft',
+          schema: GenerateUnitDraftResponseSchema,
+          systemPrompt:
+            'Create one concise, classroom-ready curriculum unit. Return a practical sequence of lessons. This is a draft for a teacher to review, never an instruction to alter stored curriculum.',
+          userPrompt: `Course: ${body.courseName}\nGrade: ${body.gradeLevel ?? 'Not specified'}\nInstructional meetings: ${body.meetingCount}\nTeacher request: ${body.prompt}`
+        });
+        await db.insert(aiOutputs).values({ jobId: job.id, outputType: 'generate_unit_draft', payload: output });
+        await db.update(aiJobs).set({ status: 'succeeded', output, updatedAt: new Date() }).where(eq(aiJobs.id, job.id));
+        return output;
       } catch (error) {
         await db
           .update(aiJobs)

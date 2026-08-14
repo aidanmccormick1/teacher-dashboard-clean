@@ -19,6 +19,8 @@ import type {
   GenerateContinuityResponse,
   GenerateSegmentsRequest,
   GenerateSegmentsResponse,
+  GenerateUnitDraftRequest,
+  GenerateUnitDraftResponse,
   GetScheduleResponse,
   HolidaysUpsertRequest,
   HolidaysUpsertResponse,
@@ -262,6 +264,13 @@ export function useApiClient() {
           '/v1/ai/generate-segments',
           { method: 'POST', body: JSON.stringify(body) },
           auth
+        ),
+      generateUnitDraft: (body: GenerateUnitDraftRequest) =>
+        request<GenerateUnitDraftResponse>(
+          '/v1/ai/generate-unit-draft',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth,
+          AI_REQUEST_TIMEOUT_MS
         ),
       generateContinuity: (body: GenerateContinuityRequest) =>
         request<GenerateContinuityResponse>(
