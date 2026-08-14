@@ -102,6 +102,7 @@ export function normalizeImportedCourseVariants(schedule: ParseScheduleResponse)
       courseNameKey(parsedClass.period),
       [...parsedClass.days].sort().join(','),
       parsedClass.time ?? '',
+      parsedClass.endTime ?? '',
       parsedClass.room ?? ''
     ].join('|');
     if (seenMeetings.has(key)) return false;

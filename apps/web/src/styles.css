@@ -2143,6 +2143,37 @@ body.course-editor-open {
   align-items: start;
 }
 
+/* Meeting setup is a focused editor, not a dashboard. Keep the cards readable
+   on wide displays and prevent one class group from stretching into a giant
+   form beside another. */
+.management-editor-grid.meeting-times-editor {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  align-items: stretch;
+}
+
+.meeting-times-editor > .card {
+  min-height: 100%;
+  padding: 24px;
+}
+
+.meeting-time-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.meeting-time-fields label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .management-editor-grid > *,
 .management-ai-grid > *,
 .course-outline-list,

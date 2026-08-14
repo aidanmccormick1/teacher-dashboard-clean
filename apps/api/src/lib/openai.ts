@@ -162,7 +162,11 @@ function normalizeScheduleTimes(value: unknown): unknown {
     ...(value as Record<string, unknown>),
     classes: (value as { classes: unknown[] }).classes.map((item) =>
       item && typeof item === 'object'
-        ? { ...(item as Record<string, unknown>), time: normalizeTime((item as { time?: unknown }).time) }
+        ? {
+            ...(item as Record<string, unknown>),
+            time: normalizeTime((item as { time?: unknown }).time),
+            endTime: normalizeTime((item as { endTime?: unknown }).endTime)
+          }
         : item
     )
   };

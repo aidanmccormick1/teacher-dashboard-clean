@@ -14,21 +14,44 @@ export const MeetingDaySchema = z.enum([
   'B-Day'
 ]);
 
-export const SectionMeetingSchema = z.object({
-  day: MeetingDaySchema,
-  time: IsoTimeSchema.nullable(),
-  room: z.string().nullable()
-});
+const EndTimeSchema = IsoTimeSchema.nullable().optional().default(null);
 
-export const ScheduleClassSchema = z.object({
-  name: z.string().min(1),
-  period: z.string().min(1),
-  days: z.array(MeetingDaySchema).min(1),
-  time: IsoTimeSchema.nullable(),
-  room: z.string().nullable(),
-  subject: z.string().min(1),
-  grade: z.string().optional().default('')
-});
+function validateMeetingRange(
+  value: { time: string | null; endTime: string | null },
+  context: z.RefinementCtx
+) {
+  if (value.time && value.endTime && value.endTime <= value.time) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endTime'],
+      message: 'End time must be after start time.'
+    });
+  }
+}
+
+export const SectionMeetingSchema = z
+  .object({
+    day: MeetingDaySchema,
+    // `time` remains the API-compatible start-time field. New UI always labels
+    // it Start time; `endTime` is the corresponding persisted end time.
+    time: IsoTimeSchema.nullable(),
+    endTime: EndTimeSchema,
+    room: z.string().nullable()
+  })
+  .superRefine(validateMeetingRange);
+
+export const ScheduleClassSchema = z
+  .object({
+    name: z.string().min(1),
+    period: z.string().min(1),
+    days: z.array(MeetingDaySchema).min(1),
+    time: IsoTimeSchema.nullable(),
+    endTime: EndTimeSchema,
+    room: z.string().nullable(),
+    subject: z.string().min(1),
+    grade: z.string().optional().default('')
+  })
+  .superRefine(validateMeetingRange);
 
 export const AssignmentItemSchema = z.object({
   name: z.string().min(1),
@@ -92,6 +115,7 @@ export const DashboardTodayResponseSchema = z.object({
       courseName: z.string(),
       sectionName: z.string(),
       meetingTime: IsoTimeSchema.nullable(),
+      endTime: IsoTimeSchema.nullable(),
       room: z.string().nullable()
     })
     .nullable(),
@@ -100,7 +124,8 @@ export const DashboardTodayResponseSchema = z.object({
       sectionId: UuidSchema,
       courseName: z.string(),
       sectionName: z.string(),
-      meetingTime: IsoTimeSchema.nullable()
+      meetingTime: IsoTimeSchema.nullable(),
+      endTime: IsoTimeSchema.nullable()
     })
     .nullable(),
   todaySchedule: z.array(
@@ -109,6 +134,7 @@ export const DashboardTodayResponseSchema = z.object({
       courseName: z.string(),
       sectionName: z.string(),
       meetingTime: IsoTimeSchema.nullable(),
+      endTime: IsoTimeSchema.nullable(),
       room: z.string().nullable(),
       isInSession: z.boolean()
     })

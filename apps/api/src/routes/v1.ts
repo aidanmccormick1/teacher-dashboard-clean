@@ -125,7 +125,8 @@ function scheduleImportUserPrompt(body: ScheduleImportBody): string {
       'Before returning JSON, compare every class title. Separate trailing A/B/C letters and Block, Period, Section, or Group numbers are class-group labels—not separate curricula—when their remaining course title matches.',
       'Examples: Spanish 5A, Spanish 5B, and Spanish 5C are one course named Spanish 5. Pre-Calculus Block 1, Block 3, and Block 4 are one course named Pre-Calculus.',
       'A schedule may show the same class group on more than one day at different times. Emit one class object per meeting occurrence, but repeat the exact same course name and class-group label for every occurrence of that group.',
-      'The `period` field is the class-group label, not the grid row or bell-period number. For example, Spanish 5B on Monday at 08:10 and Thursday at 13:35 must both use `name: "Spanish 5"` and `period: "Group B"`; only `days` and `time` change.',
+      'The `period` field is the class-group label, not the grid row or bell-period number. For example, Spanish 5B on Monday at 08:10–09:05 and Thursday at 13:35–14:30 must both use `name: "Spanish 5"` and `period: "Group B"`; only `days`, `time` (start), and `endTime` change.',
+      'Extract both a `time` start time and `endTime` whenever they are visible. If only a start time is visible, use null for `endTime`; TeacherDesk will ask for or safely infer the end time during review.',
       'For a visual grid, audit every nonempty teaching cell across all weekday columns before returning. A shorthand such as 7B means Spanish 7, Group B; text in parentheses such as a homeroom teacher is the room/location. Do not omit a group just because another group from the same grade appears elsewhere.',
       'Keep each class group and all of its meeting times. Return JSON only.',
       '',
@@ -143,8 +144,8 @@ function scheduleImportCorrectionPrompt(body: ScheduleImportCorrectionBody): str
     'Correct this already-parsed teacher schedule according to the teacher instruction.',
     'The `name` field is the shared course curriculum. The `period` field is a distinct class-group label under that course, never a bell-period number.',
     'When one class group meets at more than one time, return one class object per meeting occurrence with the same `name` and `period`; the app will combine them into one group with multiple meeting times.',
-    'Keep every class group, its meeting days, time, room, subject, grade, and assignments unless the instruction explicitly changes one.',
-    'When an instruction changes a class group, meeting time, day, room, or course name, return only the corrected replacement. Never return both the old and corrected versions, and never duplicate a meeting occurrence.',
+    'Keep every class group, its meeting days, start time (`time`), end time (`endTime`), room, subject, grade, and assignments unless the instruction explicitly changes one.',
+    'When an instruction changes a class group, start time, end time, day, room, or course name, return only the corrected replacement. Never return both the old and corrected versions, and never duplicate a meeting occurrence.',
     'When the teacher says groups or periods share a course, update their `name` fields to the shared course while retaining separate `period` entries.',
     'Return the complete corrected schedule as JSON only, not a partial patch.',
     '',
@@ -189,17 +190,31 @@ function dayName(date: Date): string {
   return date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
 }
 
-function isInSession(meetingTime: string | null): boolean {
-  if (!meetingTime) return false;
-  const parts = meetingTime.split(':');
+function timeToMinutes(time: string | null): number | null {
+  if (!time) return null;
+  const parts = time.split(':');
   const hours = Number(parts[0] ?? Number.NaN);
   const minutes = Number(parts[1] ?? Number.NaN);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return false;
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function endTimeFromStart(startTime: string | null): string | null {
+  const startMinutes = timeToMinutes(startTime);
+  if (startMinutes === null) return null;
+  const endMinutes = (startMinutes + 55) % (24 * 60);
+  return `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
+}
+
+function isInSession(startTime: string | null, endTime: string | null): boolean {
+  const startMinutes = timeToMinutes(startTime);
+  if (startMinutes === null) return false;
+  const endMinutes = timeToMinutes(endTime ?? endTimeFromStart(startTime));
+  if (endMinutes === null) return false;
 
   const now = new Date();
-  const startMinutes = hours * 60 + minutes;
   const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  return nowMinutes >= startMinutes && nowMinutes <= startMinutes + 55;
+  return nowMinutes >= startMinutes && nowMinutes < endMinutes;
 }
 
 async function loadTeacherSchoolId(userId: string): Promise<string> {
@@ -321,6 +336,7 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
       courseName: courses.name,
       day: sectionMeetings.day,
       meetingTime: sectionMeetings.meetingTime,
+      endTime: sectionMeetings.endTime,
       room: sectionMeetings.room
     })
     .from(sections)
@@ -345,7 +361,7 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
       courseId: string;
       courseName: string;
       sectionName: string;
-      meetings: Array<{ day: string; time: string | null; room: string | null }>;
+      meetings: Array<{ day: string; time: string | null; endTime: string | null; room: string | null }>;
     }
   >();
 
@@ -364,6 +380,7 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
       bySection.get(row.sectionId)?.meetings.push({
         day: row.day,
         time: row.meetingTime ? row.meetingTime.slice(0, 5) : null,
+        endTime: row.endTime ? row.endTime.slice(0, 5) : endTimeFromStart(row.meetingTime ? row.meetingTime.slice(0, 5) : null),
         room: row.room
       });
     }
@@ -669,7 +686,7 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const date = new Date();
       const isoDate = dateToIso(date);
-      const cacheKey = `dashboard:today:${user.id}:${isoDate}`;
+      const cacheKey = `dashboard:today:v2:${user.id}:${isoDate}`;
 
       const cached = await safeRedisGet(app.redis, cacheKey);
       if (cached) {
@@ -685,6 +702,7 @@ export async function v1Routes(app: FastifyInstance) {
           sectionName: sections.name,
           courseName: courses.name,
           meetingTime: sectionMeetings.meetingTime,
+          endTime: sectionMeetings.endTime,
           room: sectionMeetings.room
         })
         .from(sections)
@@ -708,20 +726,23 @@ export async function v1Routes(app: FastifyInstance) {
         sectionName: row.sectionName,
         courseName: row.courseName,
         meetingTime: row.meetingTime ? row.meetingTime.slice(0, 5) : null,
+        endTime: row.endTime ? row.endTime.slice(0, 5) : endTimeFromStart(row.meetingTime ? row.meetingTime.slice(0, 5) : null),
         room: row.room,
-        isInSession: isInSession(row.meetingTime ? row.meetingTime.slice(0, 5) : null)
+        isInSession: isInSession(
+          row.meetingTime ? row.meetingTime.slice(0, 5) : null,
+          row.endTime ? row.endTime.slice(0, 5) : null
+        )
       }));
 
       const nowMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
       const withMinutes = todaySchedule.map((entry) => ({
         ...entry,
-        startMinutes: entry.meetingTime
-          ? Number(entry.meetingTime.slice(0, 2)) * 60 + Number(entry.meetingTime.slice(3, 5))
-          : Number.MAX_SAFE_INTEGER
+        startMinutes: timeToMinutes(entry.meetingTime) ?? Number.MAX_SAFE_INTEGER,
+        endMinutes: timeToMinutes(entry.endTime) ?? Number.MAX_SAFE_INTEGER
       }));
 
       const currentClass = withMinutes.find(
-        (entry) => nowMinutes >= entry.startMinutes && nowMinutes <= entry.startMinutes + 55
+        (entry) => nowMinutes >= entry.startMinutes && nowMinutes < entry.endMinutes
       );
       const nextClass = withMinutes.find((entry) => entry.startMinutes > nowMinutes);
 
@@ -733,6 +754,7 @@ export async function v1Routes(app: FastifyInstance) {
               courseName: currentClass.courseName,
               sectionName: currentClass.sectionName,
               meetingTime: currentClass.meetingTime,
+              endTime: currentClass.endTime,
               room: currentClass.room
             }
           : null,
@@ -741,14 +763,16 @@ export async function v1Routes(app: FastifyInstance) {
               sectionId: nextClass.sectionId,
               courseName: nextClass.courseName,
               sectionName: nextClass.sectionName,
-              meetingTime: nextClass.meetingTime
+              meetingTime: nextClass.meetingTime,
+              endTime: nextClass.endTime
             }
           : null,
-        todaySchedule: todaySchedule.map(({ sectionId, courseName, sectionName, meetingTime, room, isInSession: inSession }) => ({
+        todaySchedule: todaySchedule.map(({ sectionId, courseName, sectionName, meetingTime, endTime, room, isInSession: inSession }) => ({
           sectionId,
           courseName,
           sectionName,
           meetingTime,
+          endTime,
           room,
           isInSession: inSession
         })),
@@ -824,6 +848,7 @@ export async function v1Routes(app: FastifyInstance) {
               sectionId: section.id,
               day: meeting.day,
               meetingTime: meeting.time,
+              endTime: meeting.endTime ?? endTimeFromStart(meeting.time),
               room: meeting.room
             }))
           );
@@ -875,6 +900,7 @@ export async function v1Routes(app: FastifyInstance) {
                 sectionId: params.sectionId,
                 day: meeting.day,
                 meetingTime: meeting.time,
+                endTime: meeting.endTime ?? endTimeFromStart(meeting.time),
                 room: meeting.room
               }))
             );
@@ -1742,7 +1768,12 @@ export async function v1Routes(app: FastifyInstance) {
 
           const meetings = classGroup.classes
             .flatMap((parsedClass) =>
-              parsedClass.days.map((day) => ({ day, time: parsedClass.time, room: parsedClass.room }))
+              parsedClass.days.map((day) => ({
+                day,
+                time: parsedClass.time,
+                endTime: parsedClass.endTime ?? endTimeFromStart(parsedClass.time),
+                room: parsedClass.room
+              }))
             )
             .filter(
               (meeting, index, allMeetings) =>
@@ -1750,6 +1781,7 @@ export async function v1Routes(app: FastifyInstance) {
                   (candidate) =>
                     candidate.day === meeting.day &&
                     candidate.time === meeting.time &&
+                    candidate.endTime === meeting.endTime &&
                     candidate.room === meeting.room
                 ) === index
             );
@@ -1759,6 +1791,7 @@ export async function v1Routes(app: FastifyInstance) {
                 sectionId: section.id,
                 day: meeting.day,
                 meetingTime: meeting.time,
+                endTime: meeting.endTime,
                 room: meeting.room
               }))
             );

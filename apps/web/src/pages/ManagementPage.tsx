@@ -36,6 +36,7 @@ type SectionEditDraft = {
   sectionName: string;
   days: string;
   time: string;
+  endTime: string;
   room: string;
 };
 type YearPlanTemplate = {
@@ -59,6 +60,7 @@ type ParsedClassEditDraft = {
   grade: string;
   days: string;
   time: string;
+  endTime: string;
   room: string;
 };
 type ImportedClassGroupReview = {
@@ -80,6 +82,7 @@ type AddPeriodDraft = {
   sectionName: string;
   meetingDays: Array<(typeof meetingDays)[number]>;
   time: string;
+  endTime: string;
   room: string;
 };
 type GenerationProgress = {
@@ -284,10 +287,11 @@ function readAddPeriodDraft(): AddPeriodDraft {
       sectionName: parsed.sectionName ?? '',
       meetingDays: savedDays.length ? savedDays : ['Monday'],
       time: parsed.time ?? '',
+      endTime: parsed.endTime ?? '',
       room: parsed.room ?? ''
     };
   } catch {
-    return { courseId: '', sectionName: '', meetingDays: ['Monday'], time: '', room: '' };
+    return { courseId: '', sectionName: '', meetingDays: ['Monday'], time: '', endTime: '', room: '' };
   }
 }
 
@@ -363,6 +367,7 @@ function parsedClassToDraft(parsedClass: ParsedScheduleClass): ParsedClassEditDr
     grade: parsedClass.grade ?? '',
     days: parsedClass.days.join(', '),
     time: parsedClass.time ?? '',
+    endTime: parsedClass.endTime ?? '',
     room: parsedClass.room ?? ''
   };
 }
@@ -382,6 +387,7 @@ function draftToParsedClass(draft: ParsedClassEditDraft): ParsedScheduleClass {
     grade: draft.grade.trim(),
     days: days.length ? days : ['Monday'],
     time: draft.time.trim() || null,
+    endTime: draft.endTime.trim() || null,
     room: draft.room.trim() || null
   };
 }
@@ -391,6 +397,7 @@ function meetingsFromParsedClasses(classes: ParsedScheduleClass[]) {
     parsedClass.days.map((day) => ({
       day,
       time: parsedClass.time,
+      endTime: parsedClass.endTime,
       room: parsedClass.room
     }))
   );
@@ -400,6 +407,7 @@ function meetingsFromParsedClasses(classes: ParsedScheduleClass[]) {
         (candidate) =>
           candidate.day === meeting.day &&
           candidate.time === meeting.time &&
+          candidate.endTime === meeting.endTime &&
           candidate.room === meeting.room
       ) === index
   );
@@ -511,6 +519,7 @@ function sectionToDraft(section: ScheduleSection): SectionEditDraft {
     sectionName: section.sectionName,
     days,
     time: firstMeeting?.time ?? '',
+    endTime: firstMeeting?.endTime ?? '',
     room: firstMeeting?.room ?? ''
   };
 }
@@ -601,11 +610,18 @@ function formatMeeting(section: ScheduleSection): string {
   if (!section.meetings.length) return 'No meeting times';
   return section.meetings
     .map((meeting) => {
-      const time = meeting.time ?? 'TBD';
+      const time = formatTimeRange(meeting.time, meeting.endTime);
       const room = meeting.room ? `, ${meeting.room}` : '';
       return `${meeting.day} ${time}${room}`;
     })
     .join(' | ');
+}
+
+function formatTimeRange(startTime: string | null | undefined, endTime: string | null | undefined): string {
+  if (!startTime && !endTime) return 'Time TBD';
+  if (!startTime) return `Ends ${endTime}`;
+  if (!endTime) return `${startTime} – end TBD`;
+  return `${startTime} – ${endTime}`;
 }
 
 function sectionProgressLabel(section: ScheduleSection, resume: ClassroomResumeResponse | undefined) {
@@ -722,6 +738,7 @@ export function ManagementPage() {
   const [sectionName, setSectionName] = useState(savedAddPeriodDraft.sectionName);
   const [selectedMeetingDays, setSelectedMeetingDays] = useState<Array<(typeof meetingDays)[number]>>(savedAddPeriodDraft.meetingDays);
   const [meetingTime, setMeetingTime] = useState(savedAddPeriodDraft.time);
+  const [meetingEndTime, setMeetingEndTime] = useState(savedAddPeriodDraft.endTime);
   const [meetingRoom, setMeetingRoom] = useState(savedAddPeriodDraft.room);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [sectionEditDrafts, setSectionEditDrafts] = useState<Record<string, SectionEditDraft>>({});
@@ -865,10 +882,11 @@ export function ManagementPage() {
         sectionName,
         meetingDays: selectedMeetingDays,
         time: meetingTime,
+        endTime: meetingEndTime,
         room: meetingRoom
       })
     );
-  }, [meetingRoom, meetingTime, sectionName, selectedCourseForSchedule, selectedMeetingDays]);
+  }, [meetingEndTime, meetingRoom, meetingTime, sectionName, selectedCourseForSchedule, selectedMeetingDays]);
 
   useEffect(() => {
     writeStringList(walkthroughStorageKey, completedWalkthroughIds);
@@ -1020,7 +1038,7 @@ export function ManagementPage() {
     sections: sections.filter((section) => section.meetings.some((meeting) => meeting.day === day))
   }));
   const hasMeetingGaps = sections.some((section) =>
-    !section.meetings.length || section.meetings.some((meeting) => !meeting.time || !meeting.room)
+    !section.meetings.length || section.meetings.some((meeting) => !meeting.time || !meeting.endTime || !meeting.room)
   );
   const visibleTabs = !state.courses.length
     ? tabs.filter((tab) => tab.id === 'import' || tab.id === 'courses')
@@ -1032,7 +1050,7 @@ export function ManagementPage() {
   const scheduleSignature = sections
     .flatMap((section) =>
       section.meetings.map((meeting) =>
-        [section.courseId, section.sectionId, section.sectionName, meeting.day, meeting.time ?? '', meeting.room ?? ''].join(':')
+        [section.courseId, section.sectionId, section.sectionName, meeting.day, meeting.time ?? '', meeting.endTime ?? '', meeting.room ?? ''].join(':')
       )
     )
     .sort()
@@ -1045,7 +1063,7 @@ export function ManagementPage() {
           id: `${section.sectionId}-no-meetings`,
           section,
           title: `${section.sectionName} has no meeting days`,
-          detail: `${section.courseName} needs days, time, and room.`
+          detail: `${section.courseName} needs days, start time, end time, and room.`
         }
       ];
     }
@@ -1053,6 +1071,7 @@ export function ManagementPage() {
     return section.meetings.flatMap((meeting) => {
       const missing = [
         meeting.time ? null : 'time',
+        meeting.endTime ? null : 'end time',
         meeting.room ? null : 'room'
       ].filter((item): item is string => Boolean(item));
       if (!missing.length) return [];
@@ -1174,7 +1193,8 @@ export function ManagementPage() {
       `Course: ${selectedCourseName}`,
       `Period: ${sectionName.trim() || 'Untitled'}`,
       `Days: ${selectedMeetingDays.join(', ')}`,
-      `Time: ${meetingTime || 'Not set'}`,
+      `Start: ${meetingTime || 'Not set'}`,
+      `End: ${meetingEndTime || 'Not set'}`,
       `Room: ${meetingRoom.trim() || 'Not set'}`
     ].join('\n');
     await navigator.clipboard?.writeText(summary).catch(() => undefined);
@@ -1185,6 +1205,7 @@ export function ManagementPage() {
     setSectionName('');
     setSelectedMeetingDays(['Monday']);
     setMeetingTime('');
+    setMeetingEndTime('');
     setMeetingRoom('');
     window.localStorage.removeItem(addPeriodDraftStorageKey);
     flashCopyStatus('Period draft cleared.');
@@ -1214,7 +1235,7 @@ export function ManagementPage() {
       '',
       ...scheduleImportOutput.classes.map((parsedClass) => {
         const editedClass = parsedClassFromDraft(parsedClass);
-        return `${editedClass.period}: ${editedClass.name} / ${editedClass.days.join(', ')} / ${editedClass.time ?? 'Time TBD'} / ${editedClass.room ?? 'Room TBD'}`;
+        return `${editedClass.period}: ${editedClass.name} / ${editedClass.days.join(', ')} / ${formatTimeRange(editedClass.time, editedClass.endTime)} / ${editedClass.room ?? 'Room TBD'}`;
       })
     ].join('\n');
     await navigator.clipboard?.writeText(summary).catch(() => undefined);
@@ -1251,7 +1272,7 @@ export function ManagementPage() {
         ...(daySections.length
           ? daySections.map((section) => {
               const meeting = section.meetings.find((item) => item.day === day);
-              return `- ${meeting?.time ?? 'Time TBD'} / ${section.sectionName} / ${section.courseName} / ${meeting?.room ?? 'Room TBD'}`;
+              return `- ${formatTimeRange(meeting?.time, meeting?.endTime)} / ${section.sectionName} / ${section.courseName} / ${meeting?.room ?? 'Room TBD'}`;
             })
           : ['- No periods'])
       ]),
@@ -1313,6 +1334,7 @@ export function ManagementPage() {
           sectionName: '',
           days: 'Monday',
           time: '',
+          endTime: '',
           room: ''
         }),
         ...patch
@@ -1326,6 +1348,14 @@ export function ManagementPage() {
       setError('Class group name is required.');
       return;
     }
+    if (!draft.time || !draft.endTime) {
+      setError('Every class meeting needs both a start time and an end time.');
+      return;
+    }
+    if (draft.endTime <= draft.time) {
+      setError('End time must be after start time.');
+      return;
+    }
 
     try {
       setBusy(true);
@@ -1334,6 +1364,7 @@ export function ManagementPage() {
         meetings: parseMeetingDaysInput(draft.days).map((day) => ({
           day,
           time: draft.time.trim() || null,
+          endTime: draft.endTime.trim() || null,
           room: draft.room.trim() || null
         }))
       });
@@ -1599,7 +1630,7 @@ export function ManagementPage() {
   const parsedCourseKey = (parsedClass: ParsedScheduleClass) => courseNameKey(parsedClass.name);
 
   const parsedClassKey = (parsedClass: ParsedScheduleClass) =>
-    `${parsedClass.name}-${parsedClass.period}-${parsedClass.time ?? 'time'}-${parsedClass.room ?? 'room'}`;
+    `${parsedClass.name}-${parsedClass.period}-${parsedClass.time ?? 'start'}-${parsedClass.endTime ?? 'end'}-${parsedClass.room ?? 'room'}`;
 
   const parsedClassFromDraft = (parsedClass: ParsedScheduleClass) => {
     const key = parsedClassKey(parsedClass);
@@ -2017,7 +2048,7 @@ export function ManagementPage() {
             <div className="terminology-grid">
               <p><strong>Course</strong> — one shared curriculum, such as Spanish 5.</p>
               <p><strong>Class group</strong> — the students taking that course, such as Group A, B, or C. You can also name groups Period 1, Period 2, and Period 3.</p>
-              <p><strong>Meeting times</strong> — the days, time, and room for each class group. Every group can meet at a different time.</p>
+              <p><strong>Meeting times</strong> — the days, start time, end time, and room for each class group. Every group can meet at a different time.</p>
             </div>
           </article>
 
@@ -2172,7 +2203,7 @@ export function ManagementPage() {
                 <div className="terminology-grid">
                   <p><strong>Course:</strong> one shared curriculum, such as Spanish 5.</p>
                   <p><strong>Class group:</strong> a group taking that course, such as A, B, C—or Period 1, 2, 3.</p>
-                  <p><strong>Meeting times:</strong> the days, time, and room for each class group.</p>
+                  <p><strong>Meeting times:</strong> the days, start time, end time, and room for each class group.</p>
                 </div>
               </article>
             </>
@@ -2553,15 +2584,26 @@ export function ManagementPage() {
                                         value={draft.days}
                                         onChange={(days) => updateParsedClassDraft(parsedClass, { days })}
                                       />
-                                        <label>
-                                          Meeting time
-                                          <input
-                                            className="input"
-                                            type="time"
-                                            value={draft.time}
-                                            onChange={(event) => updateParsedClassDraft(parsedClass, { time: event.target.value })}
-                                          />
-                                        </label>
+                                        <div className="meeting-time-fields">
+                                          <label>
+                                            Start time
+                                            <input
+                                              className="input"
+                                              type="time"
+                                              value={draft.time}
+                                              onChange={(event) => updateParsedClassDraft(parsedClass, { time: event.target.value })}
+                                            />
+                                          </label>
+                                          <label>
+                                            End time
+                                            <input
+                                              className="input"
+                                              type="time"
+                                              value={draft.endTime}
+                                              onChange={(event) => updateParsedClassDraft(parsedClass, { endTime: event.target.value })}
+                                            />
+                                          </label>
+                                        </div>
                                         <label>
                                           Room
                                           <input
@@ -2686,7 +2728,7 @@ export function ManagementPage() {
                   onChange={(event) => setSectionName(event.target.value)}
                   placeholder="Class group, like A or Period 3"
                 />
-                <p className="muted">Set this group’s days, time, and room next in Meeting times.</p>
+                <p className="muted">Set this group’s days, start time, end time, and room next in Meeting times.</p>
                 <button
                   type="button"
                   disabled={busy || !selectedCourseForSchedule || !sectionName.trim()}
@@ -2754,15 +2796,26 @@ export function ManagementPage() {
                                 value={draft.days}
                                 onChange={(days) => updateSectionDraft(section.sectionId, { days })}
                               />
-                              <label>
-                                Time
-                                <input
-                                  className="input"
-                                  type="time"
-                                  value={draft.time}
-                                  onChange={(event) => updateSectionDraft(section.sectionId, { time: event.target.value })}
-                                />
-                              </label>
+                              <div className="meeting-time-fields">
+                                <label>
+                                  Start time
+                                  <input
+                                    className="input"
+                                    type="time"
+                                    value={draft.time}
+                                    onChange={(event) => updateSectionDraft(section.sectionId, { time: event.target.value })}
+                                  />
+                                </label>
+                                <label>
+                                  End time
+                                  <input
+                                    className="input"
+                                    type="time"
+                                    value={draft.endTime}
+                                    onChange={(event) => updateSectionDraft(section.sectionId, { endTime: event.target.value })}
+                                  />
+                                </label>
+                              </div>
                               <label>
                                 Room
                                 <input
@@ -2855,7 +2908,7 @@ export function ManagementPage() {
             <div>
               <p className="eyebrow">Meeting times</p>
               <h2>When does each class group meet?</h2>
-              <p className="muted">Each group under a course gets its own days, time, and room. Review and confirm the schedule below.</p>
+              <p className="muted">Each group under a course gets its own days, start time, end time, and room. Review and confirm the schedule below.</p>
             </div>
             <div className="profile-actions">
               <button className="secondary" type="button" onClick={() => void copyWeeklyScheduleSummary()}>
@@ -2877,7 +2930,7 @@ export function ManagementPage() {
                     ? 'Your current course, class group, and meeting-time setup is confirmed.'
                     : hasMeetingGaps
                       ? 'Add the missing meeting times before confirming this schedule.'
-                      : 'Check that every course, class group, day, time, and room is correct.'}
+                      : 'Check that every course, class group, day, start time, end time, and room is correct.'}
                 </p>
               </div>
               <button
@@ -2900,7 +2953,7 @@ export function ManagementPage() {
             ) : null}
           </article>
 
-          <section className="management-editor-grid">
+          <section className="management-editor-grid meeting-times-editor">
             {sections.map((section) => {
               const draft = sectionEditDrafts[section.sectionId] ?? sectionToDraft(section);
               return (
@@ -2915,15 +2968,26 @@ export function ManagementPage() {
                       value={draft.days}
                       onChange={(days) => updateSectionDraft(section.sectionId, { days })}
                     />
-                    <label>
-                      Meeting time
-                      <input
-                        className="input"
-                        type="time"
-                        value={draft.time}
-                        onChange={(event) => updateSectionDraft(section.sectionId, { time: event.target.value })}
-                      />
-                    </label>
+                    <div className="meeting-time-fields">
+                      <label>
+                        Start time
+                        <input
+                          className="input"
+                          type="time"
+                          value={draft.time}
+                          onChange={(event) => updateSectionDraft(section.sectionId, { time: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        End time
+                        <input
+                          className="input"
+                          type="time"
+                          value={draft.endTime}
+                          onChange={(event) => updateSectionDraft(section.sectionId, { endTime: event.target.value })}
+                        />
+                      </label>
+                    </div>
                     <label>
                       Room
                       <input
@@ -2993,7 +3057,7 @@ export function ManagementPage() {
                           setActiveTab('periods');
                         }}
                       >
-                        <strong>{meeting?.time ?? 'Time missing'}</strong>
+                        <strong>{formatTimeRange(meeting?.time, meeting?.endTime)}</strong>
                         <span>{section.sectionName}</span>
                         <small>{section.courseName} / {meeting?.room ?? 'Room missing'}</small>
                       </button>
@@ -3864,7 +3928,7 @@ export function ManagementPage() {
                               section.meetings.map((meeting) => (
                                 <div className="course-edit-meeting-row" key={`${meeting.day}-${meeting.time ?? 'time'}-${meeting.room ?? 'room'}`}>
                                   <span className="course-edit-day">{meeting.day}</span>
-                                  <strong>{meeting.time ?? 'Time not set'}</strong>
+                                  <strong>{formatTimeRange(meeting.time, meeting.endTime)}</strong>
                                   <span>{meeting.room ?? 'Room not set'}</span>
                                 </div>
                               ))

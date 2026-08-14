@@ -129,6 +129,7 @@ export const sectionMeetings = pgTable(
       .references(() => sections.id, { onDelete: 'cascade' }),
     day: text('day').notNull(),
     meetingTime: time('meeting_time'),
+    endTime: time('end_time'),
     room: text('room'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },

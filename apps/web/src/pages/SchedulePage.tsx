@@ -20,6 +20,7 @@ type AddSectionDraft = {
   sectionName: string;
   meetingDay: MeetingDay;
   meetingTime: string;
+  meetingEndTime: string;
   meetingRoom: string;
 };
 
@@ -27,18 +28,19 @@ type SectionEditDraft = {
   sectionName: string;
   days: string;
   time: string;
+  endTime: string;
   room: string;
 };
 
 function loadAddSectionDraft(): AddSectionDraft {
   if (typeof window === 'undefined') {
-    return { courseId: '', sectionName: '', meetingDay: 'Monday', meetingTime: '', meetingRoom: '' };
+    return { courseId: '', sectionName: '', meetingDay: 'Monday', meetingTime: '', meetingEndTime: '', meetingRoom: '' };
   }
 
   try {
     const raw = window.localStorage.getItem(ADD_SECTION_DRAFT_KEY);
     if (!raw) {
-      return { courseId: '', sectionName: '', meetingDay: 'Monday', meetingTime: '', meetingRoom: '' };
+      return { courseId: '', sectionName: '', meetingDay: 'Monday', meetingTime: '', meetingEndTime: '', meetingRoom: '' };
     }
 
     const parsed = JSON.parse(raw) as Partial<AddSectionDraft>;
@@ -48,10 +50,11 @@ function loadAddSectionDraft(): AddSectionDraft {
       sectionName: parsed.sectionName ?? '',
       meetingDay,
       meetingTime: parsed.meetingTime ?? '',
+      meetingEndTime: parsed.meetingEndTime ?? '',
       meetingRoom: parsed.meetingRoom ?? ''
     };
   } catch {
-    return { courseId: '', sectionName: '', meetingDay: 'Monday', meetingTime: '', meetingRoom: '' };
+    return { courseId: '', sectionName: '', meetingDay: 'Monday', meetingTime: '', meetingEndTime: '', meetingRoom: '' };
   }
 }
 
@@ -60,6 +63,7 @@ function sectionToDraft(section: ScheduleSection): SectionEditDraft {
     sectionName: section.sectionName,
     days: section.meetings.map((meeting) => meeting.day).join(', ') || 'Monday',
     time: section.meetings[0]?.time ?? '',
+    endTime: section.meetings[0]?.endTime ?? '',
     room: section.meetings[0]?.room ?? ''
   };
 }
@@ -82,6 +86,7 @@ export function SchedulePage() {
   const [sectionName, setSectionName] = useState(savedAddSectionDraft.sectionName);
   const [meetingDay, setMeetingDay] = useState<MeetingDay>(savedAddSectionDraft.meetingDay);
   const [meetingTime, setMeetingTime] = useState(savedAddSectionDraft.meetingTime);
+  const [meetingEndTime, setMeetingEndTime] = useState(savedAddSectionDraft.meetingEndTime);
   const [meetingRoom, setMeetingRoom] = useState(savedAddSectionDraft.meetingRoom);
   const [importText, setImportText] = useState('');
   const [segmentLessonTitle, setSegmentLessonTitle] = useState('');
@@ -132,10 +137,11 @@ export function SchedulePage() {
         sectionName,
         meetingDay,
         meetingTime,
+        meetingEndTime,
         meetingRoom
       })
     );
-  }, [meetingDay, meetingRoom, meetingTime, sectionName, selectedCourseId]);
+  }, [meetingDay, meetingEndTime, meetingRoom, meetingTime, sectionName, selectedCourseId]);
 
   useEffect(() => {
     if (!activeJobId) return;
@@ -187,7 +193,7 @@ export function SchedulePage() {
     setSectionDrafts((previous) => ({
       ...previous,
       [sectionId]: {
-        ...(previous[sectionId] ?? { sectionName: '', days: 'Monday', time: '', room: '' }),
+        ...(previous[sectionId] ?? { sectionName: '', days: 'Monday', time: '', endTime: '', room: '' }),
         ...patch
       }
     }));
@@ -206,6 +212,14 @@ export function SchedulePage() {
       setError('Use meeting days like Monday, Wednesday, Friday, A-Day, or B-Day.');
       return;
     }
+    if (!draft.time || !draft.endTime) {
+      setError('Every class meeting needs both a start time and an end time.');
+      return;
+    }
+    if (draft.endTime <= draft.time) {
+      setError('End time must be after start time.');
+      return;
+    }
 
     try {
       setBusy(true);
@@ -215,6 +229,7 @@ export function SchedulePage() {
           meetings: days.map((day) => ({
             day,
             time: draft.time || null,
+            endTime: draft.endTime || null,
             room: draft.room.trim() || null
           }))
         })
@@ -235,7 +250,8 @@ export function SchedulePage() {
       `Course: ${selectedCourse?.name ?? 'Not selected'}`,
       `Section: ${sectionName.trim() || 'Untitled'}`,
       `Meets: ${meetingDay}`,
-      `Time: ${meetingTime || 'Not set'}`,
+      `Start: ${meetingTime || 'Not set'}`,
+      `End: ${meetingEndTime || 'Not set'}`,
       `Room: ${meetingRoom.trim() || 'Not set'}`
     ].join('\n');
     await navigator.clipboard?.writeText(summary).catch(() => undefined);
@@ -314,12 +330,24 @@ export function SchedulePage() {
               </option>
             ))}
           </select>
-          <input
-            className="input"
-            type="time"
-            value={meetingTime}
-            onChange={(event) => setMeetingTime(event.target.value)}
-          />
+          <label>
+            Start time
+            <input
+              className="input"
+              type="time"
+              value={meetingTime}
+              onChange={(event) => setMeetingTime(event.target.value)}
+            />
+          </label>
+          <label>
+            End time
+            <input
+              className="input"
+              type="time"
+              value={meetingEndTime}
+              onChange={(event) => setMeetingEndTime(event.target.value)}
+            />
+          </label>
           <input
             className="input"
             value={meetingRoom}
@@ -329,7 +357,7 @@ export function SchedulePage() {
         </div>
         <button
           type="button"
-          disabled={busy || !selectedCourseId || !sectionName.trim()}
+          disabled={busy || !selectedCourseId || !sectionName.trim() || !meetingTime || !meetingEndTime || meetingEndTime <= meetingTime}
           onClick={async () => {
             try {
               setBusy(true);
@@ -341,6 +369,7 @@ export function SchedulePage() {
                     {
                       day: meetingDay,
                       time: meetingTime || null,
+                      endTime: meetingEndTime || null,
                       room: meetingRoom.trim() || null
                     }
                   ]
@@ -348,6 +377,7 @@ export function SchedulePage() {
               );
               setSectionName('');
               setMeetingTime('');
+              setMeetingEndTime('');
               setMeetingRoom('');
               window.localStorage.removeItem(ADD_SECTION_DRAFT_KEY);
               setError(null);
@@ -602,15 +632,26 @@ export function SchedulePage() {
                         placeholder="Monday, Wednesday, Friday"
                       />
                     </label>
-                    <label>
-                      Time
-                      <input
-                        className="input"
-                        type="time"
-                        value={(sectionDrafts[section.sectionId] ?? sectionToDraft(section)).time}
-                        onChange={(event) => updateSectionDraft(section.sectionId, { time: event.target.value })}
-                      />
-                    </label>
+                    <div className="meeting-time-fields">
+                      <label>
+                        Start time
+                        <input
+                          className="input"
+                          type="time"
+                          value={(sectionDrafts[section.sectionId] ?? sectionToDraft(section)).time}
+                          onChange={(event) => updateSectionDraft(section.sectionId, { time: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        End time
+                        <input
+                          className="input"
+                          type="time"
+                          value={(sectionDrafts[section.sectionId] ?? sectionToDraft(section)).endTime}
+                          onChange={(event) => updateSectionDraft(section.sectionId, { endTime: event.target.value })}
+                        />
+                      </label>
+                    </div>
                     <label>
                       Room
                       <input
@@ -658,8 +699,8 @@ export function SchedulePage() {
                     {section.meetings.length ? (
                       <ul>
                         {section.meetings.map((meeting) => (
-                          <li key={`${meeting.day}-${meeting.time ?? 'none'}-${meeting.room ?? 'none'}`}>
-                            {meeting.day} at {meeting.time ?? 'TBD'}
+                          <li key={`${meeting.day}-${meeting.time ?? 'none'}-${meeting.endTime ?? 'none'}-${meeting.room ?? 'none'}`}>
+                            {meeting.day} from {meeting.time ?? 'TBD'} to {meeting.endTime ?? 'TBD'}
                             {meeting.room ? ` in ${meeting.room}` : ''}
                           </li>
                         ))}

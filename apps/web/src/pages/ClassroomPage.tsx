@@ -6,6 +6,13 @@ import type { ClassroomResumeResponse, DashboardTodayResponse } from '@teacheros
 import { ApiError, useApiClient } from '../lib/api.js';
 import { rememberManagementTab, type ManagementTabTarget } from '../lib/management-tabs.js';
 
+function formatTimeRange(startTime: string | null, endTime: string | null): string {
+  if (!startTime && !endTime) return 'Time TBD';
+  if (!startTime) return `Ends ${endTime}`;
+  if (!endTime) return `${startTime} – end TBD`;
+  return `${startTime} – ${endTime}`;
+}
+
 export function ClassroomPage() {
   const api = useApiClient();
   const navigate = useNavigate();
@@ -56,7 +63,7 @@ export function ClassroomPage() {
           'Classroom brief',
           `Class: ${currentClass.courseName}`,
           `Period: ${currentClass.sectionName}`,
-          `Time: ${currentClass.meetingTime ?? 'TBD'}`,
+          `Time: ${formatTimeRange(currentClass.meetingTime, currentClass.endTime)}`,
           `Room: ${currentClass.room ?? 'TBD'}`,
           `Lesson: ${resume?.lesson?.title ?? 'No lesson ready'}`,
           totalSegments
@@ -94,7 +101,7 @@ export function ClassroomPage() {
             <p className="eyebrow">Now teaching</p>
             <h2>{data.currentClass.courseName}</h2>
             <p className="muted">
-              {data.currentClass.sectionName} / {data.currentClass.meetingTime ?? 'Time TBD'}
+              {data.currentClass.sectionName} / {formatTimeRange(data.currentClass.meetingTime, data.currentClass.endTime)}
               {data.currentClass.room ? ` / Room ${data.currentClass.room}` : ''}
             </p>
             {resume?.lesson ? (
@@ -159,7 +166,7 @@ export function ClassroomPage() {
               <div className="mini-timeline">
                 {data.todaySchedule.map((item) => (
                   <div key={`${item.sectionId}-${item.meetingTime ?? 'tbd'}`} className={item.isInSession ? 'active' : ''}>
-                    <strong>{item.meetingTime ?? 'TBD'}</strong>
+                    <strong>{formatTimeRange(item.meetingTime, item.endTime)}</strong>
                     <span>
                       {item.courseName} / {item.sectionName}
                     </span>
@@ -185,7 +192,7 @@ export function ClassroomPage() {
               <p className="eyebrow">Up next</p>
               <strong>{data.nextClass.courseName}</strong>
               <p className="muted">
-                {data.nextClass.sectionName} / {data.nextClass.meetingTime ?? 'Time TBD'}
+                {data.nextClass.sectionName} / {formatTimeRange(data.nextClass.meetingTime, data.nextClass.endTime)}
               </p>
               {resume?.lesson ? (
                 <div className="classroom-context-grid">

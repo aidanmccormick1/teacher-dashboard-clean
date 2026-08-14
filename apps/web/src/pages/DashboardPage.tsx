@@ -70,6 +70,13 @@ function formatRelativeClass(time: string | null): string {
   return 'Finished';
 }
 
+function formatTimeRange(startTime: string | null, endTime: string | null): string {
+  if (!startTime && !endTime) return 'Time TBD';
+  if (!startTime) return `Ends ${endTime}`;
+  if (!endTime) return `${startTime} – end TBD`;
+  return `${startTime} – ${endTime}`;
+}
+
 function classStatus(item: TodayClass): 'now' | 'upcoming' | 'done' | 'unscheduled' {
   if (item.isInSession) return 'now';
   const startMinutes = minutesFromTime(item.meetingTime);
@@ -290,9 +297,9 @@ export function DashboardPage() {
   const scheduleGaps = useMemo(() => {
     const gaps: string[] = [];
     state.schedule?.sections.forEach((section: ScheduleSection) => {
-      const missingTime = section.meetings.some((meeting) => !meeting.time);
+      const missingTime = section.meetings.some((meeting) => !meeting.time || !meeting.endTime);
       const missingRoom = section.meetings.some((meeting) => !meeting.room);
-      if (missingTime) gaps.push(`${section.courseName} / ${section.sectionName} needs a meeting time`);
+      if (missingTime) gaps.push(`${section.courseName} / ${section.sectionName} needs start and end times`);
       if (missingRoom) gaps.push(`${section.courseName} / ${section.sectionName} needs a room`);
     });
     return gaps.slice(0, 4);
@@ -670,7 +677,7 @@ export function DashboardPage() {
                 <div>
                   <h3>{state.today.currentClass.courseName}</h3>
                   <p className="muted">
-                    {state.today.currentClass.sectionName} / {state.today.currentClass.meetingTime ?? 'Time TBD'}
+                    {state.today.currentClass.sectionName} / {formatTimeRange(state.today.currentClass.meetingTime, state.today.currentClass.endTime)}
                     {state.today.currentClass.room ? ` / Room ${state.today.currentClass.room}` : ''}
                   </p>
                 </div>
@@ -728,7 +735,7 @@ export function DashboardPage() {
               <span>{formatRelativeClass(state.today.nextClass.meetingTime)}</span>
               <h3>{state.today.nextClass.courseName}</h3>
               <p className="muted">
-                {state.today.nextClass.sectionName} / {state.today.nextClass.meetingTime ?? 'Time TBD'}
+                {state.today.nextClass.sectionName} / {formatTimeRange(state.today.nextClass.meetingTime, state.today.nextClass.endTime)}
               </p>
               {nextResume?.lesson ? (
                 <>
@@ -790,7 +797,7 @@ export function DashboardPage() {
                 const resume = state.resumesBySectionId[item.sectionId];
                 return (
                   <div key={`${item.sectionId}-${item.meetingTime ?? 'tbd'}`} className={`timeline-item ${status}`}>
-                    <div className="timeline-time">{item.meetingTime ?? '--:--'}</div>
+                    <div className="timeline-time">{formatTimeRange(item.meetingTime, item.endTime)}</div>
                     <div>
                       <strong>{item.courseName}</strong>
                       <p className="muted">
