@@ -6,6 +6,7 @@ import { normalizeImportedCourseVariants } from './scheduleImport.js';
 const baseClass: Omit<ParseScheduleResponse['classes'][number], 'name' | 'period'> = {
   days: ['Monday'],
   time: '08:10',
+  endTime: '09:05',
   room: '101',
   subject: 'Mathematics',
   grade: ''
