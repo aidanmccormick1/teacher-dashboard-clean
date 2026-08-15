@@ -37,7 +37,7 @@ flowchart LR
 
 ### Important repository warning
 
-`/Users/aidanmccormick/Desktop/teacher-platform-clean-ARCHIVED-DO-NOT-DEPLOY` and GitHub repository `aidanmccormick1/teacher-platform` are archived legacy projects. They were initially confused with the live application, but the TeacherDesk screenshot and Cloudflare Pages site correspond to **`teacher-dashboard-clean`**. Never deploy from, develop against, or describe changes in the archived repository as production work. Production changes must originate in this repository and be deployed to the `teacher-dashboard-clean` Pages project.
+The previous local legacy checkout, `teacher-platform-clean-ARCHIVED-DO-NOT-DEPLOY`, was permanently removed on August 14, 2026. The GitHub repository `aidanmccormick1/teacher-platform` remains an archived legacy project. The TeacherDesk screenshot and Cloudflare Pages site correspond to **`teacher-dashboard-clean`**. Production changes must originate in this repository and be deployed to the `teacher-dashboard-clean` Pages project.
 
 ## Technology and repository layout
 
@@ -114,7 +114,7 @@ R2 is the intended home for uploaded artifacts, such as schedule source files. A
 | Production smoke test | Passed for public endpoints | `npm run ops:smoke:production` passed web root, SPA routes, and API liveness/readiness/capabilities. |
 | GitHub CI for dashboard gate commit | Passed | The GitHub quality workflow succeeded for commit `f5cbd8c`. It runs install, typecheck, lint, tests, and build. |
 | Full authenticated AI-import test | Pending | Requires authorization to use the production OpenAI key and an authenticated test flow. |
-| Cloudflare Pages deployment | Passed | The canonical Pages project serves the current management UI from `assets/index-DRGPsMG4.js`, including the full-screen Course editor and boxed Class Group/meeting-time layout. |
+| Cloudflare Pages deployment | Passed | The canonical Pages project was manually uploaded on August 14, 2026 and serves `assets/index-lAR0oxNU.js`, including the consolidated Class groups workspace and interactive Curriculum Timeline. |
 
 The exact capabilities response at the snapshot was logically equivalent to:
 
@@ -259,7 +259,7 @@ The backend is currently healthy and deployed from the correct GitHub project. T
 
 ### Frontend
 
-The Cloudflare Pages project uses manual asset uploads rather than a GitHub deployment connection. The production bundle for commit `f2a7095` was uploaded successfully on August 12, 2026 and verified to contain the guided queued-import UI. Public web routes and API health/capability checks passed after deployment.
+The Cloudflare Pages project uses manual asset uploads rather than a GitHub deployment connection. The August 14, 2026 production deployment contains the web build associated with `ab4ba1820e6ebe5664f59a4e8b81fbb2b48aab6d`; its public bundle is `assets/index-lAR0oxNU.js`. The `/management` route was authenticated and verified after deployment.
 
 For future frontend releases, build the web workspace, deploy `apps/web/dist` with Wrangler to the `teacher-dashboard-clean` Pages project, then verify the production bundle and smoke checks. Do not assume a GitHub push will deploy Pages automatically while the project remains manually-uploaded.
 
@@ -289,7 +289,7 @@ Run commands from `/Users/aidanmccormick/Desktop/teacher-dashboard-clean`.
 | Priority | Item | Why it matters | Recommended next action |
 | --- | --- | --- | --- |
 | High | Render API cold starts | Teachers can see backend timeout/waking messages. | Upgrade the Render API web service to an always-on paid plan. |
-| High | Cloudflare Pages old production bundle | The live frontend does not yet show the dashboard import gate. | Sign in to Cloudflare and deploy current `main`. |
+| Resolved | Cloudflare Pages old production bundle | The current web build was uploaded and verified at `/management`. | Keep using the manual Pages deployment runbook for future frontend releases. |
 | Medium | File-based AI import E2E verification | A production queue test with a safe pasted schedule succeeded; a representative image/PDF should still be checked after major model or upload changes. | Run a safe image/PDF sample through upload → read → review → apply. |
 | High | R2/storage capability unavailable | File upload persistence may be incomplete or use an alternate path. | Configure and verify Cloudflare R2 in Render; confirm `s3` capability becomes true. |
 | Medium | Guided import UX | Existing flow must become visibly step-by-step and low-overwhelm. | Design and implement the explicit upload → read → review → confirm journey. |
@@ -313,6 +313,7 @@ Run commands from `/Users/aidanmccormick/Desktop/teacher-dashboard-clean`.
 | Date | Decision | Rationale |
 | --- | --- | --- |
 | Aug. 12, 2026 | Use `teacher-dashboard-clean` as production source of truth. | It matches the live TeacherDesk Cloudflare Pages app and screenshot. |
+| Aug. 14, 2026 | Permanently remove the parallel legacy checkout and publish the consolidated curriculum workspace. | Prevent deployment ambiguity and make the current planning experience available in production. |
 | Aug. 12, 2026 | Keep Cloudflare Pages for the frontend and Render for API/database/Valkey. | Existing services are already wired; migrating backend/database to Cloudflare would be unnecessary scope and risk. |
 | Aug. 12, 2026 | Repoint Render API to `teacher-dashboard-clean/main`. | It was incorrectly building the parallel legacy repository. |
 | Aug. 12, 2026 | Add a dashboard import gate before normal empty statistics/readiness. | An unconfigured account should be guided into setup rather than shown misleading empty dashboard content. |
@@ -332,7 +333,7 @@ Run commands from `/Users/aidanmccormick/Desktop/teacher-dashboard-clean`.
 
 ## Next recommended build sequence
 
-1. Get the current Cloudflare Pages frontend deployment live and verify the import-to-unlock empty state.
+1. Maintain the manual Cloudflare Pages deployment runbook and verify the public bundle after each frontend release.
 2. Eliminate API cold starts by upgrading the Render API service.
 3. Configure/verify R2 upload storage and run a complete authenticated AI schedule-import test.
 4. Rebuild the schedule import UI into explicit, confirmed stages.
