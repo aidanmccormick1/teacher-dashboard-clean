@@ -27,7 +27,8 @@
     "ops:backup:s3": "bash ops/scripts/backup_s3_materials.sh",
     "ops:restore:s3": "bash ops/scripts/restore_s3_materials.sh",
     "ops:cutover:preflight": "bash ops/scripts/cutover_preflight.sh",
-    "ops:smoke:production": "bash ops/scripts/production_smoke.sh"
+    "ops:smoke:production": "bash ops/scripts/production_smoke.sh",
+    "release:production": "bash ops/scripts/release_production.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.26.0",
