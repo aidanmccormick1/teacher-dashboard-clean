@@ -115,7 +115,7 @@ R2 is the intended home for uploaded artifacts, such as schedule source files. A
 | Production smoke test | Passed for public endpoints | `npm run ops:smoke:production` passed web root, SPA routes, and API liveness/readiness/capabilities. |
 | GitHub CI for dashboard gate commit | Passed | The GitHub quality workflow succeeded for commit `f5cbd8c`. It runs install, typecheck, lint, tests, and build. |
 | Full authenticated AI-import test | Pending | Requires authorization to use the production OpenAI key and an authenticated test flow. |
-| Cloudflare Pages deployment | Passed | The canonical `teacheros-app` Pages project serves production from GitHub `main`. Its checked-in release command deploys an exact commit and records the matching Cloudflare deployment ID. The legacy `teacher-dashboard-clean.pages.dev` URL is redirect-only after cutover. |
+| Cloudflare Pages deployment | Passed | The canonical `teacheros-app` Pages project serves production from GitHub `main`. Its checked-in release command waits for and verifies the matching Git-connected deployment ID (it does not create a second production upload). The legacy `teacher-dashboard-clean.pages.dev` URL is redirect-only after cutover. |
 
 The exact capabilities response at the snapshot was logically equivalent to:
 

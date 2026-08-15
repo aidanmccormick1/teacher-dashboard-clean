@@ -10,7 +10,7 @@ GitHub is the source of truth and Cloudflare Pages hosts the production frontend
 | Production URL | `https://teacheros-app.pages.dev/management` |
 | API host | `https://teacheros-api.onrender.com` |
 
-The canonical Pages project is Git-connected to `aidanmccormick1/teacher-dashboard-clean`, with `main` as its only production branch. Direct release uploads are allowed only through the checked-in release command, which verifies GitHub `main`, runs the full quality gate, deploys the exact commit-tagged bundle, verifies the live bundle, and confirms API readiness.
+The canonical Pages project is Git-connected to `aidanmccormick1/teacher-dashboard-clean`, with `main` as its only production branch. A push to `main` triggers the production build. The checked-in release command verifies that Git-connected deployment for the exact commit, compares its live bundle to a local production build, and confirms API readiness. It does not create a second, ad-hoc production deployment.
 
 ## Release
 
@@ -21,6 +21,8 @@ The canonical Pages project is Git-connected to `aidanmccormick1/teacher-dashboa
 ```bash
 npm run release:production
 ```
+
+The command requires `RENDER_API_KEY` from secure local or CI secret storage. It is never written to the repository or emitted in logs; it is used only to verify that `teacheros-api` is live on the exact `main` commit.
 
 The command refuses the wrong checkout, wrong branch, dirty files, a non-canonical remote, or a local branch that does not exactly match `origin/main`. It records the Git SHA in the Cloudflare deployment and prints the matching Cloudflare deployment ID at completion.
 
