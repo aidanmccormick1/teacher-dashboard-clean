@@ -2201,11 +2201,7 @@ export function ManagementPage() {
                   {scheduleImportOutput ? 'Step 3 of 3 · Review your schedule' : 'Step 2 of 3 · Reading your schedule'}
                 </p>
                 <h2>{scheduleImportOutput ? 'Your schedule draft is ready' : 'Reading your schedule'}</h2>
-                <p className="muted">
-                  {scheduleImportOutput
-                    ? 'Review or correct this draft before you save anything.'
-                    : 'Your upload is safely in progress. You only need to watch this one status card.'}
-                </p>
+                {scheduleImportOutput ? <p className="muted">Review or correct this draft before you save anything.</p> : null}
               </div>
               <div className="profile-actions">
                 {scheduleImportFileName ? <span className="status-pill upcoming">{scheduleImportFileName}</span> : null}
@@ -2279,7 +2275,6 @@ export function ManagementPage() {
                 <button type="button" disabled={busy} onClick={startScheduleUpload}>
                   {busy ? 'Starting schedule reader...' : 'Step 2: Read my schedule'}
                 </button>
-                <span>Your upload is ready. Next, TeacherDesk will draft your classes for review.</span>
               </div>
             ) : null}
             <div className="profile-actions">
@@ -2307,13 +2302,11 @@ export function ManagementPage() {
                           ? 'Step 2: reading your schedule...'
                           : 'Step 3: schedule review ready'}
                   </strong>
-                  <span>
-                    {importProgress.status === 'complete'
-                      ? 'Check the draft below, make any corrections, and then choose which classes to add.'
-                      : importProgress.status === 'ready'
-                        ? 'When you are ready, select “Step 2: Read my schedule.”'
-                        : 'This happens in the background. You can keep this page open while we prepare your review.'}
-                  </span>
+                  {importProgress.status === 'complete' ? (
+                    <span>Check the draft below, make any corrections, and then choose which classes to add.</span>
+                  ) : importProgress.status === 'ready' ? (
+                    <span>When you are ready, select “Step 2: Read my schedule.”</span>
+                  ) : null}
                 </div>
                 <div className="import-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={importProgress.percent}>
                   <span style={{ width: `${importProgress.percent}%` }} />

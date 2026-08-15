@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { eq } from 'drizzle-orm';
+import { z } from 'zod';
 import {
   GenerateContinuityResponseSchema,
   GenerateSegmentsResponseSchema,
@@ -58,7 +59,7 @@ function scheduleImportUserPrompt(input: ScheduleImportInput): string {
       'Compare every class title before returning JSON. A/B/C suffixes and Block, Period, Section, or Group labels are class groups when the remaining course title matches.',
       'For example, Spanish 5A, Spanish 5B, and Spanish 5C are one course named Spanish 5; Pre-Calculus Block 1, Block 3, and Block 4 are one course named Pre-Calculus.',
       'A schedule may show the same class group on more than one day at different times. Emit one class object per meeting occurrence, but repeat the exact same course name and class-group label for each occurrence.',
-      'The `period` field is the class-group label, not a bell-period/grid row. Spanish 5B on Monday at 08:10 and Thursday at 13:35 must both use `name: "Spanish 5"` and `period: "Group B"`; only the day and time change.',
+      'The `period` field is the class-group label, not a bell-period/grid row. Spanish 5B on Monday at 08:10 and Thursday at 13:35 must both use `name: "Spanish 5"` and `period: "Group B"`; only the day and time change. Return every time as 24-hour `HH:MM` (for example, `08:10`) or null when it is not visible.',
       'For a visual grid, audit every nonempty teaching cell across every weekday column. A shorthand such as 7B means Spanish 7, Group B; text in parentheses is the room/location. Do not omit a group just because another group from that grade appears elsewhere.',
       'Keep every class group and all of its meeting times. Return JSON only.',
       '',
@@ -158,7 +159,7 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
             schemaName: 'parse_schedule',
             schema: ParseScheduleResponseSchema,
             systemPrompt:
-              'Extract classes and assignments from teacher schedules. Return JSON only and skip non-teaching events. Each record is one meeting occurrence: `name` is the shared curriculum and `period` is the class-group label, never the bell-period/grid row. Repeat a class group label for every one of its distinct meeting times so the app can merge them. For grid images, audit every nonempty teaching cell across every weekday column before returning and translate shorthand such as 7B into Spanish 7, Group B.',
+              'Extract classes and assignments from teacher schedules. Return JSON only and skip non-teaching events. Each record is one meeting occurrence: `name` is the shared curriculum and `period` is the class-group label, never the bell-period/grid row. Repeat a class group label for every one of its distinct meeting times so the app can merge them. For grid images, audit every nonempty teaching cell across every weekday column before returning and translate shorthand such as 7B into Spanish 7, Group B. Return `time` and `endTime` as 24-hour `HH:MM` strings (for example, `08:10`) or null when a time is not visible.',
             userPrompt: scheduleImportUserPrompt(input),
             fileDataUrl: scheduleImportFileDataUrl(input),
             fileName: input.fileName
@@ -227,7 +228,12 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
         const attemptNumber = job.attemptsMade + 1;
         const maxAttempts = job.opts.attempts ?? 1;
         const willRetry = attemptNumber < maxAttempts;
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorMessage =
+          error instanceof z.ZodError
+            ? 'The schedule reader could not recognize one or more meeting times. Please try again.'
+            : error instanceof Error
+              ? error.message
+              : 'Unknown error';
 
         await db
           .update(aiJobs)
