@@ -78,7 +78,9 @@ deployment_id="$(printf '%s' "$deployments_json" | node -e '
   const fs = require("node:fs");
   const commit = process.argv[1];
   const deployments = JSON.parse(fs.readFileSync(0, "utf8"));
-  const deployment = deployments.find((item) => item.Source === commit);
+  const deployment = deployments.find(
+    (item) => typeof item.Source === "string" && (item.Source === commit || commit.startsWith(item.Source))
+  );
   if (!deployment) process.exit(1);
   process.stdout.write(deployment.Id);
 ' "$commit_sha")" || fail "Cloudflare did not report a deployment for $commit_sha."
