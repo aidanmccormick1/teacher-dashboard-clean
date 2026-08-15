@@ -26,6 +26,8 @@ The command refuses the wrong checkout, wrong branch, dirty files, a non-canonic
 
 `teacher-dashboard-clean.pages.dev` is a legacy address. Once the `teacheros-app` cutover is verified, it is retained only as a redirect to the canonical production URL. A future custom domain should be attached to `teacheros-app`; the Pages hostname remains the fallback.
 
+The redirect-only legacy bundle is stored at `ops/legacy-pages-redirect/` and is deployed only to the legacy Pages project. It is not part of the canonical frontend build.
+
 Required frontend build values remain:
 
 - `VITE_API_BASE_URL=https://teacheros-api.onrender.com`
