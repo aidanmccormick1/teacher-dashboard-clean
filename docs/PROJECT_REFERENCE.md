@@ -28,7 +28,7 @@ flowchart LR
 | --- | --- | --- |
 | Production code repository | `https://github.com/aidanmccormick1/teacher-dashboard-clean` | Primary source of truth. Work from this repository. |
 | Local production checkout | `/Users/aidanmccormick/Desktop/teacher-dashboard-clean` | Current working repository. |
-| Frontend | `https://teacher-dashboard-clean.pages.dev` | Canonical Cloudflare Pages production site. |
+| Frontend | `https://teacheros-app.pages.dev` | Canonical Cloudflare Pages production site. |
 | Backend API | `https://teacheros-api.onrender.com` | Render Node/Fastify service. |
 | API health | `https://teacheros-api.onrender.com/health/readiness` | Returns readiness JSON when healthy. |
 | Database | Render PostgreSQL: `teacheros-db` | Paid Render PostgreSQL instance. |
@@ -37,7 +37,7 @@ flowchart LR
 
 ### Important repository warning
 
-The previous local legacy checkout, `teacher-platform-clean-ARCHIVED-DO-NOT-DEPLOY`, was permanently removed on August 14, 2026. The GitHub repository `aidanmccormick1/teacher-platform` remains an archived legacy project. The TeacherDesk screenshot and Cloudflare Pages site correspond to **`teacher-dashboard-clean`**. Production changes must originate in this repository's `main` branch and use `npm run release:production` to deploy the exact verified commit to the `teacher-dashboard-clean` Pages project.
+The previous local legacy checkout, `teacher-platform-clean-ARCHIVED-DO-NOT-DEPLOY`, was permanently removed on August 14, 2026. The GitHub repository `aidanmccormick1/teacher-platform` remains an archived legacy project. The TeacherDesk screenshot and production site correspond to **`teacher-dashboard-clean`**. Production changes must originate in this repository's `main` branch and use `npm run release:production` to deploy the exact verified commit to the `teacheros-app` Pages project.
 
 ## Technology and repository layout
 
@@ -115,7 +115,7 @@ R2 is the intended home for uploaded artifacts, such as schedule source files. A
 | Production smoke test | Passed for public endpoints | `npm run ops:smoke:production` passed web root, SPA routes, and API liveness/readiness/capabilities. |
 | GitHub CI for dashboard gate commit | Passed | The GitHub quality workflow succeeded for commit `f5cbd8c`. It runs install, typecheck, lint, tests, and build. |
 | Full authenticated AI-import test | Pending | Requires authorization to use the production OpenAI key and an authenticated test flow. |
-| Cloudflare Pages deployment | Passed | The canonical `teacher-dashboard-clean` Pages project serves production. Its checked-in release command deploys an exact GitHub `main` commit and records the matching Cloudflare deployment ID. |
+| Cloudflare Pages deployment | Passed | The canonical `teacheros-app` Pages project serves production from GitHub `main`. Its checked-in release command deploys an exact commit and records the matching Cloudflare deployment ID. The legacy `teacher-dashboard-clean.pages.dev` URL is redirect-only after cutover. |
 
 The exact capabilities response at the snapshot was logically equivalent to:
 

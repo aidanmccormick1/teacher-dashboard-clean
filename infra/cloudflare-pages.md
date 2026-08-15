@@ -6,11 +6,11 @@ GitHub is the source of truth and Cloudflare Pages hosts the production frontend
 | --- | --- |
 | Repository | `aidanmccormick1/teacher-dashboard-clean` |
 | Release branch | `main` |
-| Pages project | `teacher-dashboard-clean` |
-| Production URL | `https://teacher-dashboard-clean.pages.dev/management` |
+| Pages project | `teacheros-app` |
+| Production URL | `https://teacheros-app.pages.dev/management` |
 | API host | `https://teacheros-api.onrender.com` |
 
-The current Pages project is a Direct Upload project, so it cannot be attached to Cloudflare's Git integration in place. Do not upload ad-hoc bundles. Use the checked-in release command, which verifies GitHub `main`, runs the full quality gate, deploys the exact commit-tagged bundle, verifies the live bundle, and confirms API readiness.
+The canonical Pages project is Git-connected to `aidanmccormick1/teacher-dashboard-clean`, with `main` as its only production branch. Direct release uploads are allowed only through the checked-in release command, which verifies GitHub `main`, runs the full quality gate, deploys the exact commit-tagged bundle, verifies the live bundle, and confirms API readiness.
 
 ## Release
 
@@ -23,6 +23,8 @@ npm run release:production
 ```
 
 The command refuses the wrong checkout, wrong branch, dirty files, a non-canonical remote, or a local branch that does not exactly match `origin/main`. It records the Git SHA in the Cloudflare deployment and prints the matching Cloudflare deployment ID at completion.
+
+`teacher-dashboard-clean.pages.dev` is a legacy address. Once the `teacheros-app` cutover is verified, it is retained only as a redirect to the canonical production URL. A future custom domain should be attached to `teacheros-app`; the Pages hostname remains the fallback.
 
 Required frontend build values remain:
 

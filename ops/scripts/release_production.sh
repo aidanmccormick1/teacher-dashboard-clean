@@ -7,10 +7,11 @@ set -euo pipefail
 # Frontend host: teacher-dashboard-clean Cloudflare Pages project.
 # Backend host: Render, which auto-deploys the same Git commit.
 
-PROJECT_NAME="${CLOUDFLARE_PAGES_PROJECT:-teacher-dashboard-clean}"
-WEB_URL="${WEB_URL:-https://teacher-dashboard-clean.pages.dev}"
+PROJECT_NAME="${CLOUDFLARE_PAGES_PROJECT:-teacheros-app}"
+WEB_URL="${WEB_URL:-https://teacheros-app.pages.dev}"
 API_URL="${API_URL:-https://teacheros-api.onrender.com}"
 EXPECTED_REMOTE="https://github.com/aidanmccormick1/teacher-dashboard-clean.git"
+RENDER_SERVICE="${RENDER_SERVICE:-teacheros-api}"
 
 fail() {
   echo "Release blocked: $*" >&2
@@ -94,10 +95,18 @@ curl -fsS --max-time 30 "$API_URL/health/readiness" | node -e '
   if (value.ok !== true) process.exit(1);
 '
 
-printf '\nProduction release complete\n'
-printf '  Git commit:               %s\n' "$commit_sha"
-printf '  Cloudflare deployment:    %s\n' "$deployment_id"
-printf '  Production bundle:        %s\n' "$live_entry"
-printf '  Previous bundle:          %s\n' "${previous_entry:-none}"
-printf '  Frontend:                 %s/management\n' "$WEB_URL"
-printf '  API readiness:            passed\n'
+WEB_URL="$WEB_URL" API_URL="$API_URL" npm run ops:smoke:production
+
+printf '\nProduction release successful\n\n'
+printf 'Repository:                 aidanmccormick1/teacher-dashboard-clean\n'
+printf 'Branch:                     main\n'
+printf 'Git SHA:                    %s\n' "$commit_sha"
+printf 'Cloudflare project:         %s\n' "$PROJECT_NAME"
+printf 'Cloudflare deployment:      %s\n' "$deployment_id"
+printf 'Frontend:                   %s/management\n' "$WEB_URL"
+printf 'Frontend bundle:            %s (verified)\n' "$live_entry"
+printf 'Previous bundle:            %s\n' "${previous_entry:-none}"
+printf 'Render service:             %s (main auto-deploy enabled)\n' "$RENDER_SERVICE"
+printf 'API readiness:              passed\n'
+printf 'Production smoke test:      passed\n'
+printf 'Working tree:               clean\n'

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 API_URL="${API_URL:-https://teacheros-api.onrender.com}"
-WEB_URL="${WEB_URL:-https://teacher-dashboard-clean.pages.dev}"
+WEB_URL="${WEB_URL:-https://teacheros-app.pages.dev}"
 PILOT_TOKEN="${PILOT_TOKEN:-}"
 SMOKE_AI_QUEUE="${SMOKE_AI_QUEUE:-0}"
 SMOKE_S3_UPLOAD="${SMOKE_S3_UPLOAD:-0}"
