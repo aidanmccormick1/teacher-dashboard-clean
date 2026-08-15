@@ -15,11 +15,10 @@ The current Pages project is a Direct Upload project, so it cannot be attached t
 ## Release
 
 1. Make an intentional Git commit on `main` in `teacher-dashboard-clean`.
-2. Export a Cloudflare API token with Pages edit access. Keep it out of Git.
+2. Authenticate with `wrangler login` or export a Cloudflare API token with Pages edit access. Keep tokens out of Git.
 3. Run:
 
 ```bash
-export CLOUDFLARE_API_TOKEN="…"
 npm run release:production
 ```
 

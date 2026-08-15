@@ -36,9 +36,9 @@ repo_name="$(basename "$repo_root")"
 git diff --quiet || fail "Working tree has unstaged changes. Commit or stash them first."
 git diff --cached --quiet || fail "Working tree has staged changes. Commit or unstage them first."
 
-if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-  fail "Set CLOUDFLARE_API_TOKEN with Cloudflare Pages edit access before releasing."
-fi
+echo "Checking Cloudflare authentication..."
+npm exec --yes --package wrangler@4 -- wrangler whoami >/dev/null || \
+  fail "Authenticate with wrangler login or set CLOUDFLARE_API_TOKEN with Cloudflare Pages edit access."
 
 echo "Checking canonical main..."
 git fetch origin main --quiet
