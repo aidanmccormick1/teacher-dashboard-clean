@@ -6,7 +6,8 @@ import type {
   CourseDetailResponse,
   CourseListResponse,
   DashboardTodayResponse,
-  GetScheduleResponse
+  GetScheduleResponse,
+  SchoolCalendarResponse
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
@@ -19,6 +20,7 @@ type TodayClass = DashboardTodayResponse['todaySchedule'][number];
 
 type DashboardLoadState = {
   today: DashboardTodayResponse | null;
+  calendar: SchoolCalendarResponse | null;
   schedule: GetScheduleResponse | null;
   courses: CourseSummary[];
   courseDetails: CourseDetail[];
@@ -163,6 +165,7 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const [state, setState] = useState<DashboardLoadState>({
     today: null,
+    calendar: null,
     schedule: null,
     courses: [],
     courseDetails: [],
@@ -181,10 +184,11 @@ export function DashboardPage() {
       setError(null);
 
       try {
-        const [todayResult, scheduleResult, coursesResult] = await Promise.allSettled([
+        const [todayResult, scheduleResult, coursesResult, calendarResult] = await Promise.allSettled([
           api.dashboardToday(),
           api.getSchedule(),
-          api.listCourses()
+          api.listCourses(),
+          api.getSchoolCalendar()
         ]);
 
         if (cancelled) return;
@@ -192,6 +196,7 @@ export function DashboardPage() {
         const today = todayResult.status === 'fulfilled' ? todayResult.value : null;
         const schedule = scheduleResult.status === 'fulfilled' ? scheduleResult.value : null;
         const courses = coursesResult.status === 'fulfilled' ? coursesResult.value.courses : [];
+        const calendar = calendarResult.status === 'fulfilled' ? calendarResult.value : null;
 
         const courseDetails = (
           await Promise.allSettled(courses.map((course) => api.getCourseDetail(course.id)))
@@ -216,6 +221,7 @@ export function DashboardPage() {
 
         setState({
           today,
+          calendar,
           schedule,
           courses,
           courseDetails,
@@ -306,36 +312,26 @@ export function DashboardPage() {
   }, [state.schedule]);
 
   const readinessScore = buildReadinessScore(state, teachingResume, scheduleGaps);
-  const hasCourses = state.courses.length > 0;
   const hasSections = Boolean(state.schedule?.sections.length);
-  const hasMeetingTimes = Boolean(state.schedule?.sections.some((section) => section.meetings.some((meeting) => meeting.time)));
   const hasLessons = summary.lessonCount > 0;
   const hasSegments = summary.segmentCount > 0;
   const hasClassroomResume = Object.values(state.resumesBySectionId).some((resume) => resume.lesson);
   const setupSteps = [
     {
-      title: 'Create a course',
-      body: 'Course name and subject.',
-      done: hasCourses,
-      to: '/management',
-      managementTab: 'courses' as ManagementTabTarget,
-      action: hasCourses ? 'Review courses' : 'Add course'
-    },
-    {
-      title: 'Add periods',
-      body: 'Periods connected to each course.',
+      title: 'Import class schedule',
+      body: 'Courses, class groups, days, and times.',
       done: hasSections,
       to: '/management',
-      managementTab: 'periods' as ManagementTabTarget,
-      action: hasSections ? 'Review periods' : 'Add periods'
+      managementTab: 'import' as ManagementTabTarget,
+      action: hasSections ? 'Review classes' : 'Import schedule'
     },
     {
-      title: 'Add meeting times',
-      body: 'Days, times, and rooms.',
-      done: hasMeetingTimes,
-      to: '/management',
-      managementTab: 'weekly' as ManagementTabTarget,
-      action: hasMeetingTimes ? 'Check schedule' : 'Set times'
+      title: 'Import school calendar',
+      body: 'Breaks, closures, and special days.',
+      done: Boolean(state.calendar?.schoolYear),
+      to: '/school',
+      managementTab: null,
+      action: state.calendar?.schoolYear ? 'Review calendar' : 'Import calendar'
     },
     {
       title: 'Build Year Plan',
@@ -447,7 +443,7 @@ export function DashboardPage() {
         title: 'Clean up schedule gaps',
         body: scheduleGaps[0],
         to: '/management',
-        managementTab: 'weekly' as ManagementTabTarget,
+        managementTab: 'courses' as ManagementTabTarget,
         action: 'Fix schedule'
       });
     }
@@ -576,7 +572,7 @@ export function DashboardPage() {
                 Open classroom
               </Link>
             )}
-            <button className="button-link secondary" type="button" onClick={() => openManagementTab('weekly')}>
+            <button className="button-link secondary" type="button" onClick={() => openManagementTab('courses')}>
               Adjust schedule
             </button>
           </div>
@@ -728,7 +724,7 @@ export function DashboardPage() {
               <p className="eyebrow">Next Period</p>
               <h2>Next class prep</h2>
             </div>
-            <button className="secondary" type="button" onClick={() => openManagementTab('weekly')}>Schedule</button>
+            <button className="secondary" type="button" onClick={() => openManagementTab('courses')}>Schedule</button>
           </div>
           {state.today?.nextClass ? (
             <div className="next-class-card">
@@ -788,7 +784,7 @@ export function DashboardPage() {
               <p className="eyebrow">Timeline</p>
               <h2>Teaching arc</h2>
             </div>
-            <button className="secondary" type="button" onClick={() => openManagementTab('weekly')}>Edit day</button>
+            <button className="secondary" type="button" onClick={() => openManagementTab('courses')}>Edit day</button>
           </div>
           {state.today?.todaySchedule.length ? (
             <div className="timeline">

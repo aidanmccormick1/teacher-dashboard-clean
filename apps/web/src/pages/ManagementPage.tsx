@@ -126,7 +126,6 @@ const tabs: Array<{ id: ManagementTab; label: string }> = [
   { id: 'import', label: 'Import' },
   { id: 'start', label: 'Guide' },
   { id: 'courses', label: 'Courses' },
-  { id: 'periods', label: 'Class groups' },
   { id: 'curriculum', label: 'Year Plan' },
   { id: 'progress', label: 'Progress' }
 ];
@@ -252,7 +251,7 @@ function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
 function readManagementActiveTab(): ManagementTab {
   try {
     const saved = window.localStorage.getItem(activeTabStorageKey);
-    if (saved === 'weekly') return 'periods';
+    if (saved === 'weekly' || saved === 'periods') return 'courses';
     const matchingTab = tabs.find((tab) => tab.id === saved);
     // Migrate the former default Guide tab into the new import-first experience.
     // Explicitly saved work tabs still open where the teacher left off.
@@ -704,7 +703,7 @@ function promptForState(state: ManagementState, selectedCourse: CourseDetail | n
       id: 'add-periods',
       title: 'Add class groups for this course',
       body: 'A course uses one curriculum. Add groups such as A, B, and C—or Period 1, 2, and 3—to track them separately.',
-      tab: 'periods' as ManagementTab
+      tab: 'courses' as ManagementTab
     };
   }
   if (!hasMeetingTimes) {
@@ -712,7 +711,7 @@ function promptForState(state: ManagementState, selectedCourse: CourseDetail | n
       id: 'add-times',
       title: 'Add meeting times',
       body: 'Give each group its own days, time, and room so the dashboard knows what class is current and what comes next.',
-      tab: 'weekly' as ManagementTab
+      tab: 'courses' as ManagementTab
     };
   }
   if (!hasLessons) {
@@ -2214,7 +2213,7 @@ export function ManagementPage() {
       {error ? <p className="notice warning">{error}</p> : null}
       {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
       {loading ? <p className="muted">Loading...</p> : null}
-      {showPrompt && state.courses.length ? (
+      {showPrompt && prompt.tab !== activeTab && state.courses.length ? (
         <section className="smart-prompt">
           <div>
             <p className="eyebrow">Next step</p>
@@ -2298,28 +2297,6 @@ export function ManagementPage() {
             })}
           </div>
 
-          <article className="card stack">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Simple menu</p>
-                <h3>Where things live</h3>
-              </div>
-            </div>
-            <div className="management-menu-grid">
-              {tabs
-                .filter((tab) => tab.id !== 'start')
-                .map((tab) => (
-                  <button
-                    key={tab.id}
-                    className="secondary"
-                    type="button"
-                    onClick={() => setActiveTab(tab.id)}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-            </div>
-          </article>
         </section>
       ) : null}
 
@@ -2413,7 +2390,7 @@ export function ManagementPage() {
                       setNewCoursePeriods('');
                       window.localStorage.removeItem(newCourseDraftStorageKey);
                       setIsNewCourseOpen(false);
-                      setActiveTab('periods');
+                      setActiveTab('courses');
                       setError(null);
                     } catch (err) {
                       setError(err instanceof ApiError ? err.message : 'Failed to create course');
@@ -2436,13 +2413,9 @@ export function ManagementPage() {
           ) : null}
 
           {orderedCourseDetails.length > 1 ? (
-            <article className="card course-order-panel" aria-label="Course order">
-              <div>
-                <strong>Course order</strong>
-                <p className="muted">
-                  Use the arrows to keep your courses in the order you want. This order is saved.
-                </p>
-              </div>
+            <details className="course-order-panel" aria-label="Course order">
+              <summary>Order courses</summary>
+              <p className="muted">Saved automatically.</p>
               <div className="course-order-list">
                 {orderedCourseDetails.map((course, courseIndex) => (
                   <div key={course.id}>
@@ -2468,7 +2441,7 @@ export function ManagementPage() {
                   </div>
                 ))}
               </div>
-            </article>
+            </details>
           ) : null}
 
           <div className="course-card-grid">
@@ -2832,7 +2805,7 @@ export function ManagementPage() {
                 </button>
               </div>
               <div className="profile-actions">
-                <button className="secondary" type="button" onClick={() => setActiveTab('periods')}>
+                <button className="secondary" type="button" onClick={() => setActiveTab('courses')}>
                   Review class groups
                 </button>
                 <button className="secondary" type="button" onClick={() => navigate('/dashboard')}>
@@ -3203,14 +3176,11 @@ export function ManagementPage() {
               </div>
             </article>
           ) : (
-            <div className="management-editor-grid">
-              <article className="card stack compact-add-group-card">
+            <div className="management-editor-grid class-groups-editor">
+              <article className="compact-add-group-card">
                 <div className="section-heading">
                   <div>
-                    <h3>Add class group</h3>
-                    <p className="muted">
-                      Choose a course, name the group, then add its meeting rhythm.
-                    </p>
+                    <h3>Class groups</h3>
                   </div>
                   <div className="profile-actions">
                     <button
@@ -3369,12 +3339,7 @@ export function ManagementPage() {
                       Create class group
                     </button>
                   </>
-                ) : (
-                  <p className="muted">
-                    Your groups stay organized beneath their course. Open this form only when you
-                    need another one.
-                  </p>
-                )}
+                ) : null}
               </article>
 
               <article className="card stack">
@@ -3724,7 +3689,7 @@ export function ManagementPage() {
                     {scheduleGapItems.length === 1 ? 'gap' : 'gaps'}
                   </h3>
                 </div>
-                <button className="secondary" type="button" onClick={() => setActiveTab('periods')}>
+                <button className="secondary" type="button" onClick={() => setActiveTab('courses')}>
                   Fix class details
                 </button>
               </div>
@@ -3737,7 +3702,7 @@ export function ManagementPage() {
                     onClick={() => {
                       setSelectedCourseId(gap.section.courseId);
                       setSelectedSectionId(gap.section.sectionId);
-                      setActiveTab('periods');
+                      setActiveTab('courses');
                     }}
                   >
                     <strong>{gap.title}</strong>
@@ -3766,7 +3731,7 @@ export function ManagementPage() {
                         onClick={() => {
                           setSelectedCourseId(section.courseId);
                           setSelectedSectionId(section.sectionId);
-                          setActiveTab('periods');
+                          setActiveTab('courses');
                         }}
                       >
                         <strong>{formatTimeRange(meeting?.time, meeting?.endTime)}</strong>
@@ -4749,7 +4714,7 @@ export function ManagementPage() {
                         setSelectedCourseId(editingCourse.id);
                         setSelectedCourseForSchedule(editingCourse.id);
                         setEditingCourseId(null);
-                        setActiveTab('periods');
+                        setActiveTab('courses');
                       }}
                     >
                       Add Class Group
@@ -4801,7 +4766,7 @@ export function ManagementPage() {
                                 setSelectedSectionId(section.sectionId);
                                 beginSectionEdit(section);
                                 setEditingCourseId(null);
-                                setActiveTab('periods');
+                                setActiveTab('courses');
                               }}
                             >
                               Edit Class Group
@@ -4815,7 +4780,7 @@ export function ManagementPage() {
                                 setSelectedSectionId(section.sectionId);
                                 beginSectionEdit(section);
                                 setEditingCourseId(null);
-                                setActiveTab('weekly');
+                                setActiveTab('courses');
                               }}
                             >
                               Edit meeting times

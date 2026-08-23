@@ -1323,11 +1323,18 @@ button.button-link {
 }
 
 .course-order-panel {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
+  width: fit-content;
+  max-width: 100%;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: #fff;
 }
+
+.course-order-panel summary { cursor: pointer; font-weight: 700; color: var(--navy); }
+
+.course-order-panel[open] { width: min(100%, 380px); }
 
 .course-order-panel p {
   margin: 4px 0 0;
@@ -1356,8 +1363,15 @@ button.button-link {
 }
 
 .compact-add-group-card {
-  align-self: start;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  min-height: 0;
 }
+
+.compact-add-group-card > .section-heading { width: 100%; }
+
+.class-groups-editor { grid-template-columns: minmax(0, 1fr); }
 
 .compact-form-note {
   margin: -2px 0 0;

@@ -235,10 +235,10 @@ export function ClassroomPage() {
                 {resume?.lesson ? 'Prep next class' : 'No lesson ready'}
               </button>
             ) : null}
-            <button type="button" onClick={() => openManagementTab('weekly')}>
+            <button type="button" onClick={() => openManagementTab('courses')}>
               Open Weekly Schedule
             </button>
-            <button className="secondary" type="button" onClick={() => openManagementTab('periods')}>
+            <button className="secondary" type="button" onClick={() => openManagementTab('courses')}>
               Add periods
             </button>
             <button className="secondary" type="button" onClick={() => navigate('/dashboard')}>
