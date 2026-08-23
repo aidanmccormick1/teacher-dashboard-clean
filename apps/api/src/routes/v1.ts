@@ -8,6 +8,8 @@ import {
   AiJobControlResponseSchema,
   AiJobEnqueueResponseSchema,
   AiJobStatusResponseSchema,
+  AccountResetRequestSchema,
+  AccountResetResponseSchema,
   CalendarCommitRequestSchema,
   CalendarCommitResponseSchema,
   CalendarImportRequestSchema,
@@ -903,6 +905,58 @@ export async function v1Routes(app: FastifyInstance) {
               }
             : null
       });
+    }
+  );
+
+  app.post(
+    '/v1/account/reset',
+    {
+      schema: {
+        body: AccountResetRequestSchema,
+        response: { 200: AccountResetResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+
+      // Require an explicit typed confirmation so a reset cannot be triggered
+      // accidentally by normal navigation or a stale client.
+      AccountResetRequestSchema.parse(request.body);
+      const user = await ensureUserFromPrincipal(principal);
+
+      await db.transaction(async (tx) => {
+        const [profile] = await tx
+          .select({ schoolId: teacherProfiles.schoolId })
+          .from(teacherProfiles)
+          .where(eq(teacherProfiles.userId, user.id))
+          .limit(1);
+
+        // Course deletion cascades through sections, lessons, lesson state,
+        // meeting overrides, notes, and curriculum. AI outputs cascade with
+        // their jobs. The users row is deliberately never touched.
+        await tx.delete(courses).where(eq(courses.teacherId, user.id));
+        await tx.delete(aiJobs).where(eq(aiJobs.userId, user.id));
+        await tx.delete(auditEvents).where(eq(auditEvents.userId, user.id));
+        await tx.delete(teacherPreferences).where(eq(teacherPreferences.userId, user.id));
+        await tx.delete(teacherProfiles).where(eq(teacherProfiles.userId, user.id));
+
+        if (profile) {
+          const [anotherProfile] = await tx
+            .select({ userId: teacherProfiles.userId })
+            .from(teacherProfiles)
+            .where(eq(teacherProfiles.schoolId, profile.schoolId))
+            .limit(1);
+
+          // School calendars may be shared, so erase one only when this
+          // account was its last member.
+          if (!anotherProfile) {
+            await tx.delete(schools).where(eq(schools.id, profile.schoolId));
+          }
+        }
+      });
+
+      return AccountResetResponseSchema.parse({ reset: true });
     }
   );
 

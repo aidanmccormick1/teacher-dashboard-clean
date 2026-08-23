@@ -120,6 +120,14 @@ export const ProfileResponseSchema = z.object({
 export const ProfileUpdateRequestSchema = OnboardingRequestSchema;
 export const ProfileUpdateResponseSchema = ProfileResponseSchema;
 
+export const AccountResetRequestSchema = z.object({
+  confirmation: z.literal('RESET')
+});
+
+export const AccountResetResponseSchema = z.object({
+  reset: z.literal(true)
+});
+
 export const DashboardTodayResponseSchema = z.object({
   date: IsoDateSchema,
   currentClass: z
@@ -673,6 +681,8 @@ export const ApiErrorSchema = z.object({
 export type OnboardingRequest = z.infer<typeof OnboardingRequestSchema>;
 export type OnboardingResponse = z.infer<typeof OnboardingResponseSchema>;
 export type ProfileResponse = z.infer<typeof ProfileResponseSchema>;
+export type AccountResetRequest = z.infer<typeof AccountResetRequestSchema>;
+export type AccountResetResponse = z.infer<typeof AccountResetResponseSchema>;
 export type ProfileUpdateRequest = z.infer<typeof ProfileUpdateRequestSchema>;
 export type ProfileUpdateResponse = z.infer<typeof ProfileUpdateResponseSchema>;
 export type DashboardTodayResponse = z.infer<typeof DashboardTodayResponseSchema>;

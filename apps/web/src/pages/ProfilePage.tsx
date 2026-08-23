@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
 import type { ProfileResponse } from '@teacheros/contracts';
 
@@ -78,9 +78,11 @@ function mergeApiProfile(current: ProfileForm, profile: ProfileResponse): Profil
 export function ProfilePage() {
   const auth = useAppAuth();
   const api = useApiClient();
+  const navigate = useNavigate();
   const [form, setForm] = useState<ProfileForm>(() => loadDraft(auth.email));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -99,17 +101,19 @@ export function ProfilePage() {
     };
   }, [api]);
 
-  const update = <TKey extends keyof ProfileForm>(key: TKey, value: ProfileForm[TKey]) =>
+  const update = <TKey extends keyof ProfileForm>(key: TKey, value: ProfileForm[TKey]) => {
+    setSaved(false);
     setForm((current) => ({ ...current, [key]: value }));
-  const subjects = splitList(form.subjects);
-  const grades = splitList(form.grades);
+  };
+  const subjects = useMemo(() => splitList(form.subjects), [form.subjects]);
+  const grades = useMemo(() => splitList(form.grades), [form.grades]);
   const schoolLine = [form.district, form.state].filter(Boolean).join(' · ');
   const canSave = Boolean(
     form.fullName.trim() &&
     form.schoolName.trim() &&
     (!form.workEmail || form.workEmail.includes('@'))
   );
-  const save = async () => {
+  const save = useCallback(async () => {
     if (!canSave) return;
     try {
       setSaving(true);
@@ -130,6 +134,40 @@ export function ProfilePage() {
       setError(err instanceof ApiError ? err.message : 'Could not save your profile.');
     } finally {
       setSaving(false);
+    }
+  }, [api, canSave, form, grades, subjects]);
+
+  useEffect(() => {
+    if (!canSave) return;
+
+    const timer = window.setTimeout(() => {
+      void save();
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [canSave, save]);
+
+  const resetAccount = async () => {
+    const confirmation = window.prompt(
+      'This permanently erases your classes, plans, calendar, notes, and settings. Your sign-in account will remain. Type RESET to continue.'
+    );
+    if (confirmation !== 'RESET') return;
+
+    try {
+      setResetting(true);
+      setError(null);
+      await api.resetAccount();
+      // Retain the active sign-in session, but remove all account-specific
+      // browser drafts and UI state before beginning onboarding again.
+      for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+        const key = window.localStorage.key(index);
+        if (key?.startsWith('teacheros_') && key !== 'teacheros_dev_session') {
+          window.localStorage.removeItem(key);
+        }
+      }
+      navigate('/onboarding', { replace: true });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not reset your account.');
+      setResetting(false);
     }
   };
 
@@ -295,13 +333,28 @@ export function ProfilePage() {
         </article>
         <footer className="profile-save-bar">
           <div>
-            <strong>Ready to save?</strong>
-            <span>Your school and teaching details will be updated together.</span>
+            <strong>{saving ? 'Saving changes…' : saved ? 'All changes saved' : 'Changes save automatically'}</strong>
+            <span>Your school and teaching details are saved after you pause typing.</span>
           </div>
           <button type="button" disabled={!canSave || saving} onClick={() => void save()}>
-            {saving ? 'Saving…' : 'Save Profile'}
+            {saving ? 'Saving…' : 'Save now'}
           </button>
         </footer>
+        <article className="card stack profile-section">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Danger zone</p>
+              <h2>Start over</h2>
+              <p>
+                Permanently erase your classes, curriculum, schedule, school calendar, notes,
+                AI history, and settings. Your sign-in account stays active.
+              </p>
+            </div>
+            <button type="button" disabled={resetting} onClick={() => void resetAccount()}>
+              {resetting ? 'Resetting…' : 'Reset all data'}
+            </button>
+          </div>
+        </article>
       </section>
     </div>
   );

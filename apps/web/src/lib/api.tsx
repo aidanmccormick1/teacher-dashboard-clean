@@ -4,6 +4,7 @@ import type {
   AiJobControlResponse,
   AiJobEnqueueResponse,
   AiJobStatusResponse,
+  AccountResetResponse,
   CalendarCommitRequest,
   CalendarCommitResponse,
   CalendarImportRequest,
@@ -154,6 +155,12 @@ export function useApiClient() {
         request<ProfileUpdateResponse>(
           '/v1/profile',
           { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      resetAccount: () =>
+        request<AccountResetResponse>(
+          '/v1/account/reset',
+          { method: 'POST', body: JSON.stringify({ confirmation: 'RESET' }) },
           auth
         ),
       dashboardToday: () =>
