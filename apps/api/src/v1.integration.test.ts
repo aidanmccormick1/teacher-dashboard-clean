@@ -37,7 +37,14 @@ const onboardingBody = {
 
 async function runMigrations() {
   const migrationsDir = path.resolve(process.cwd(), '../../packages/db/migrations');
-  const migrationFiles = ['0000_initial.sql', '0001_ai_jobs_cancel_status.sql'];
+  const migrationFiles = [
+    '0000_initial.sql',
+    '0001_ai_jobs_cancel_status.sql',
+    '0002_test_accounts.sql',
+    '0003_section_meeting_end_times.sql',
+    '0004_unit_timeline_pacing.sql',
+    '0005_school_calendar_and_planning.sql'
+  ];
 
   for (const fileName of migrationFiles) {
     const sql = await readFile(path.join(migrationsDir, fileName), 'utf8');
@@ -108,61 +115,61 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
 
   describe('v1 curriculum CRUD', () => {
     it('supports full nested curriculum CRUD for an onboarded teacher', async () => {
-    const onboarding = await app.inject({
-      method: 'POST',
-      url: '/v1/onboarding',
-      headers: teacherHeaders,
-      payload: onboardingBody
-    });
-    expect(onboarding.statusCode).toBe(200);
+      const onboarding = await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: onboardingBody
+      });
+      expect(onboarding.statusCode).toBe(200);
 
-    const createCourse = await app.inject({
-      method: 'POST',
-      url: '/v1/courses',
-      headers: teacherHeaders,
-      payload: {
-        name: 'Algebra I',
-        subject: 'Math',
-        gradeLevel: '8'
-      }
-    });
-    expect(createCourse.statusCode).toBe(200);
+      const createCourse = await app.inject({
+        method: 'POST',
+        url: '/v1/courses',
+        headers: teacherHeaders,
+        payload: {
+          name: 'Algebra I',
+          subject: 'Math',
+          gradeLevel: '8'
+        }
+      });
+      expect(createCourse.statusCode).toBe(200);
       const createdCourse = createCourse.json<{
         course: { id: string; name: string; units: Array<{ id: string }> };
       }>();
-    expect(createdCourse.course.name).toBe('Algebra I');
-    expect(createdCourse.course.units).toEqual([]);
+      expect(createdCourse.course.name).toBe('Algebra I');
+      expect(createdCourse.course.units).toEqual([]);
 
-    const createUnit = await app.inject({
-      method: 'POST',
-      url: `/v1/courses/${createdCourse.course.id}/units`,
-      headers: teacherHeaders,
-      payload: {
-        title: 'Linear Equations',
-        description: 'Solving one-step and two-step equations',
-        orderIndex: 0
-      }
-    });
-    expect(createUnit.statusCode).toBe(200);
+      const createUnit = await app.inject({
+        method: 'POST',
+        url: `/v1/courses/${createdCourse.course.id}/units`,
+        headers: teacherHeaders,
+        payload: {
+          title: 'Linear Equations',
+          description: 'Solving one-step and two-step equations',
+          orderIndex: 0
+        }
+      });
+      expect(createUnit.statusCode).toBe(200);
       const withUnit = createUnit.json<{
         course: { units: Array<{ id: string; title: string; lessons: Array<{ id: string }> }> };
       }>();
-    expect(withUnit.course.units).toHaveLength(1);
-    expect(withUnit.course.units[0]?.title).toBe('Linear Equations');
-    const unitId = withUnit.course.units[0]?.id ?? '';
-    expect(unitId).not.toBe('');
+      expect(withUnit.course.units).toHaveLength(1);
+      expect(withUnit.course.units[0]?.title).toBe('Linear Equations');
+      const unitId = withUnit.course.units[0]?.id ?? '';
+      expect(unitId).not.toBe('');
 
-    const createLesson = await app.inject({
-      method: 'POST',
-      url: `/v1/units/${unitId}/lessons`,
-      headers: teacherHeaders,
-      payload: {
-        title: 'Solving for X',
-        description: 'Balance method',
-        estimatedDurationMinutes: 45
-      }
-    });
-    expect(createLesson.statusCode).toBe(200);
+      const createLesson = await app.inject({
+        method: 'POST',
+        url: `/v1/units/${unitId}/lessons`,
+        headers: teacherHeaders,
+        payload: {
+          title: 'Solving for X',
+          description: 'Balance method',
+          estimatedDurationMinutes: 45
+        }
+      });
+      expect(createLesson.statusCode).toBe(200);
       const withLesson = createLesson.json<{
         course: {
           units: Array<{
@@ -171,22 +178,22 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           }>;
         };
       }>();
-    const lesson = withLesson.course.units.find((item) => item.id === unitId)?.lessons[0];
-    expect(lesson?.title).toBe('Solving for X');
-    const lessonId = lesson?.id ?? '';
-    expect(lessonId).not.toBe('');
+      const lesson = withLesson.course.units.find((item) => item.id === unitId)?.lessons[0];
+      expect(lesson?.title).toBe('Solving for X');
+      const lessonId = lesson?.id ?? '';
+      expect(lessonId).not.toBe('');
 
-    const createSegment = await app.inject({
-      method: 'POST',
-      url: `/v1/lessons/${lessonId}/segments`,
-      headers: teacherHeaders,
-      payload: {
-        title: 'Do Now',
-        description: 'Warm-up questions',
-        durationMinutes: 7
-      }
-    });
-    expect(createSegment.statusCode).toBe(200);
+      const createSegment = await app.inject({
+        method: 'POST',
+        url: `/v1/lessons/${lessonId}/segments`,
+        headers: teacherHeaders,
+        payload: {
+          title: 'Do Now',
+          description: 'Warm-up questions',
+          durationMinutes: 7
+        }
+      });
+      expect(createSegment.statusCode).toBe(200);
       const withSegment = createSegment.json<{
         course: {
           units: Array<{
@@ -194,29 +201,29 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           }>;
         };
       }>();
-    const segment = withSegment.course.units
-      .flatMap((unit) => unit.lessons)
-      .find((item) => item.id === lessonId)?.segments[0];
-    expect(segment?.title).toBe('Do Now');
-    const segmentId = segment?.id ?? '';
-    expect(segmentId).not.toBe('');
+      const segment = withSegment.course.units
+        .flatMap((unit) => unit.lessons)
+        .find((item) => item.id === lessonId)?.segments[0];
+      expect(segment?.title).toBe('Do Now');
+      const segmentId = segment?.id ?? '';
+      expect(segmentId).not.toBe('');
 
-    const updateSegment = await app.inject({
-      method: 'PATCH',
-      url: `/v1/segments/${segmentId}`,
-      headers: teacherHeaders,
-      payload: {
-        title: 'Do Now + Attendance'
-      }
-    });
-    expect(updateSegment.statusCode).toBe(200);
+      const updateSegment = await app.inject({
+        method: 'PATCH',
+        url: `/v1/segments/${segmentId}`,
+        headers: teacherHeaders,
+        payload: {
+          title: 'Do Now + Attendance'
+        }
+      });
+      expect(updateSegment.statusCode).toBe(200);
 
-    const fetchCourse = await app.inject({
-      method: 'GET',
-      url: `/v1/courses/${createdCourse.course.id}`,
-      headers: teacherHeaders
-    });
-    expect(fetchCourse.statusCode).toBe(200);
+      const fetchCourse = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${createdCourse.course.id}`,
+        headers: teacherHeaders
+      });
+      expect(fetchCourse.statusCode).toBe(200);
       const fetched = fetchCourse.json<{
         course: {
           units: Array<{
@@ -224,148 +231,148 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           }>;
         };
       }>();
-    expect(fetched.course.units[0]?.lessons[0]?.segments[0]?.title).toBe('Do Now + Attendance');
+      expect(fetched.course.units[0]?.lessons[0]?.segments[0]?.title).toBe('Do Now + Attendance');
 
-    const forbiddenFetch = await app.inject({
-      method: 'GET',
-      url: `/v1/courses/${createdCourse.course.id}`,
-      headers: otherTeacherHeaders
-    });
-    expect(forbiddenFetch.statusCode).toBe(404);
+      const forbiddenFetch = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${createdCourse.course.id}`,
+        headers: otherTeacherHeaders
+      });
+      expect(forbiddenFetch.statusCode).toBe(404);
 
-    const deleteSegment = await app.inject({
-      method: 'DELETE',
-      url: `/v1/segments/${segmentId}`,
-      headers: teacherHeaders
-    });
-    expect(deleteSegment.statusCode).toBe(200);
-    expect(deleteSegment.json()).toEqual({ deleted: true });
+      const deleteSegment = await app.inject({
+        method: 'DELETE',
+        url: `/v1/segments/${segmentId}`,
+        headers: teacherHeaders
+      });
+      expect(deleteSegment.statusCode).toBe(200);
+      expect(deleteSegment.json()).toEqual({ deleted: true });
     });
   });
 
   describe('v1 AI job controls', () => {
     it('supports cancel, retry, and status fields for AI jobs', async () => {
-    const onboarding = await app.inject({
-      method: 'POST',
-      url: '/v1/onboarding',
-      headers: teacherHeaders,
-      payload: onboardingBody
-    });
-    expect(onboarding.statusCode).toBe(200);
+      const onboarding = await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: onboardingBody
+      });
+      expect(onboarding.statusCode).toBe(200);
 
-    const [user] = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.clerkUserId, teacherHeaders['x-dev-user-id']))
-      .limit(1);
-    expect(user).toBeDefined();
-    const userId = user?.id ?? '';
-    expect(userId).not.toBe('');
+      const [user] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.clerkUserId, teacherHeaders['x-dev-user-id']))
+        .limit(1);
+      expect(user).toBeDefined();
+      const userId = user?.id ?? '';
+      expect(userId).not.toBe('');
 
-    const [queuedJob] = await db
-      .insert(aiJobs)
-      .values({
-        userId,
-        type: 'parse_schedule',
-        status: 'queued',
-        input: { text: 'period 1 algebra' },
-        cancelRequested: false
-      })
-      .returning({ id: aiJobs.id });
-    expect(queuedJob).toBeDefined();
+      const [queuedJob] = await db
+        .insert(aiJobs)
+        .values({
+          userId,
+          type: 'parse_schedule',
+          status: 'queued',
+          input: { text: 'period 1 algebra' },
+          cancelRequested: false
+        })
+        .returning({ id: aiJobs.id });
+      expect(queuedJob).toBeDefined();
 
-    const [runningJob] = await db
-      .insert(aiJobs)
-      .values({
-        userId,
-        type: 'generate_segments',
+      const [runningJob] = await db
+        .insert(aiJobs)
+        .values({
+          userId,
+          type: 'generate_segments',
+          status: 'running',
+          input: { lessonTitle: 'Warm up', durationMinutes: 40 },
+          cancelRequested: false
+        })
+        .returning({ id: aiJobs.id });
+      expect(runningJob).toBeDefined();
+
+      const [failedJob] = await db
+        .insert(aiJobs)
+        .values({
+          userId,
+          type: 'generate_continuity',
+          status: 'failed',
+          input: { lessonTitle: 'Recap block' },
+          error: 'Timeout'
+        })
+        .returning({ id: aiJobs.id });
+      expect(failedJob).toBeDefined();
+
+      const fakeQueue = {
+        add: vi.fn(async () => ({ id: failedJob?.id ?? 'x' })),
+        remove: vi.fn(async () => undefined),
+        getJob: vi.fn(async (jobId: string) => {
+          if (jobId === failedJob?.id) {
+            return {
+              attemptsMade: 2,
+              opts: { attempts: 3 },
+              progress: 70
+            };
+          }
+          return null;
+        })
+      };
+      (app as any).aiQueue = fakeQueue;
+
+      const cancelQueued = await app.inject({
+        method: 'POST',
+        url: `/v1/ai/jobs/${queuedJob?.id}/cancel`,
+        headers: teacherHeaders
+      });
+      expect(cancelQueued.statusCode).toBe(200);
+      expect(cancelQueued.json()).toEqual({
+        jobId: queuedJob?.id,
+        status: 'cancelled',
+        action: 'cancelled'
+      });
+
+      const cancelRunning = await app.inject({
+        method: 'POST',
+        url: `/v1/ai/jobs/${runningJob?.id}/cancel`,
+        headers: teacherHeaders
+      });
+      expect(cancelRunning.statusCode).toBe(200);
+      expect(cancelRunning.json()).toEqual({
+        jobId: runningJob?.id,
         status: 'running',
-        input: { lessonTitle: 'Warm up', durationMinutes: 40 },
-        cancelRequested: false
-      })
-      .returning({ id: aiJobs.id });
-    expect(runningJob).toBeDefined();
+        action: 'cancelled'
+      });
 
-    const [failedJob] = await db
-      .insert(aiJobs)
-      .values({
-        userId,
-        type: 'generate_continuity',
-        status: 'failed',
-        input: { lessonTitle: 'Recap block' },
-        error: 'Timeout'
-      })
-      .returning({ id: aiJobs.id });
-    expect(failedJob).toBeDefined();
+      const [runningAfterCancel] = await db
+        .select({
+          cancelRequested: aiJobs.cancelRequested
+        })
+        .from(aiJobs)
+        .where(eq(aiJobs.id, runningJob?.id ?? ''))
+        .limit(1);
+      expect(runningAfterCancel?.cancelRequested).toBe(true);
 
-    const fakeQueue = {
-      add: vi.fn(async () => ({ id: failedJob?.id ?? 'x' })),
-      remove: vi.fn(async () => undefined),
-      getJob: vi.fn(async (jobId: string) => {
-        if (jobId === failedJob?.id) {
-          return {
-            attemptsMade: 2,
-            opts: { attempts: 3 },
-            progress: 70
-          };
-        }
-        return null;
-      })
-    };
-    (app as any).aiQueue = fakeQueue;
+      const retryFailed = await app.inject({
+        method: 'POST',
+        url: `/v1/ai/jobs/${failedJob?.id}/retry`,
+        headers: teacherHeaders
+      });
+      expect(retryFailed.statusCode).toBe(200);
+      expect(retryFailed.json()).toEqual({
+        jobId: failedJob?.id,
+        status: 'queued',
+        action: 'requeued'
+      });
+      expect(fakeQueue.add).toHaveBeenCalledTimes(1);
 
-    const cancelQueued = await app.inject({
-      method: 'POST',
-      url: `/v1/ai/jobs/${queuedJob?.id}/cancel`,
-      headers: teacherHeaders
-    });
-    expect(cancelQueued.statusCode).toBe(200);
-    expect(cancelQueued.json()).toEqual({
-      jobId: queuedJob?.id,
-      status: 'cancelled',
-      action: 'cancelled'
-    });
-
-    const cancelRunning = await app.inject({
-      method: 'POST',
-      url: `/v1/ai/jobs/${runningJob?.id}/cancel`,
-      headers: teacherHeaders
-    });
-    expect(cancelRunning.statusCode).toBe(200);
-    expect(cancelRunning.json()).toEqual({
-      jobId: runningJob?.id,
-      status: 'running',
-      action: 'cancelled'
-    });
-
-    const [runningAfterCancel] = await db
-      .select({
-        cancelRequested: aiJobs.cancelRequested
-      })
-      .from(aiJobs)
-      .where(eq(aiJobs.id, runningJob?.id ?? ''))
-      .limit(1);
-    expect(runningAfterCancel?.cancelRequested).toBe(true);
-
-    const retryFailed = await app.inject({
-      method: 'POST',
-      url: `/v1/ai/jobs/${failedJob?.id}/retry`,
-      headers: teacherHeaders
-    });
-    expect(retryFailed.statusCode).toBe(200);
-    expect(retryFailed.json()).toEqual({
-      jobId: failedJob?.id,
-      status: 'queued',
-      action: 'requeued'
-    });
-    expect(fakeQueue.add).toHaveBeenCalledTimes(1);
-
-    const status = await app.inject({
-      method: 'GET',
-      url: `/v1/ai/jobs/${failedJob?.id}`,
-      headers: teacherHeaders
-    });
-    expect(status.statusCode).toBe(200);
+      const status = await app.inject({
+        method: 'GET',
+        url: `/v1/ai/jobs/${failedJob?.id}`,
+        headers: teacherHeaders
+      });
+      expect(status.statusCode).toBe(200);
       const payload = status.json<{
         status: string;
         canCancel: boolean;
@@ -377,26 +384,26 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         error: string | null;
       }>();
 
-    expect(payload.status).toBe('queued');
-    expect(payload.canCancel).toBe(true);
-    expect(payload.canRetry).toBe(false);
-    expect(payload.attemptsMade).toBe(2);
-    expect(payload.maxAttempts).toBe(3);
-    expect(payload.progressPercent).toBe(70);
-    expect(payload.cancelRequested).toBe(false);
-    expect(payload.error).toBeNull();
+      expect(payload.status).toBe('queued');
+      expect(payload.canCancel).toBe(true);
+      expect(payload.canRetry).toBe(false);
+      expect(payload.attemptsMade).toBe(2);
+      expect(payload.maxAttempts).toBe(3);
+      expect(payload.progressPercent).toBe(70);
+      expect(payload.cancelRequested).toBe(false);
+      expect(payload.error).toBeNull();
 
-    const [retriedJob] = await db
-      .select({
-        status: aiJobs.status,
-        cancelRequested: aiJobs.cancelRequested
-      })
-      .from(aiJobs)
-      .where(and(eq(aiJobs.id, failedJob?.id ?? ''), eq(aiJobs.userId, userId)))
-      .limit(1);
+      const [retriedJob] = await db
+        .select({
+          status: aiJobs.status,
+          cancelRequested: aiJobs.cancelRequested
+        })
+        .from(aiJobs)
+        .where(and(eq(aiJobs.id, failedJob?.id ?? ''), eq(aiJobs.userId, userId)))
+        .limit(1);
 
-    expect(retriedJob?.status).toBe('queued');
-    expect(retriedJob?.cancelRequested).toBe(false);
+      expect(retriedJob?.status).toBe('queued');
+      expect(retriedJob?.cancelRequested).toBe(false);
     });
   });
 
@@ -440,7 +447,9 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         headers: teacherHeaders
       });
       expect(schedule.statusCode).toBe(200);
-      const schedulePayload = schedule.json<{ holidays: Array<{ id: string; date: string; name: string }> }>();
+      const schedulePayload = schedule.json<{
+        holidays: Array<{ id: string; date: string; name: string }>;
+      }>();
       expect(schedulePayload.holidays).toHaveLength(1);
       expect(schedulePayload.holidays[0]).toMatchObject({
         date: '2026-11-25',

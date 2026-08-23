@@ -58,9 +58,35 @@ CREATE TABLE IF NOT EXISTS teacher_preferences (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Preserve historical closures in the new shared calendar model when a school
--- already has a configured school-year range. Manual re-entry remains possible
--- for legacy schools with no dates yet.
+-- Preserve historical closures in the new shared calendar model. Legacy
+-- installs did not have school-year rows, so first create conventional
+-- July--June ranges for every academic year represented by a holiday.
+WITH holiday_years AS (
+  SELECT
+    h.school_id,
+    make_date(
+      CASE WHEN EXTRACT(MONTH FROM h.date) >= 7
+        THEN EXTRACT(YEAR FROM h.date)::integer
+        ELSE EXTRACT(YEAR FROM h.date)::integer - 1
+      END,
+      7,
+      1
+    ) AS start_date,
+    h.created_by_user_id,
+    h.created_at
+  FROM school_holidays h
+)
+INSERT INTO school_years (school_id, start_date, end_date, created_by_user_id)
+SELECT
+  school_id,
+  start_date,
+  (start_date + INTERVAL '1 year - 1 day')::date,
+  (array_agg(created_by_user_id ORDER BY created_at))[1]
+FROM holiday_years
+GROUP BY school_id, start_date
+ON CONFLICT (school_id, start_date, end_date) DO NOTHING;
+
+-- Backfill legacy closures as typed no-school calendar events.
 INSERT INTO school_calendar_events (school_year_id, date, type, label, created_by_user_id)
 SELECT sy.id, h.date, 'no_school', h.name, h.created_by_user_id
 FROM school_holidays h

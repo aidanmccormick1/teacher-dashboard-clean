@@ -245,7 +245,10 @@ export const SchoolCalendarResponseSchema = z.object({
 
 export const SchoolYearUpsertRequestSchema = z
   .object({ startDate: IsoDateSchema, endDate: IsoDateSchema })
-  .refine((value) => value.endDate >= value.startDate, { path: ['endDate'], message: 'End date must be on or after start date.' });
+  .refine((value) => value.endDate >= value.startDate, {
+    path: ['endDate'],
+    message: 'End date must be on or after start date.'
+  });
 
 export const CalendarImportRequestSchema = ScheduleImportRequestSchema;
 const CalendarOverridePreviewSchema = z.object({
@@ -262,6 +265,17 @@ export const CalendarImportResponseSchema = z.object({
   overrides: z.array(CalendarOverridePreviewSchema).default([]),
   notices: z.array(z.string()).default([])
 });
+
+export const MeetingInstancesQuerySchema = z
+  .object({
+    sectionId: UuidSchema.optional(),
+    startDate: IsoDateSchema.optional(),
+    endDate: IsoDateSchema.optional()
+  })
+  .refine((value) => !value.startDate || !value.endDate || value.startDate <= value.endDate, {
+    path: ['endDate'],
+    message: 'End date must be on or after start date.'
+  });
 
 export const CalendarCommitRequestSchema = z.object({
   mode: z.enum(['merge', 'replace']),
@@ -281,7 +295,9 @@ export const SectionMeetingOverrideRequestSchema = z
     room: z.string().nullable(),
     cancelled: z.boolean().default(false)
   })
-  .superRefine((value, context) => validateMeetingRange({ time: value.startTime, endTime: value.endTime }, context));
+  .superRefine((value, context) =>
+    validateMeetingRange({ time: value.startTime, endTime: value.endTime }, context)
+  );
 
 export const MeetingInstanceSchema = z.object({
   sectionId: UuidSchema,
@@ -481,6 +497,15 @@ export const CourseUpdateRequestSchema = z.object({
   sortIndex: z.number().int().nonnegative().optional()
 });
 
+export const CourseOrderUpdateRequestSchema = z.object({
+  courseIds: z
+    .array(UuidSchema)
+    .min(1)
+    .refine((courseIds) => new Set(courseIds).size === courseIds.length, {
+      message: 'Each course may appear only once.'
+    })
+});
+
 export const SegmentSchema = z.object({
   id: UuidSchema,
   title: z.string(),
@@ -638,6 +663,7 @@ export type CalendarCommitRequest = z.infer<typeof CalendarCommitRequestSchema>;
 export type CalendarCommitResponse = z.infer<typeof CalendarCommitResponseSchema>;
 export type SectionMeetingOverrideRequest = z.infer<typeof SectionMeetingOverrideRequestSchema>;
 export type MeetingInstancesResponse = z.infer<typeof MeetingInstancesResponseSchema>;
+export type MeetingInstancesQuery = z.infer<typeof MeetingInstancesQuerySchema>;
 export type TeacherPreferences = z.infer<typeof TeacherPreferencesSchema>;
 export type TeacherPreferencesUpdateRequest = z.infer<typeof TeacherPreferencesUpdateRequestSchema>;
 export type FeedbackSubmitRequest = z.infer<typeof FeedbackSubmitRequestSchema>;
@@ -663,6 +689,7 @@ export type CourseListResponse = z.infer<typeof CourseListResponseSchema>;
 export type CourseDetailResponse = z.infer<typeof CourseDetailResponseSchema>;
 export type CourseCreateRequest = z.infer<typeof CourseCreateRequestSchema>;
 export type CourseUpdateRequest = z.infer<typeof CourseUpdateRequestSchema>;
+export type CourseOrderUpdateRequest = z.infer<typeof CourseOrderUpdateRequestSchema>;
 export type UnitCreateRequest = z.infer<typeof UnitCreateRequestSchema>;
 export type UnitUpdateRequest = z.infer<typeof UnitUpdateRequestSchema>;
 export type LessonCreateRequest = z.infer<typeof LessonCreateRequestSchema>;

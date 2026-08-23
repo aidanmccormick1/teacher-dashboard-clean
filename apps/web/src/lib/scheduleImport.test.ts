@@ -62,16 +62,65 @@ describe('normalizeImportedCourseVariants', () => {
     ]);
   });
 
-  it('keeps repeated class-group labels together while preserving their meeting occurrences', () => {
+  it('keeps numbered period groups under their shared course', () => {
     const result = normalizeImportedCourseVariants({
       classes: [
-        { ...baseClass, name: 'Spanish 5', period: 'Group B / Period 1', days: ['Monday'], time: '08:10' },
-        { ...baseClass, name: 'Spanish 5', period: 'Group B / Period 5', days: ['Thursday'], time: '13:35' }
+        { ...baseClass, name: 'Math 6 Period 1', period: '1' },
+        { ...baseClass, name: 'Math 6 Period 4', period: '4' },
+        { ...baseClass, name: 'AP Government Period 1', period: '1' }
       ],
       assignments: []
     });
 
-    expect(result.classes.map(({ name, period, days, time }) => ({ name, period, days, time }))).toEqual([
+    expect(result.classes.map(({ name, period }) => ({ name, period }))).toEqual([
+      { name: 'Math 6', period: 'Period 1' },
+      { name: 'Math 6', period: 'Period 4' },
+      { name: 'AP Government', period: 'Period 1' }
+    ]);
+  });
+
+  it('normalizes contextual shorthand alongside the full course title', () => {
+    const result = normalizeImportedCourseVariants({
+      classes: [
+        { ...baseClass, name: 'Spanish 7', period: 'Group A' },
+        { ...baseClass, name: '7B Spanish', period: '2' },
+        { ...baseClass, name: '7C Spanish', period: '3' }
+      ],
+      assignments: [{ name: 'Quiz', courseName: '7B Spanish', dueDate: null, description: null }]
+    });
+
+    expect(result.classes.map(({ name, period }) => ({ name, period }))).toEqual([
+      { name: 'Spanish 7', period: 'Group A' },
+      { name: 'Spanish 7', period: 'Group B' },
+      { name: 'Spanish 7', period: 'Group C' }
+    ]);
+    expect(result.assignments[0]?.courseName).toBe('Spanish 7');
+  });
+
+  it('keeps repeated class-group labels together while preserving their meeting occurrences', () => {
+    const result = normalizeImportedCourseVariants({
+      classes: [
+        {
+          ...baseClass,
+          name: 'Spanish 5',
+          period: 'Group B / Period 1',
+          days: ['Monday'],
+          time: '08:10'
+        },
+        {
+          ...baseClass,
+          name: 'Spanish 5',
+          period: 'Group B / Period 5',
+          days: ['Thursday'],
+          time: '13:35'
+        }
+      ],
+      assignments: []
+    });
+
+    expect(
+      result.classes.map(({ name, period, days, time }) => ({ name, period, days, time }))
+    ).toEqual([
       { name: 'Spanish 5', period: 'Group B', days: ['Monday'], time: '08:10' },
       { name: 'Spanish 5', period: 'Group B', days: ['Thursday'], time: '13:35' }
     ]);
@@ -97,13 +146,32 @@ describe('normalizeImportedCourseVariants', () => {
   it('removes duplicate meeting records returned by a visual audit', () => {
     const result = normalizeImportedCourseVariants({
       classes: [
-        { ...baseClass, name: 'Spanish 8B', period: '3', days: ['Thursday'], time: '10:08', room: 'Jones HR' },
-        { ...baseClass, name: 'Spanish 8B', period: '4', days: ['Thursday'], time: '10:08', room: 'Jones HR' }
+        {
+          ...baseClass,
+          name: 'Spanish 8B',
+          period: '3',
+          days: ['Thursday'],
+          time: '10:08',
+          room: 'Jones HR'
+        },
+        {
+          ...baseClass,
+          name: 'Spanish 8B',
+          period: '4',
+          days: ['Thursday'],
+          time: '10:08',
+          room: 'Jones HR'
+        }
       ],
       assignments: []
     });
 
     expect(result.classes).toHaveLength(1);
-    expect(result.classes[0]).toMatchObject({ name: 'Spanish 8', period: 'Group B', days: ['Thursday'], time: '10:08' });
+    expect(result.classes[0]).toMatchObject({
+      name: 'Spanish 8',
+      period: 'Group B',
+      days: ['Thursday'],
+      time: '10:08'
+    });
   });
 });
