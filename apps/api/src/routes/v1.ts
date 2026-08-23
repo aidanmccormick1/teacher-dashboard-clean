@@ -1069,10 +1069,10 @@ export async function v1Routes(app: FastifyInstance) {
         if (body.mode === 'replace')
           await tx
             .delete(schoolCalendarEvents)
-            .where(eq(schoolCalendarEvents.schoolYearId, schoolYear!.id));
+            .where(eq(schoolCalendarEvents.schoolYearId, schoolYear.id));
         for (const event of events) {
           const values = {
-            schoolYearId: schoolYear!.id,
+            schoolYearId: schoolYear.id,
             date: event.date,
             type: event.type,
             label: event.label,
@@ -1137,7 +1137,7 @@ export async function v1Routes(app: FastifyInstance) {
           userId: user.id,
           eventType: `school_calendar_${body.mode}`,
           entityType: 'school_year',
-          entityId: schoolYear!.id,
+          entityId: schoolYear.id,
           metadata: { events: events.length }
         });
       });

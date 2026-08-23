@@ -143,7 +143,6 @@ const meetingDays = [
 const maxScheduleUploadBytes = 10 * 1024 * 1024;
 const maxScheduleImageDimension = 1800;
 const scheduleImageQuality = 0.88;
-const schoolYearStorageKey = 'teacheros_school_year_settings';
 const walkthroughStorageKey = 'teacheros_management_walkthrough_v1';
 const newCourseDraftStorageKey = 'teacheros_management_new_course_draft_v1';
 const addPeriodDraftStorageKey = 'teacheros_management_add_period_draft_v1';
@@ -595,23 +594,6 @@ function segmentToDraft(
     duration: segment.durationMinutes ? String(segment.durationMinutes) : '',
     order: String(segment.orderIndex)
   };
-}
-
-function readSchoolYearSettings(): SchoolYearSettings | null {
-  const raw = window.localStorage.getItem(schoolYearStorageKey);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<SchoolYearSettings>;
-    if (!parsed.startDate || !parsed.endDate) return null;
-    return {
-      startDate: parsed.startDate,
-      endDate: parsed.endDate,
-      meetingDays: parsed.meetingDays ?? [],
-      bellScheduleType: parsed.bellScheduleType ?? 'weekly'
-    };
-  } catch {
-    return null;
-  }
 }
 
 function courseDepth(course: CourseDetail) {
@@ -2077,7 +2059,7 @@ export function ManagementPage() {
 
         const existingSection: GetScheduleResponse['sections'][number] | undefined = (schedule ?? state.schedule)?.sections.find(
           (section) =>
-            section.courseId === course!.id &&
+            section.courseId === course.id &&
             courseNameKey(section.sectionName) === courseNameKey(firstClass.period)
         );
         schedule = existingSection
