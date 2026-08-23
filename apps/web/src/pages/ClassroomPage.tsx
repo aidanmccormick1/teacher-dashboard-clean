@@ -161,7 +161,7 @@ export function ClassroomPage() {
               <button className="secondary" type="button" onClick={() => openManagementTab('progress')}>
                 Open Management
               </button>
-              <button className="secondary" type="button" onClick={() => void copyClassBrief()}>
+              <button hidden className="secondary" type="button" onClick={() => void copyClassBrief()}>
                 Copy class brief
               </button>
             </div>
@@ -244,7 +244,7 @@ export function ClassroomPage() {
             <button className="secondary" type="button" onClick={() => navigate('/dashboard')}>
               Back to dashboard
             </button>
-            <button className="secondary" type="button" onClick={() => void copyClassBrief()}>
+            <button hidden className="secondary" type="button" onClick={() => void copyClassBrief()}>
               Copy brief
             </button>
           </div>

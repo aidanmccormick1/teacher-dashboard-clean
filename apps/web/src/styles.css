@@ -3071,6 +3071,12 @@ body.course-editor-open {
   gap: 34px;
 }
 
+.profile-hero p:not(.eyebrow) {
+  max-width: 610px;
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
 .profile-grid {
   grid-template-columns: minmax(0, 1fr);
   gap: 30px;
@@ -3090,6 +3096,75 @@ body.course-editor-open {
 .profile-section .section-heading {
   padding-bottom: 18px;
   border-bottom: 1px solid rgba(216, 200, 170, 0.72);
+}
+
+.profile-section .section-heading p:not(.eyebrow) {
+  max-width: 580px;
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.profile-overview-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.6fr);
+  gap: 24px;
+  padding: 26px 34px;
+  background: #eef4e9;
+}
+
+.profile-overview-card h2,
+.profile-overview-card p {
+  margin: 0;
+}
+
+.profile-overview-card h2 {
+  margin-top: 4px;
+}
+.profile-overview-card p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.profile-overview-details {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding-left: 24px;
+  border-left: 1px solid rgba(73, 109, 91, 0.22);
+}
+
+.profile-overview-details strong {
+  font-size: 1.1rem;
+}
+.profile-overview-details span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.field-optional {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.profile-save-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px;
+  border: 1px solid var(--line);
+  background: #fffdf7;
+}
+
+.profile-save-bar div {
+  display: grid;
+  gap: 3px;
+}
+.profile-save-bar span {
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
 .profile-section.wide-card {
@@ -5036,12 +5111,22 @@ button,
   .section-roster,
   .inline-editor,
   .profile-grid,
+  .profile-overview-card,
   .profile-account-card,
   .dashboard-grid,
   .metric-grid,
   .profile-form-grid,
   .tracker-summary-grid {
     grid-template-columns: 1fr;
+  }
+  .profile-overview-details {
+    padding: 16px 0 0;
+    border-top: 1px solid rgba(73, 109, 91, 0.22);
+    border-left: 0;
+  }
+  .profile-save-bar {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .landing-nav {
     position: relative;

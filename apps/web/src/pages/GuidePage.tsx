@@ -184,7 +184,7 @@ export function GuidePage() {
             <button className="secondary" type="button" onClick={markAllComplete}>
               Mark all done
             </button>
-            <button className="secondary" type="button" onClick={() => void copyProgress()}>
+            <button hidden className="secondary" type="button" onClick={() => void copyProgress()}>
               Copy progress
             </button>
             <button className="secondary danger" type="button" disabled={!completedIds.length} onClick={resetProgress}>

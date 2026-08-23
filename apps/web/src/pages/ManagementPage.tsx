@@ -2344,7 +2344,7 @@ export function ManagementPage() {
                   <p className="muted">Draft saves on this device while you decide what to add.</p>
                 </div>
                 <div className="profile-actions">
-                  <button
+                  <button hidden
                     className="secondary"
                     type="button"
                     onClick={() => void copyNewCourseDraft()}
@@ -2816,7 +2816,7 @@ export function ManagementPage() {
                   >
                     Add all reviewed classes
                   </button>
-                  <button
+                  <button hidden
                     className="secondary"
                     type="button"
                     onClick={() => void copyImportSummary()}
@@ -3177,7 +3177,7 @@ export function ManagementPage() {
                 {isAddGroupOpen ? (
                   <>
                     <div className="profile-actions">
-                      <button
+                      <button hidden
                         className="secondary"
                         type="button"
                         onClick={() => void copyAddPeriodDraft()}
@@ -3556,7 +3556,7 @@ export function ManagementPage() {
               </p>
             </div>
             <div className="profile-actions">
-              <button
+              <button hidden
                 className="secondary"
                 type="button"
                 onClick={() => void copyWeeklyScheduleSummary()}
@@ -3742,8 +3742,8 @@ export function ManagementPage() {
                 <h2>{selectedCourse ? `${selectedCourse.name} Year Plan` : 'Select a course'}</h2>
               </div>
               <div className="profile-actions">
-                <button
-                  className="secondary"
+                                  <button
+                                    className="secondary"
                   type="button"
                   disabled={!selectedCourse}
                   onClick={() => void copyYearPlanSummary()}
@@ -4459,7 +4459,7 @@ export function ManagementPage() {
             <button className="secondary" type="button" onClick={() => navigate('/classroom')}>
               Open Classroom
             </button>
-            <button className="secondary" type="button" onClick={() => void copyProgressSummary()}>
+            <button hidden className="secondary" type="button" onClick={() => void copyProgressSummary()}>
               Copy progress
             </button>
           </div>
@@ -4574,7 +4574,7 @@ export function ManagementPage() {
                   without compressing the rest of your Courses.
                 </p>
               </div>
-              <button
+              <button hidden
                 className="secondary"
                 type="button"
                 disabled={busy}

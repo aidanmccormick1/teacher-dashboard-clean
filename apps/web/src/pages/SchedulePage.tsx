@@ -290,7 +290,7 @@ export function SchedulePage() {
             <p className="muted">Drafts save on this device while you set up real class periods.</p>
           </div>
           <div className="row">
-            <button className="button-link secondary" type="button" onClick={() => void copyAddSectionDraft()}>
+            <button hidden className="button-link secondary" type="button" onClick={() => void copyAddSectionDraft()}>
               Copy draft
             </button>
             <button className="button-link secondary" type="button" onClick={clearAddSectionDraft}>

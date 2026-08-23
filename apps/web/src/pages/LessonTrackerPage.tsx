@@ -285,7 +285,7 @@ export function LessonTrackerPage() {
           <button className="secondary" type="button" disabled={!lesson || saving} onClick={() => void saveProgress({ completeLesson: true })}>
             Mark lesson complete
           </button>
-          <button className="secondary" type="button" onClick={() => void copySummary()}>
+          <button hidden className="secondary" type="button" onClick={() => void copySummary()}>
             Copy class summary
           </button>
           <button className="secondary" type="button" disabled={!lesson} onClick={clearLocalDraft}>

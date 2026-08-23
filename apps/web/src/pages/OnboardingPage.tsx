@@ -190,7 +190,7 @@ export function OnboardingPage() {
           <button type="button" onClick={saveDraft}>
             Save draft
           </button>
-          <button className="secondary" type="button" onClick={() => void copySummary()}>
+          <button hidden className="secondary" type="button" onClick={() => void copySummary()}>
             Copy summary
           </button>
           <button

@@ -109,7 +109,7 @@ export function CurriculumPage() {
           <h1>Courses and curriculum</h1>
         </div>
         <div className="profile-actions">
-          <button className="button-link secondary" type="button" onClick={() => void copyCourseSummary()}>
+          <button hidden className="button-link secondary" type="button" onClick={() => void copyCourseSummary()}>
             Copy course list
           </button>
           <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('curriculum')}>

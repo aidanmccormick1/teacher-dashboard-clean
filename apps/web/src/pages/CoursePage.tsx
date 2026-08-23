@@ -158,7 +158,7 @@ export function CoursePage() {
         </div>
         <div className="profile-actions">
           <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('courses')}>← Courses</Link>
-          <button className="button-link secondary" type="button" disabled={!course} onClick={() => void copyCourseOutline()}>
+          <button hidden className="button-link secondary" type="button" disabled={!course} onClick={() => void copyCourseOutline()}>
             Copy outline
           </button>
           <Link className="button-link done-editing" to="/management" onClick={() => rememberManagementTab('courses')}>Done Editing</Link>

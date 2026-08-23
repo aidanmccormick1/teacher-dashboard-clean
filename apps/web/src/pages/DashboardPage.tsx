@@ -277,6 +277,22 @@ export function DashboardPage() {
     (segment) => !nextResume.state?.completedSegmentIds.includes(segment.id)
   );
   const todayLabel = formatDateLabel(state.today?.date ?? null);
+  const calendarLookahead = useMemo(() => {
+    const today = state.today?.date;
+    if (!today) return null;
+    return [...(state.calendar?.events ?? [])]
+      .filter((event) => event.date >= today)
+      .sort((left, right) => left.date.localeCompare(right.date))[0] ?? null;
+  }, [state.calendar?.events, state.today?.date]);
+  const calendarLookaheadLabel = useMemo(() => {
+    if (!calendarLookahead || !state.today?.date) return '';
+    if (calendarLookahead.date === state.today.date) return 'Today';
+    const tomorrow = new Date(`${state.today.date}T12:00:00Z`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    return calendarLookahead.date === tomorrow.toISOString().slice(0, 10)
+      ? 'Tomorrow'
+      : formatDateLabel(calendarLookahead.date);
+  }, [calendarLookahead, state.today?.date]);
 
   const summary = useMemo(() => {
     const courseCount = state.courses.length;
@@ -651,6 +667,16 @@ export function DashboardPage() {
           ))}
         </div>
       </section>
+
+      {calendarLookahead ? (
+        <section className="soft-panel calendar-lookahead">
+          <div>
+            <p className="eyebrow">{calendarLookaheadLabel} · Calendar</p>
+            <strong>{calendarLookahead.label}</strong>
+            <span>{calendarLookahead.type === 'no_school' ? 'No school — classes automatically move to the next real meeting.' : 'Special day — ordinary meeting times are skipped unless a group override is set.'}</span>
+          </div>
+        </section>
+      ) : null}
 
       <section className="dashboard-grid">
         <div className="card stack feature-card">

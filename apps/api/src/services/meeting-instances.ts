@@ -122,6 +122,11 @@ export async function buildMeetingInstances(
         calendarEvents.find((event) => event.type === 'no_school') ?? calendarEvents[0] ?? null;
       if (calendarEvents.some((event) => event.type === 'no_school')) continue;
       const override = overrideByKey.get(`${row.sectionId}:${date}`);
+      // A special/minimum/testing day does not inherit the ordinary bell
+      // schedule. We only create a real meeting when the calendar import (or
+      // teacher) supplied a date-specific group override. This keeps the next
+      // class calculation honest while still surfacing the calendar event.
+      if (calendarEvents.length > 0 && !override) continue;
       if (override?.cancelled) continue;
       output.push({
         sectionId: row.sectionId,
