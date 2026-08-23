@@ -1342,7 +1342,10 @@ export function ManagementPage() {
     if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
 
     const next = [...ordered];
-    [next[currentIndex], next[targetIndex]] = [next[targetIndex], next[currentIndex]];
+    const currentCourse = next[currentIndex]!;
+    const targetCourse = next[targetIndex]!;
+    next[currentIndex] = targetCourse;
+    next[targetIndex] = currentCourse;
     try {
       setBusy(true);
       // Persist the complete ordering atomically so every course gets one
@@ -2072,7 +2075,7 @@ export function ManagementPage() {
           coursesByImportedName.set(courseKey, course);
         }
 
-        const existingSection = (schedule ?? state.schedule)?.sections.find(
+        const existingSection: GetScheduleResponse['sections'][number] | undefined = (schedule ?? state.schedule)?.sections.find(
           (section) =>
             section.courseId === course!.id &&
             courseNameKey(section.sectionName) === courseNameKey(firstClass.period)

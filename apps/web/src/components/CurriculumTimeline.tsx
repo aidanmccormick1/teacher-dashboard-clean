@@ -172,7 +172,7 @@ export function CurriculumTimeline({
           const lessonSpan = Math.max(1, Math.floor(pendingChange.span / refreshedUnit.lessons.length));
           for (const [index, lesson] of refreshedUnit.lessons.entries()) {
             detail = await api.updateLesson(lesson.id, {
-              plannedStartMeeting: pendingChange.start + Math.min(pendingChange.span - 1, index * lessonSpan),
+              plannedStartMeeting: unit.start + Math.min(pendingChange.span - 1, index * lessonSpan),
               plannedMeetingCount: index === refreshedUnit.lessons.length - 1 ? Math.max(1, pendingChange.span - lessonSpan * index) : lessonSpan
             });
           }
