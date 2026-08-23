@@ -226,10 +226,6 @@ function calendarImportPrompt(
   return body.text ? [...instructions, '', body.text].join('\n') : instructions.join('\n');
 }
 
-function calendarEventKey(event: { date: string; type: string; label: string }) {
-  return `${event.date}|${event.type}|${importNameKey(event.label)}`;
-}
-
 function instructionalExceptionKey(event: {
   startDate: string;
   endDate: string;
