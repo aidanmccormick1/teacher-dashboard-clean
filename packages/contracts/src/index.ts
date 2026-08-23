@@ -7,8 +7,13 @@ export const CalendarEventTypeSchema = z.enum([
   'no_school',
   'minimum_day',
   'half_day',
-  'testing',
+  'early_release',
+  'late_start',
+  'testing_schedule',
   'special_schedule',
+  'other_abnormal',
+  // Kept so calendars saved by earlier versions remain readable.
+  'testing',
   'other'
 ]);
 
@@ -231,6 +236,26 @@ const CalendarEventSchema = z.object({
   sourceText: z.string().nullable().optional()
 });
 
+export const InstructionalExceptionSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().min(1),
+  startDate: IsoDateSchema,
+  endDate: IsoDateSchema,
+  type: CalendarEventTypeSchema,
+  affectsInstruction: z.literal(true),
+  scheduleKnown: z.boolean().default(false),
+  confidence: z.number().int().min(0).max(100).nullable().optional(),
+  sourceText: z.string().nullable().optional(),
+  needsReview: z.boolean().default(false)
+});
+
+export const IgnoredCalendarEventSchema = z.object({
+  title: z.string().min(1),
+  date: IsoDateSchema.optional(),
+  reason: z.string().min(1),
+  sourceText: z.string().nullable().optional()
+});
+
 export const SchoolYearSchema = z.object({
   id: UuidSchema,
   startDate: IsoDateSchema,
@@ -260,9 +285,14 @@ const CalendarOverridePreviewSchema = z.object({
   cancelled: z.boolean().default(false)
 });
 export const CalendarImportResponseSchema = z.object({
-  schoolYear: z.object({ startDate: IsoDateSchema, endDate: IsoDateSchema }),
-  events: z.array(CalendarEventSchema),
+  schoolYear: z.object({
+    startDate: IsoDateSchema,
+    endDate: IsoDateSchema,
+    confidence: z.number().int().min(0).max(100).nullable().optional()
+  }),
+  events: z.array(InstructionalExceptionSchema),
   overrides: z.array(CalendarOverridePreviewSchema).default([]),
+  ignoredEvents: z.array(IgnoredCalendarEventSchema).default([]),
   notices: z.array(z.string()).default([])
 });
 
@@ -280,7 +310,7 @@ export const MeetingInstancesQuerySchema = z
 export const CalendarCommitRequestSchema = z.object({
   mode: z.enum(['merge', 'replace']),
   schoolYear: z.object({ startDate: IsoDateSchema, endDate: IsoDateSchema }),
-  events: z.array(CalendarEventSchema),
+  events: z.array(InstructionalExceptionSchema),
   overrides: z.array(CalendarOverridePreviewSchema).default([]),
   approvedEventKeys: z.array(z.string()).optional()
 });

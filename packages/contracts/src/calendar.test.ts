@@ -11,11 +11,24 @@ import {
 describe('school calendar contracts', () => {
   it('accepts typed cross-year calendar events and group-specific alternate schedules', () => {
     const parsed = CalendarImportResponseSchema.parse({
-      schoolYear: { startDate: '2026-08-17', endDate: '2027-06-04' },
+      schoolYear: { startDate: '2026-08-17', endDate: '2027-06-04', confidence: 98 },
       events: [
-        { date: '2026-12-21', type: 'no_school', label: 'Winter break begins', confidence: 98 },
-        { date: '2027-01-04', type: 'no_school', label: 'Winter break ends', confidence: 98 },
-        { date: '2027-02-12', type: 'minimum_day', label: 'Staff development', confidence: 91 }
+        {
+          title: 'Winter Break',
+          startDate: '2026-12-21',
+          endDate: '2027-01-01',
+          type: 'no_school',
+          affectsInstruction: true,
+          confidence: 98
+        },
+        {
+          title: 'Minimum Day',
+          startDate: '2027-02-12',
+          endDate: '2027-02-12',
+          type: 'minimum_day',
+          affectsInstruction: true,
+          confidence: 91
+        }
       ],
       overrides: [
         {
@@ -29,11 +42,7 @@ describe('school calendar contracts', () => {
       notices: []
     });
 
-    expect(parsed.events.map((event) => event.type)).toEqual([
-      'no_school',
-      'no_school',
-      'minimum_day'
-    ]);
+    expect(parsed.events.map((event) => event.type)).toEqual(['no_school', 'minimum_day']);
     expect(parsed.overrides[0]).toMatchObject({ classGroup: 'Group B', cancelled: false });
   });
 
@@ -61,8 +70,16 @@ describe('school calendar contracts', () => {
       CalendarCommitRequestSchema.safeParse({
         mode: 'merge',
         schoolYear: { startDate: '2026-08-17', endDate: '2027-06-04' },
-        events: [{ date: '2026-11-11', type: 'no_school', label: 'Veterans Day' }],
-        approvedEventKeys: ['2026-11-11:no_school']
+        events: [
+          {
+            title: 'Veterans Day',
+            startDate: '2026-11-11',
+            endDate: '2026-11-11',
+            type: 'no_school',
+            affectsInstruction: true
+          }
+        ],
+        approvedEventKeys: ['2026-11-11|2026-11-11|no_school|veterans day']
       }).success
     ).toBe(true);
   });

@@ -1,18 +1,65 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-
 import type { CalendarImportResponse, SchoolCalendarResponse } from '@teacheros/contracts';
-
 import { ApiError, useApiClient } from '../lib/api.js';
 import { rememberManagementTab } from '../lib/management-tabs.js';
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read file'));
+    reader.onload = () =>
+      typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('Could not read file'));
     reader.onerror = () => reject(reader.error ?? new Error('Could not read file'));
     reader.readAsDataURL(file);
   });
+}
+function shortDate(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(new Date(`${value}T12:00:00`));
+}
+function dateRange(startDate: string, endDate: string) {
+  return startDate === endDate
+    ? shortDate(startDate)
+    : `${shortDate(startDate)} – ${shortDate(endDate)}`;
+}
+function exceptionKey(event: { startDate: string; endDate: string; type: string; title: string }) {
+  return `${event.startDate}|${event.endDate}|${event.type}|${event.title.trim().toLowerCase()}`;
+}
+function savedEventGroups(events: SchoolCalendarResponse['events']) {
+  const sorted = [...events].sort((a, b) =>
+    `${a.type}:${a.label}:${a.date}`.localeCompare(`${b.type}:${b.label}:${b.date}`)
+  );
+  return sorted.reduce<Array<{ title: string; type: string; startDate: string; endDate: string }>>(
+    (groups, event) => {
+      const previous = groups.at(-1);
+      const distance = previous
+        ? (new Date(`${event.date}T12:00:00Z`).getTime() -
+            new Date(`${previous.endDate}T12:00:00Z`).getTime()) /
+          86400000
+        : Infinity;
+      if (
+        previous &&
+        previous.title === event.label &&
+        previous.type === event.type &&
+        distance <= 3
+      )
+        previous.endDate = event.date;
+      else
+        groups.push({
+          title: event.label,
+          type: event.type,
+          startDate: event.date,
+          endDate: event.date
+        });
+      return groups;
+    },
+    []
+  );
 }
 
 export function SchoolPage() {
@@ -28,54 +75,405 @@ export function SchoolPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [showIgnored, setShowIgnored] = useState(false);
+  const [editingSchoolYear, setEditingSchoolYear] = useState(false);
 
-  const eventKey = (event: { date: string; type: string; label: string }) => `${event.date}|${event.type}|${event.label.trim().toLowerCase()}`;
   const load = useCallback(async () => {
     try {
       const next = await api.getSchoolCalendar();
       setCalendar(next);
       setStartDate(next.schoolYear?.startDate ?? '');
       setEndDate(next.schoolYear?.endDate ?? '');
-    } catch (err) { setError(err instanceof ApiError ? err.message : 'Could not load the school calendar'); }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not load the school calendar');
+    }
   }, [api]);
-  useEffect(() => { void load(); }, [load]);
-
-  const saveDates = async () => {
-    if (!startDate || !endDate) return setError('Add both school-year dates.');
-    try {
-      setBusy(true);
-      setCalendar(await api.saveSchoolYear({ startDate, endDate }));
-      setSaved('School year saved.'); setError(null);
-    } catch (err) { setError(err instanceof ApiError ? err.message : 'Could not save school year'); }
-    finally { setBusy(false); }
-  };
+  useEffect(() => {
+    void load();
+  }, [load]);
   const readCalendar = async () => {
     if (!sourceText.trim() && !file) return setError('Paste calendar text or choose a document.');
     try {
       setBusy(true);
+      setError(null);
+      setSaved(null);
       const dataUrl = file ? await readFileAsDataUrl(file) : undefined;
-      const result = await api.importSchoolCalendar({ text: sourceText.trim() || undefined, fileBase64: dataUrl, fileName: file?.name, fileMimeType: file?.type || undefined });
-      setPreview(result); setStartDate(result.schoolYear.startDate); setEndDate(result.schoolYear.endDate);
-      setSelected(new Set(result.events.map(eventKey))); setError(null);
-    } catch (err) { setError(err instanceof ApiError ? err.message : 'Could not read the school calendar'); }
-    finally { setBusy(false); }
+      const result = await api.importSchoolCalendar({
+        text: sourceText.trim() || undefined,
+        fileBase64: dataUrl,
+        fileName: file?.name,
+        fileMimeType: file?.type || undefined
+      });
+      setPreview(result);
+      setStartDate(result.schoolYear.startDate);
+      setEndDate(result.schoolYear.endDate);
+      setSelected(new Set(result.events.filter((event) => !event.needsReview).map(exceptionKey)));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not read the school calendar');
+    } finally {
+      setBusy(false);
+    }
   };
-  const commit = async (mode: 'merge' | 'replace') => {
-    if (!preview) return;
+  const toggle = (event: CalendarImportResponse['events'][number]) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      const key = exceptionKey(event);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const saveDates = async () => {
+    if (!startDate || !endDate) return;
     try {
       setBusy(true);
-      const next = await api.commitSchoolCalendar({ mode, schoolYear: preview.schoolYear, events: preview.events, overrides: preview.overrides, approvedEventKeys: [...selected] });
-      setCalendar(next); setPreview(null); setSourceText(''); setFile(null); setSaved(mode === 'merge' ? 'Calendar merged.' : 'Calendar replaced.'); setError(null);
-      void api.updatePreferences({ setupStep: 'courses', walkthroughDismissed: false }).catch(() => undefined);
-    } catch (err) { setError(err instanceof ApiError ? err.message : 'Could not save the calendar'); }
-    finally { setBusy(false); }
+      setCalendar(await api.saveSchoolYear({ startDate, endDate }));
+      setSaved('School year saved.');
+      setEditingSchoolYear(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save school year');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const commit = async (mode: 'merge' | 'replace') => {
+    if (!preview || !startDate || !endDate) return;
+    try {
+      setBusy(true);
+      const events = preview.events.filter((event) => selected.has(exceptionKey(event)));
+      const next = await api.commitSchoolCalendar({
+        mode,
+        schoolYear: { startDate, endDate },
+        events,
+        overrides: preview.overrides,
+        approvedEventKeys: [...selected]
+      });
+      setCalendar(next);
+      setPreview(null);
+      setSourceText('');
+      setFile(null);
+      setSaved(mode === 'replace' ? 'Calendar replaced.' : 'Calendar saved.');
+      setError(null);
+      void api
+        .updatePreferences({ setupStep: 'courses', walkthroughDismissed: false })
+        .catch(() => undefined);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save the calendar');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  return <div className="school-page stack">
-    <section className="paper-hero"><div><p className="eyebrow">School profile</p><h1>School Year</h1><p>Import your calendar, review it, then save it for every teacher at your school.</p></div><Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('import')}>Import schedule</Link></section>
-    {error ? <p className="notice warning">{error}</p> : null}{saved ? <p className="notice success">{saved}</p> : null}
-    <section className="card stack"><div className="section-heading"><div><p className="eyebrow">Recommended</p><h2>Import School Calendar</h2></div></div><textarea rows={4} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="Paste a school calendar, or upload a PDF or image." /><div className="profile-actions"><input type="file" accept="application/pdf,image/*,.doc,.docx" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /><button type="button" disabled={busy || (!sourceText.trim() && !file)} onClick={() => void readCalendar()}>{busy ? 'Reading…' : 'Read calendar'}</button></div></section>
-    {preview ? <section className="card stack" aria-live="polite"><div className="section-heading"><div><p className="eyebrow">Review</p><h2>{preview.schoolYear.startDate} – {preview.schoolYear.endDate}</h2></div><span>{selected.size} selected</span></div>{preview.notices.map((notice) => <p key={notice} className="muted">{notice}</p>)}<div className="holiday-list">{preview.events.map((event) => { const key = eventKey(event); return <label key={key}><input type="checkbox" checked={selected.has(key)} onChange={() => setSelected((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; })} /><strong>{event.date}</strong><span>{event.label} · {event.type.replace('_', ' ')}</span></label>; })}</div>{preview.overrides.length ? <div className="soft-panel"><strong>Alternate Class Group times</strong>{preview.overrides.map((override) => <span key={`${override.date}-${override.classGroup}`}>{override.date} · {override.classGroup} · {override.startTime ?? 'time TBD'}–{override.endTime ?? 'time TBD'}</span>)}</div> : null}<div className="profile-actions"><button type="button" disabled={busy || !selected.size} onClick={() => void commit('merge')}>Merge calendars</button><button className="secondary" type="button" disabled={busy || !selected.size} onClick={() => void commit('replace')}>Replace calendar</button><button className="button-link" type="button" onClick={() => setPreview(null)}>Cancel</button></div></section> : null}
-    <section className="school-grid"><article className="card stack"><div className="section-heading"><div><p className="eyebrow">Required</p><h2>School dates</h2></div></div><div className="profile-form-grid"><label>Start<input className="input" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label>End<input className="input" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div><button type="button" disabled={busy || !startDate || !endDate} onClick={() => void saveDates()}>Save dates</button>{calendar?.schoolYear ? <button className="secondary" type="button" onClick={() => navigate('/management')}>Build Year Plan</button> : null}</article><article className="card stack"><div className="section-heading"><div><p className="eyebrow">Shared calendar</p><h2>Breaks & special days</h2></div></div>{calendar?.events.length ? <div className="holiday-list">{calendar.events.map((event) => <div key={event.id}><div><strong>{event.date}</strong><span>{event.label} · {event.type.replace('_', ' ')}</span></div></div>)}</div> : <p className="muted">Import a calendar to add closures, breaks, and special days.</p>}</article></section>
-  </div>;
+  const daysOff =
+    preview?.events.filter((event) => event.type === 'no_school' && !event.needsReview) ?? [];
+  const specialDays =
+    preview?.events.filter((event) => event.type !== 'no_school' && !event.needsReview) ?? [];
+  const savedGroups = useMemo(() => savedEventGroups(calendar?.events ?? []), [calendar]);
+  const savedDaysOff = savedGroups.filter((event) => event.type === 'no_school');
+  const savedSpecialDays = savedGroups.filter((event) => event.type !== 'no_school');
+  const hasExistingCalendar = Boolean(calendar?.schoolYear || calendar?.events.length);
+
+  return (
+    <div className="school-page stack">
+      <section className="paper-hero">
+        <div>
+          <p className="eyebrow">School profile</p>
+          <h1>School Calendar</h1>
+          <p>Set the instructional year and the days that change normal student learning.</p>
+        </div>
+        <Link
+          className="button-link secondary"
+          to="/management"
+          onClick={() => rememberManagementTab('import')}
+        >
+          Import schedule
+        </Link>
+      </section>
+      {error ? <p className="notice warning">{error}</p> : null}
+      {saved ? <p className="notice success">{saved}</p> : null}
+      {!preview ? (
+        <>
+          <section className="card stack calendar-import-card">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">{hasExistingCalendar ? 'Update' : 'Start here'}</p>
+                <h2>
+                  {hasExistingCalendar ? 'Import Updated Calendar' : 'Import School Calendar'}
+                </h2>
+                <p>
+                  Upload a file or image, or paste calendar text. We’ll identify the instructional
+                  year first.
+                </p>
+              </div>
+            </div>
+            <textarea
+              rows={5}
+              value={sourceText}
+              onChange={(event) => setSourceText(event.target.value)}
+              placeholder="Paste a school calendar…"
+            />
+            <div className="profile-actions">
+              <input
+                type="file"
+                accept="application/pdf,image/*,.doc,.docx"
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              />
+              {file ? <span className="status-pill upcoming">{file.name}</span> : null}
+              <button
+                type="button"
+                disabled={busy || (!sourceText.trim() && !file)}
+                onClick={() => void readCalendar()}
+              >
+                {busy ? (
+                  <>
+                    <span className="calendar-reader-dot" />
+                    Reading your calendar…
+                  </>
+                ) : (
+                  'Read Calendar'
+                )}
+              </button>
+            </div>
+          </section>
+          {calendar?.schoolYear ? (
+            <section className="school-grid">
+              <article className="card stack calendar-saved-year">
+                <div>
+                  <p className="eyebrow">School Year</p>
+                  {editingSchoolYear ? (
+                    <div className="profile-form-grid">
+                      <label>
+                        First day
+                        <input
+                          className="input"
+                          type="date"
+                          value={startDate}
+                          onChange={(event) => setStartDate(event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        Last day
+                        <input
+                          className="input"
+                          type="date"
+                          value={endDate}
+                          onChange={(event) => setEndDate(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <h2>
+                      {shortDate(calendar.schoolYear.startDate)} <span>→</span>{' '}
+                      {shortDate(calendar.schoolYear.endDate)}
+                    </h2>
+                  )}
+                </div>
+                <div className="profile-actions">
+                  {editingSchoolYear ? (
+                    <>
+                      <button type="button" disabled={busy} onClick={() => void saveDates()}>
+                        Save
+                      </button>
+                      <button
+                        className="secondary"
+                        type="button"
+                        onClick={() => setEditingSchoolYear(false)}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => setEditingSchoolYear(true)}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+              </article>
+              <article className="card stack">
+                <div>
+                  <p className="eyebrow">Breaks & special days</p>
+                  <h2>
+                    {savedDaysOff.length} Days Off <span>·</span> {savedSpecialDays.length} Special
+                    Schedule Days
+                  </h2>
+                </div>
+                <button className="secondary" type="button" onClick={() => navigate('/management')}>
+                  View Calendar
+                </button>
+              </article>
+            </section>
+          ) : null}
+        </>
+      ) : (
+        <section className="calendar-review stack" aria-live="polite">
+          <header className="calendar-ready-heading">
+            <div>
+              <p className="eyebrow">Calendar Ready</p>
+              <h2>Review the instructional calendar</h2>
+              <p>Only dates that cancel or change normal student instruction are included.</p>
+            </div>
+          </header>
+          <article className="card calendar-year-review">
+            <div>
+              <div>
+                <p className="eyebrow">School Year</p>
+                <strong>First Day</strong>
+                <input
+                  className="input"
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                />
+              </div>
+              <span className="calendar-arrow">→</span>
+              <div>
+                <strong>Last Day</strong>
+                <input
+                  className="input"
+                  type="date"
+                  value={endDate}
+                  onChange={(event) => setEndDate(event.target.value)}
+                />
+              </div>
+            </div>
+          </article>
+          {daysOff.length ? (
+            <CalendarSection
+              title="Days Off"
+              events={daysOff}
+              selected={selected}
+              onToggle={toggle}
+            />
+          ) : null}
+          {specialDays.length ? (
+            <CalendarSection
+              title="Special Days"
+              events={specialDays}
+              selected={selected}
+              onToggle={toggle}
+            />
+          ) : null}
+          {preview.events
+            .filter((event) => event.needsReview)
+            .map((event) => (
+              <article className="card calendar-needs-review" key={exceptionKey(event)}>
+                <p className="eyebrow">Needs review</p>
+                <h3>{event.title}</h3>
+                <p>{dateRange(event.startDate, event.endDate)} · Do students have class?</p>
+                <div className="profile-actions">
+                  <button
+                    type="button"
+                    className={selected.has(exceptionKey(event)) ? '' : 'secondary'}
+                    onClick={() =>
+                      setSelected((current) => new Set(current).add(exceptionKey(event)))
+                    }
+                  >
+                    No School
+                  </button>
+                  <button
+                    type="button"
+                    className={!selected.has(exceptionKey(event)) ? '' : 'secondary'}
+                    onClick={() =>
+                      setSelected((current) => {
+                        const next = new Set(current);
+                        next.delete(exceptionKey(event));
+                        return next;
+                      })
+                    }
+                  >
+                    Normal School
+                  </button>
+                </div>
+              </article>
+            ))}
+          {preview.ignoredEvents.length ? (
+            <details
+              className="calendar-ignored"
+              open={showIgnored}
+              onToggle={(event) => setShowIgnored((event.target as HTMLDetailsElement).open)}
+            >
+              <summary>
+                {preview.ignoredEvents.length} ignored{' '}
+                {preview.ignoredEvents.length === 1 ? 'event' : 'events'}
+              </summary>
+              <div>
+                {preview.ignoredEvents.map((event, index) => (
+                  <p key={`${event.title}-${index}`}>
+                    <strong>{event.title}</strong>
+                    {event.date ? ` · ${shortDate(event.date)}` : ''}
+                    <span>{event.reason}</span>
+                  </p>
+                ))}
+              </div>
+            </details>
+          ) : null}
+          <div className="profile-actions calendar-review-actions">
+            <button
+              type="button"
+              disabled={busy || !startDate || !endDate}
+              onClick={() => void commit('merge')}
+            >
+              {hasExistingCalendar ? 'Update Calendar' : 'Save Calendar'}
+            </button>
+            {hasExistingCalendar ? (
+              <button
+                className="secondary"
+                type="button"
+                disabled={busy || !startDate || !endDate}
+                onClick={() => void commit('replace')}
+              >
+                Replace Calendar
+              </button>
+            ) : null}
+            <button className="button-link" type="button" onClick={() => setPreview(null)}>
+              Cancel
+            </button>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+function CalendarSection({
+  title,
+  events,
+  selected,
+  onToggle
+}: {
+  title: string;
+  events: CalendarImportResponse['events'];
+  selected: Set<string>;
+  onToggle: (event: CalendarImportResponse['events'][number]) => void;
+}) {
+  return (
+    <article className="card calendar-event-section">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">{title}</p>
+          <h2>
+            {events.length} {events.length === 1 ? 'date' : 'dates found'}
+          </h2>
+        </div>
+      </div>
+      <div className="calendar-event-rows">
+        {events.map((event) => (
+          <label key={exceptionKey(event)} className="calendar-event-row">
+            <input
+              type="checkbox"
+              checked={selected.has(exceptionKey(event))}
+              onChange={() => onToggle(event)}
+            />
+            <div>
+              <strong>{event.title}</strong>
+              <span>{dateRange(event.startDate, event.endDate)}</span>
+            </div>
+            <em>{event.type === 'no_school' ? 'No School' : event.type.replaceAll('_', ' ')}</em>
+          </label>
+        ))}
+      </div>
+    </article>
+  );
 }

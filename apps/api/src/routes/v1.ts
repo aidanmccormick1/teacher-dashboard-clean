@@ -116,24 +116,47 @@ const InternalParseScheduleSchema = z.object({
   )
 });
 
+const InternalSchoolYearBoundariesSchema = z.object({
+  startDate: z.string(),
+  endDate: z.string(),
+  confidence: z.number().int().min(0).max(100).default(70),
+  startSourceText: z.string().nullable().default(null),
+  endSourceText: z.string().nullable().default(null)
+});
+
 const InternalParseCalendarSchema = z.object({
-  schoolYear: z.object({ startDate: z.string(), endDate: z.string() }),
   events: z.array(
     z.object({
-      date: z.string(),
+      title: z.string(),
+      startDate: z.string(),
+      endDate: z.string(),
       type: z.enum([
         'no_school',
         'minimum_day',
         'half_day',
-        'testing',
+        'early_release',
+        'late_start',
+        'testing_schedule',
         'special_schedule',
-        'other'
+        'other_abnormal'
       ]),
-      label: z.string(),
+      affectsInstruction: z.literal(true),
+      scheduleKnown: z.boolean().default(false),
       confidence: z.number().int().min(0).max(100).default(70),
-      sourceText: z.string().nullable().default(null)
+      sourceText: z.string().nullable().default(null),
+      needsReview: z.boolean().default(false)
     })
   ),
+  ignoredEvents: z
+    .array(
+      z.object({
+        title: z.string(),
+        date: z.string().nullable().default(null),
+        reason: z.string(),
+        sourceText: z.string().nullable().default(null)
+      })
+    )
+    .default([]),
   overrides: z
     .array(
       z.object({
@@ -170,12 +193,31 @@ function scheduleImportFileDataUrl(body: ScheduleImportBody): string | undefined
   return undefined;
 }
 
-function calendarImportPrompt(body: ScheduleImportBody, classGroups: string[]): string {
+function schoolYearBoundaryPrompt(body: ScheduleImportBody): string {
   const instructions = [
-    'Parse this as a school-year calendar only. Do not extract or change recurring classes, courses, or class groups.',
-    'Return a structured school year plus one event per actual date. Expand every date range into daily events.',
-    'Infer a missing end year when a range crosses December into January. Use no_school only when classes do not meet; minimum_day, half_day, testing, and special_schedule are still school days.',
-    'For every event include the visible label, a 0-100 confidence, and a compact source excerpt. Do not invent alternate bell times when the source only names a special day.',
+    'Determine the actual instructional school-year boundaries from this academic calendar.',
+    'Find the first instructional day for students and the last instructional day for students. Prioritize explicit wording such as First Day of School, First Day for Students, Students Begin, Classes Begin, School Begins, Last Day of School, Last Day for Students, Classes End, and Final Instructional Day.',
+    'Do not use graduation, teacher checkout, teacher work after students finish, or administrative dates as the final day unless the source explicitly says students attend.',
+    'Return ISO dates, confidence, and compact source excerpts. If uncertain, choose the best evidence and lower confidence. Return JSON only.'
+  ];
+  return body.text ? [...instructions, '', body.text].join('\n') : instructions.join('\n');
+}
+
+function calendarImportPrompt(
+  body: ScheduleImportBody,
+  classGroups: string[],
+  schoolYear: z.infer<typeof InternalSchoolYearBoundariesSchema>
+): string {
+  const instructions = [
+    'You are not extracting every event from an academic calendar. You are identifying the instructional school year and events that affect normal student instruction.',
+    `The instructional school year has already been determined as ${schoolYear.startDate} through ${schoolYear.endDate}. Use these as strict boundaries unless the supplied document directly contradicts them.`,
+    'Return one logical event per date range; never expand a break into daily rows. Only return events inside the instructional-year boundaries that cancel student instruction or alter the normal student schedule.',
+    'Use no_school only when students do not attend. Use minimum_day, half_day, early_release, late_start, testing_schedule, special_schedule, or other_abnormal for altered school days. Do not invent bell times.',
+    'Ignore ceremonies, extracurriculars, parent events, staff-only meetings, fundraisers, administrative deadlines, report cards, and informational events that do not affect regular student instruction. Teacher/staff days matter only when students do not attend or normal classes are affected.',
+    'Use Classes Resume to understand a break boundary, but do not return it as an event. First and last instructional days are boundaries, never events.',
+    'If a date such as Faculty Development Day may affect instruction but the document does not establish whether students attend, return it with needsReview true. Otherwise do not make the teacher review clear information.',
+    'For each ignored event, return its title, date if known, and a concise reason (for example: After last instructional day; Does not affect normal instruction).',
+    'For every returned event include title, startDate, endDate, type, affectsInstruction true, scheduleKnown, confidence, needsReview, and a compact source excerpt.',
     classGroups.length
       ? `If an alternate schedule explicitly identifies one of these Class Groups, emit a date-specific override for it: ${classGroups.join(', ')}.`
       : 'Do not emit an override unless the alternate schedule identifies a class group.',
@@ -186,6 +228,48 @@ function calendarImportPrompt(body: ScheduleImportBody, classGroups: string[]): 
 
 function calendarEventKey(event: { date: string; type: string; label: string }) {
   return `${event.date}|${event.type}|${importNameKey(event.label)}`;
+}
+
+function instructionalExceptionKey(event: {
+  startDate: string;
+  endDate: string;
+  type: string;
+  title: string;
+}) {
+  return `${event.startDate}|${event.endDate}|${event.type}|${importNameKey(event.title)}`;
+}
+
+function calendarTitlesMatch(left: string, right: string) {
+  const words = (value: string) =>
+    importNameKey(value)
+      .replace(/[^a-z0-9 ]/g, ' ')
+      .split(' ')
+      .filter((word) => word.length > 2 && !['school', 'classes', 'regular'].includes(word));
+  const leftWords = words(left);
+  const rightWords = words(right);
+  return (
+    importNameKey(left) === importNameKey(right) ||
+    (leftWords.length > 0 &&
+      rightWords.length > 0 &&
+      leftWords.some((word) => rightWords.includes(word)))
+  );
+}
+
+function expandInstructionalException(event: {
+  startDate: string;
+  endDate: string;
+  type: string;
+  title: string;
+}) {
+  const dates: string[] = [];
+  const start = new Date(`${event.startDate}T12:00:00.000Z`);
+  const end = new Date(`${event.endDate}T12:00:00.000Z`);
+  for (const day = new Date(start); day <= end; day.setUTCDate(day.getUTCDate() + 1)) {
+    // Calendar ranges remain compact in the UI and we do not persist closures
+    // for ordinary weekends that would never generate a class meeting.
+    if (day.getUTCDay() !== 0 && day.getUTCDay() !== 6) dates.push(dateToIso(day));
+  }
+  return dates;
 }
 
 function scheduleImportUserPrompt(body: ScheduleImportBody): string {
@@ -992,7 +1076,25 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
       const body = SchoolYearUpsertRequestSchema.parse(request.body);
-      const { schoolYear, created } = await findOrCreateSchoolYear(schoolId, user.id, body);
+      const activeSchoolYear = await loadActiveSchoolYear(schoolId);
+      // Editing dates is an edit of the school's current instructional year,
+      // not a second empty year that would disconnect its imported calendar.
+      const { schoolYear, created } = activeSchoolYear
+        ? {
+            schoolYear:
+              activeSchoolYear.startDate === body.startDate &&
+              activeSchoolYear.endDate === body.endDate
+                ? activeSchoolYear
+                : (
+                    await db
+                      .update(schoolYears)
+                      .set({ ...body, updatedAt: new Date() })
+                      .where(eq(schoolYears.id, activeSchoolYear.id))
+                      .returning()
+                  )[0]!,
+            created: false
+          }
+        : await findOrCreateSchoolYear(schoolId, user.id, body);
       await db.insert(auditEvents).values({
         userId: user.id,
         eventType: created ? 'school_year_created' : 'school_year_saved',
@@ -1030,6 +1132,22 @@ export async function v1Routes(app: FastifyInstance) {
         .from(sections)
         .innerJoin(courses, eq(sections.courseId, courses.id))
         .where(eq(courses.teacherId, user.id));
+      // The first pass establishes the student instructional year. The second
+      // pass can then reject otherwise-valid calendar dates such as graduation.
+      const schoolYear = await runStructuredPrompt<
+        z.infer<typeof InternalSchoolYearBoundariesSchema>
+      >({
+        apiKey: app.config.OPENAI_API_KEY,
+        model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+        reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
+        schemaName: 'school_calendar_boundaries',
+        schema: InternalSchoolYearBoundariesSchema,
+        systemPrompt:
+          'You are a careful school calendar reader. Extract only evidence visible in the teacher supplied calendar.',
+        userPrompt: schoolYearBoundaryPrompt(body),
+        fileDataUrl: scheduleImportFileDataUrl(body),
+        fileName: body.fileName
+      });
       const result = await runStructuredPrompt<z.infer<typeof InternalParseCalendarSchema>>({
         apiKey: app.config.OPENAI_API_KEY,
         model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
@@ -1040,12 +1158,20 @@ export async function v1Routes(app: FastifyInstance) {
           'You are a careful school calendar reader. Extract only evidence visible in the teacher supplied calendar.',
         userPrompt: calendarImportPrompt(
           body,
-          classGroups.map((group) => group.name)
+          classGroups.map((group) => group.name),
+          schoolYear
         ),
         fileDataUrl: scheduleImportFileDataUrl(body),
         fileName: body.fileName
       });
-      return CalendarImportResponseSchema.parse(result);
+      return CalendarImportResponseSchema.parse({
+        schoolYear,
+        ...result,
+        ignoredEvents: result.ignoredEvents.map(({ date, ...event }) => ({
+          ...event,
+          ...(date ? { date } : {})
+        }))
+      });
     }
   );
 
@@ -1063,42 +1189,64 @@ export async function v1Routes(app: FastifyInstance) {
       const { schoolYear } = await findOrCreateSchoolYear(schoolId, user.id, body.schoolYear);
       const approved = body.approvedEventKeys ? new Set(body.approvedEventKeys) : null;
       const events = body.events.filter(
-        (event) => !approved || approved.has(calendarEventKey(event))
+        (event) => !approved || approved.has(instructionalExceptionKey(event))
       );
       await db.transaction(async (tx) => {
         if (body.mode === 'replace')
           await tx
             .delete(schoolCalendarEvents)
             .where(eq(schoolCalendarEvents.schoolYearId, schoolYear.id));
+        const existingEvents =
+          body.mode === 'merge'
+            ? await tx
+                .select()
+                .from(schoolCalendarEvents)
+                .where(eq(schoolCalendarEvents.schoolYearId, schoolYear.id))
+            : [];
         for (const event of events) {
-          const values = {
-            schoolYearId: schoolYear.id,
-            date: event.date,
-            type: event.type,
-            label: event.label,
-            confidence: event.confidence ?? null,
-            sourceText: event.sourceText ?? null,
-            createdByUserId: user.id
-          };
-          if (body.mode === 'merge') {
-            await tx
-              .insert(schoolCalendarEvents)
-              .values(values)
-              .onConflictDoUpdate({
-                target: [
-                  schoolCalendarEvents.schoolYearId,
-                  schoolCalendarEvents.date,
-                  schoolCalendarEvents.label
-                ],
-                set: {
-                  type: event.type,
-                  confidence: event.confidence ?? null,
-                  sourceText: event.sourceText ?? null,
-                  updatedAt: new Date()
-                }
-              });
-          } else {
-            await tx.insert(schoolCalendarEvents).values(values);
+          for (const date of expandInstructionalException(event)) {
+            // A new import often varies harmlessly in capitalization or adds a
+            // descriptor ("Ski Day / No Regular Classes"). Avoid duplicating
+            // an already-saved instructional exception in that case.
+            if (
+              body.mode === 'merge' &&
+              existingEvents.some(
+                (existing) =>
+                  existing.date === date &&
+                  existing.type === event.type &&
+                  calendarTitlesMatch(existing.label, event.title)
+              )
+            )
+              continue;
+            const values = {
+              schoolYearId: schoolYear.id,
+              date,
+              type: event.type,
+              label: event.title,
+              confidence: event.confidence ?? null,
+              sourceText: event.sourceText ?? null,
+              createdByUserId: user.id
+            };
+            if (body.mode === 'merge') {
+              await tx
+                .insert(schoolCalendarEvents)
+                .values(values)
+                .onConflictDoUpdate({
+                  target: [
+                    schoolCalendarEvents.schoolYearId,
+                    schoolCalendarEvents.date,
+                    schoolCalendarEvents.label
+                  ],
+                  set: {
+                    type: event.type,
+                    confidence: event.confidence ?? null,
+                    sourceText: event.sourceText ?? null,
+                    updatedAt: new Date()
+                  }
+                });
+            } else {
+              await tx.insert(schoolCalendarEvents).values(values);
+            }
           }
         }
         const ownedSections = await tx

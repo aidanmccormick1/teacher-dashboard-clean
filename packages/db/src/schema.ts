@@ -37,8 +37,12 @@ export const calendarEventTypeEnum = pgEnum('calendar_event_type', [
   'no_school',
   'minimum_day',
   'half_day',
+  'early_release',
+  'late_start',
+  'testing_schedule',
   'testing',
   'special_schedule',
+  'other_abnormal',
   'other'
 ]);
 
@@ -92,7 +96,10 @@ export const teacherProfiles = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
-  (table) => [primaryKey({ columns: [table.userId] }), index('idx_teacher_profiles_school').on(table.schoolId)]
+  (table) => [
+    primaryKey({ columns: [table.userId] }),
+    index('idx_teacher_profiles_school').on(table.schoolId)
+  ]
 );
 
 export const courses = pgTable(
@@ -112,7 +119,10 @@ export const courses = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
-  (table) => [index('idx_courses_teacher').on(table.teacherId), index('idx_courses_school').on(table.schoolId)]
+  (table) => [
+    index('idx_courses_teacher').on(table.teacherId),
+    index('idx_courses_school').on(table.schoolId)
+  ]
 );
 
 export const sections = pgTable(
@@ -342,7 +352,9 @@ export const classNotes = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
-  (table) => [unique('uniq_class_note').on(table.sectionId, table.userId, table.date, table.noteType)]
+  (table) => [
+    unique('uniq_class_note').on(table.sectionId, table.userId, table.date, table.noteType)
+  ]
 );
 
 export const aiJobs = pgTable(
