@@ -2597,12 +2597,9 @@ export function ManagementPage() {
             <article className="card stack schedule-upload-card">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">Step 1 of 3 · Add your schedule</p>
-                  <h3>Upload a schedule image or PDF</h3>
-                  <p className="muted">
-                    Use a screenshot, PDF, or pasted text. We will not add any classes until you
-                    review them.
-                  </p>
+                  <p className="eyebrow">Schedule import</p>
+                  <h3>Drop in your schedule</h3>
+                  <p className="muted">Review before anything is saved.</p>
                 </div>
                 {scheduleImportFileName ? (
                   <span className="status-pill upcoming">{scheduleImportFileName}</span>
@@ -2651,33 +2648,29 @@ export function ManagementPage() {
                       }
                     }}
                   />
-                  <strong>Choose image or PDF</strong>
-                  <span>Screenshot, scanned schedule, or exported PDF</span>
+                  <b aria-hidden="true">⇧</b>
+                  <strong>Drop a PDF or image here</strong>
+                  <span>or choose a file</span>
                 </label>
                 <textarea
                   rows={5}
                   value={scheduleImportText}
                   onChange={(event) => setScheduleImportText(event.target.value)}
-                  placeholder="Or paste schedule text here..."
+                  placeholder="Paste schedule text instead"
                 />
               </div>
 
               {scheduleImportFileDataUrl || scheduleImportText.trim() ? (
                 <div className="schedule-import-action">
                   <button type="button" disabled={busy} onClick={startScheduleUpload}>
-                    {busy ? 'Starting schedule reader...' : 'Step 2: Read my schedule'}
+                    {busy ? 'Reading…' : 'Read schedule'}
                   </button>
                 </div>
               ) : null}
-              <div className="profile-actions">
-                <button className="secondary" type="button" onClick={resetScheduleImport}>
-                  Clear
-                </button>
-              </div>
             </article>
           ) : null}
 
-          {importProgress && !importCompletion ? (
+          {importProgress && !importCompletion && !scheduleImportOutput ? (
             <section className="import-status-panel schedule-processing-panel" aria-live="polite">
               <div>
                 <strong>
@@ -2802,17 +2795,6 @@ export function ManagementPage() {
                 </div>
                 <button type="button" onClick={() => navigate('/school')}>
                   Import calendar
-                </button>
-              </div>
-              <div className="profile-actions">
-                <button className="secondary" type="button" onClick={() => setActiveTab('courses')}>
-                  Review class groups
-                </button>
-                <button className="secondary" type="button" onClick={() => navigate('/dashboard')}>
-                  Open dashboard
-                </button>
-                <button className="secondary" type="button" onClick={resetScheduleImport}>
-                  Import another schedule
                 </button>
               </div>
             </section>
@@ -3043,7 +3025,7 @@ export function ManagementPage() {
                                   const draft =
                                     parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
                                   return (
-                                    <div key={key} className="parsed-class-fields">
+                                    <div key={key} className="parsed-class-fields parsed-meeting-row">
                                       <MeetingDayPicker
                                         value={draft.days}
                                         onChange={(days) =>

@@ -1332,9 +1332,15 @@ button.button-link {
   background: #fff;
 }
 
-.course-order-panel summary { cursor: pointer; font-weight: 700; color: var(--navy); }
+.course-order-panel summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--navy);
+}
 
-.course-order-panel[open] { width: min(100%, 380px); }
+.course-order-panel[open] {
+  width: min(100%, 380px);
+}
 
 .course-order-panel p {
   margin: 4px 0 0;
@@ -1369,9 +1375,13 @@ button.button-link {
   min-height: 0;
 }
 
-.compact-add-group-card > .section-heading { width: 100%; }
+.compact-add-group-card > .section-heading {
+  width: 100%;
+}
 
-.class-groups-editor { grid-template-columns: minmax(0, 1fr); }
+.class-groups-editor {
+  grid-template-columns: minmax(0, 1fr);
+}
 
 .compact-form-note {
   margin: -2px 0 0;
@@ -2459,6 +2469,8 @@ body.course-editor-open {
 }
 
 .schedule-upload-card {
+  max-width: 760px;
+  margin: 0 auto;
   background: #f4f8f5;
 }
 
@@ -2482,7 +2494,7 @@ body.course-editor-open {
 
 .schedule-upload-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 
@@ -2490,7 +2502,7 @@ body.course-editor-open {
   display: grid;
   place-items: center;
   gap: 8px;
-  min-height: 154px;
+  min-height: 190px;
   border: 1px dashed rgba(71, 108, 88, 0.5);
   border-radius: var(--radius-md);
   padding: 18px;
@@ -2510,6 +2522,17 @@ body.course-editor-open {
 
 .upload-dropzone strong {
   font-size: 1.1rem;
+}
+
+.upload-dropzone b {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  background: #e4efe7;
+  color: var(--green);
+  font-size: 1.5rem;
 }
 
 .upload-dropzone span {
@@ -2626,6 +2649,35 @@ body.course-editor-open {
 .assignment-preview span {
   color: var(--muted);
   font-weight: 800;
+}
+
+.parsed-meeting-row {
+  grid-template-columns: minmax(230px, 1.4fr) 130px 130px minmax(150px, 1fr);
+  align-items: end;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.parsed-meeting-row .meeting-time-fields {
+  display: contents;
+}
+
+.parsed-meeting-row .meeting-day-picker {
+  min-width: 0;
+}
+
+.parsed-meeting-row .meeting-day-picker legend {
+  margin-bottom: 5px;
+}
+
+.parsed-meeting-row .day-picker {
+  gap: 4px;
+}
+
+.parsed-meeting-row .day-picker button {
+  padding: 5px 9px;
+  font-size: 0.82rem;
 }
 
 .assignment-preview span {
@@ -3414,6 +3466,149 @@ body.course-editor-open {
 .holiday-list button {
   padding: 8px 10px;
   white-space: nowrap;
+}
+
+.calendar-import-card .section-heading p,
+.calendar-ready-heading p {
+  max-width: 660px;
+  margin: 7px 0 0;
+  color: var(--muted);
+}
+
+.calendar-reader-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: calendar-reader-pulse 1s ease-in-out infinite;
+}
+
+@keyframes calendar-reader-pulse {
+  50% {
+    transform: scale(0.55);
+    opacity: 0.4;
+  }
+}
+
+.calendar-review {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.calendar-ready-heading {
+  padding: 8px 4px;
+}
+
+.calendar-ready-heading h2,
+.calendar-needs-review h3 {
+  margin: 0;
+}
+
+.calendar-year-review > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: 18px;
+}
+
+.calendar-year-review strong,
+.calendar-year-review input {
+  display: block;
+}
+
+.calendar-year-review input {
+  margin-top: 7px;
+  width: 100%;
+}
+.calendar-year-review p {
+  margin: 0 0 5px;
+}
+.calendar-arrow {
+  padding-bottom: 9px;
+  font-size: 1.35rem;
+  color: var(--green);
+}
+
+.calendar-event-section {
+  padding: 0;
+  overflow: hidden;
+}
+.calendar-event-section .section-heading {
+  padding: 20px 22px 12px;
+}
+.calendar-event-section .section-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--muted);
+}
+.calendar-event-rows {
+  display: grid;
+}
+.calendar-event-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 22px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+.calendar-event-row input {
+  width: 17px;
+  height: 17px;
+}
+.calendar-event-row div {
+  display: grid;
+  gap: 3px;
+}
+.calendar-event-row span {
+  color: var(--muted);
+  font-weight: 700;
+}
+.calendar-event-row em {
+  color: var(--green);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: capitalize;
+}
+.calendar-needs-review {
+  border-color: var(--amber);
+}
+.calendar-needs-review p:not(.eyebrow) {
+  color: var(--muted);
+}
+.calendar-ignored {
+  padding: 12px 16px;
+  color: var(--muted);
+}
+.calendar-ignored summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+.calendar-ignored div {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+}
+.calendar-ignored p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.88rem;
+}
+.calendar-ignored span {
+  width: 100%;
+}
+.calendar-review-actions {
+  padding: 4px 0 22px;
+}
+.calendar-saved-year h2,
+.school-grid h2 {
+  margin: 4px 0 0;
 }
 
 .dashboard-grid {
