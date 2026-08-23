@@ -45,32 +45,11 @@ function splitList(value: string): string[] {
     .filter(Boolean);
 }
 
-function buildOnboardingSummary(form: OnboardingForm): string {
-  return [
-    'Teacher onboarding',
-    `Name: ${form.fullName || 'Not set'}`,
-    `Email: ${form.workEmail || 'Not set'}`,
-    `Phone: ${form.phone || 'Not set'}`,
-    `Role: ${form.role}`,
-    '',
-    'School',
-    `School: ${form.schoolName || 'Not set'}`,
-    `District: ${form.district || 'Not set'}`,
-    `State: ${form.state || 'Not set'}`,
-    '',
-    'Teaching',
-    `Subjects: ${form.subjects || 'Not set'}`,
-    `Grades: ${form.grades || 'Not set'}`
-  ].join('\n');
-}
-
 export function OnboardingPage() {
   const api = useApiClient();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedAt, setSavedAt] = useState<string | null>(null);
-  const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [form, setForm] = useState<OnboardingForm>(() => loadOnboardingDraft());
 
   useEffect(() => {
@@ -82,18 +61,6 @@ export function OnboardingPage() {
   };
 
   const canSubmit = form.fullName.trim().length > 0 && form.schoolName.trim().length > 0;
-
-  const saveDraft = () => {
-    window.localStorage.setItem(ONBOARDING_DRAFT_KEY, JSON.stringify(form));
-    setSavedAt(new Date().toLocaleTimeString());
-    setError(null);
-  };
-
-  const copySummary = async () => {
-    await navigator.clipboard?.writeText(buildOnboardingSummary(form)).catch(() => undefined);
-    setCopyStatus('Onboarding summary copied.');
-    window.setTimeout(() => setCopyStatus(null), 1800);
-  };
 
   return (
     <div className="onboarding-page stack">
@@ -108,8 +75,6 @@ export function OnboardingPage() {
       </section>
 
       {error ? <p className="notice warning">{error}</p> : null}
-      {savedAt ? <p className="notice success">Draft saved at {savedAt}.</p> : null}
-      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
 
       <section className="card stack">
         <div className="section-heading">
@@ -187,14 +152,7 @@ export function OnboardingPage() {
 
       <section className="card stack">
         <div className="profile-actions">
-          <button type="button" onClick={saveDraft}>
-            Save draft
-          </button>
-          <button hidden className="secondary" type="button" onClick={() => void copySummary()}>
-            Copy summary
-          </button>
           <button
-            className="secondary"
             type="button"
             disabled={saving || !canSubmit}
             onClick={async () => {
@@ -221,7 +179,7 @@ export function OnboardingPage() {
               }
             }}
           >
-            {saving ? 'Saving...' : 'Complete setup'}
+            {saving ? 'Saving...' : 'Complete profile'}
           </button>
         </div>
         {!canSubmit ? <p className="muted">Add at least your full name and school name to finish setup.</p> : null}

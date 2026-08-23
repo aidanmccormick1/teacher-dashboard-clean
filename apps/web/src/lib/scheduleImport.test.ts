@@ -31,6 +31,27 @@ describe('normalizeImportedCourseVariants', () => {
     expect(result.assignments[0]?.courseName).toBe('Spanish 5');
   });
 
+  it('keeps the numbered subject in the course name and places its section beneath it', () => {
+    const result = normalizeImportedCourseVariants({
+      classes: [
+        { ...baseClass, name: 'Math 5A', period: '1' },
+        { ...baseClass, name: 'Spanish 5 Main Section', period: '2' },
+        { ...baseClass, name: 'Spanish 6B', period: '3' },
+        { ...baseClass, name: 'Spanish 7C', period: '4' },
+        { ...baseClass, name: 'Spanish 8D', period: '5' }
+      ],
+      assignments: []
+    });
+
+    expect(result.classes.map(({ name, period }) => ({ name, period }))).toEqual([
+      { name: 'Math 5', period: 'Group A' },
+      { name: 'Spanish 5', period: 'Main section' },
+      { name: 'Spanish 6', period: 'Group B' },
+      { name: 'Spanish 7', period: 'Group C' },
+      { name: 'Spanish 8', period: 'Group D' }
+    ]);
+  });
+
   it('groups block labels under a shared non-numbered course', () => {
     const result = normalizeImportedCourseVariants({
       classes: [

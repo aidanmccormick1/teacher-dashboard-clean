@@ -54,6 +54,17 @@ function inferCourseVariant(name: string): CourseVariant | null {
     };
   }
 
+  // A schedule with only one group for a numbered course may label it
+  // "Main section" instead of a letter. Keep that label beneath the complete
+  // course name just as we do for Groups A/B/C.
+  const mainSection = trimmed.match(/^(.+?\d(?:[\d\s./-]*\d)?)\s+(main\s+section)$/i);
+  if (mainSection?.[1] && mainSection[2]) {
+    return {
+      courseName: mainSection[1].trim().replace(/[\s,;:.-]+$/, ''),
+      groupLabel: 'Main section'
+    };
+  }
+
   // These labels explicitly describe scheduling groups. They can be safely
   // removed from any course title, including a title with no number.
   const namedGroup = trimmed.match(

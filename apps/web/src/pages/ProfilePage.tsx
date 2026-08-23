@@ -219,7 +219,7 @@ export function ProfilePage() {
                 className="input"
                 value={form.preferredName}
                 onChange={(event) => update('preferredName', event.target.value)}
-                placeholder="Mr. McCormick"
+                placeholder=""
               />
             </label>
             <label>

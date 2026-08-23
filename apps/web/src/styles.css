@@ -2633,6 +2633,14 @@ body.course-editor-open {
   gap: 12px;
 }
 
+.import-course-name-field {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .parsed-schedule-review > .parsed-class-list {
   grid-template-columns: 1fr;
 }
@@ -2652,15 +2660,26 @@ body.course-editor-open {
 }
 
 .parsed-meeting-row {
-  grid-template-columns: minmax(230px, 1.4fr) 130px 130px minmax(150px, 1fr);
-  align-items: end;
-  gap: 8px;
-  padding: 10px 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 0 2px;
   border-top: 1px solid var(--line);
 }
 
+.parsed-meeting-row > .meeting-day-picker,
+.parsed-meeting-row > label {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
 .parsed-meeting-row .meeting-time-fields {
-  display: contents;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
 }
 
 .parsed-meeting-row .meeting-day-picker {

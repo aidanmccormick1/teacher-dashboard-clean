@@ -2926,15 +2926,15 @@ export function ManagementPage() {
                       <div className="section-heading">
                         <div>
                           <p className="eyebrow">Shared curriculum</p>
-                          <h4>Course</h4>
+                          <h3>{group.name}</h3>
                         </div>
                         <span className="status-pill upcoming">
                           {group.classGroups.length} class{' '}
                           {group.classGroups.length === 1 ? 'group' : 'groups'}
                         </span>
                       </div>
-                      <label>
-                        Course name
+                      <label className="import-course-name-field">
+                        Edit course name
                         <input
                           className="input"
                           value={group.name}
