@@ -2469,7 +2469,10 @@ body.course-editor-open {
 }
 
 .schedule-upload-card {
-  max-width: 760px;
+  /* This is the primary action on the import screen. Keep it comfortably
+     wide on desktop instead of leaving it as a narrow centered column. */
+  width: min(100%, 1120px);
+  max-width: none;
   margin: 0 auto;
   background: #f4f8f5;
 }
@@ -2494,8 +2497,15 @@ body.course-editor-open {
 
 .schedule-upload-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  align-items: stretch;
+  gap: 18px;
+}
+
+.schedule-upload-grid textarea {
+  min-height: 190px;
+  height: 100%;
+  resize: vertical;
 }
 
 .upload-dropzone {
