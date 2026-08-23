@@ -3,6 +3,14 @@ import { z } from 'zod';
 export const UuidSchema = z.string().uuid();
 export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const IsoTimeSchema = z.string().regex(/^\d{2}:\d{2}$/);
+export const CalendarEventTypeSchema = z.enum([
+  'no_school',
+  'minimum_day',
+  'half_day',
+  'testing',
+  'special_schedule',
+  'other'
+]);
 
 export const MeetingDaySchema = z.enum([
   'Monday',
@@ -214,6 +222,92 @@ export const HolidaysUpsertResponseSchema = z.object({
   count: z.number().int().nonnegative()
 });
 
+const CalendarEventSchema = z.object({
+  id: UuidSchema.optional(),
+  date: IsoDateSchema,
+  type: CalendarEventTypeSchema,
+  label: z.string().min(1),
+  confidence: z.number().int().min(0).max(100).nullable().optional(),
+  sourceText: z.string().nullable().optional()
+});
+
+export const SchoolYearSchema = z.object({
+  id: UuidSchema,
+  startDate: IsoDateSchema,
+  endDate: IsoDateSchema
+});
+
+export const SchoolCalendarResponseSchema = z.object({
+  schoolYear: SchoolYearSchema.nullable(),
+  events: z.array(CalendarEventSchema.extend({ id: UuidSchema })),
+  isShared: z.literal(true)
+});
+
+export const SchoolYearUpsertRequestSchema = z
+  .object({ startDate: IsoDateSchema, endDate: IsoDateSchema })
+  .refine((value) => value.endDate >= value.startDate, { path: ['endDate'], message: 'End date must be on or after start date.' });
+
+export const CalendarImportRequestSchema = ScheduleImportRequestSchema;
+const CalendarOverridePreviewSchema = z.object({
+  date: IsoDateSchema,
+  classGroup: z.string().min(1),
+  startTime: IsoTimeSchema.nullable(),
+  endTime: IsoTimeSchema.nullable(),
+  room: z.string().nullable(),
+  cancelled: z.boolean().default(false)
+});
+export const CalendarImportResponseSchema = z.object({
+  schoolYear: z.object({ startDate: IsoDateSchema, endDate: IsoDateSchema }),
+  events: z.array(CalendarEventSchema),
+  overrides: z.array(CalendarOverridePreviewSchema).default([]),
+  notices: z.array(z.string()).default([])
+});
+
+export const CalendarCommitRequestSchema = z.object({
+  mode: z.enum(['merge', 'replace']),
+  schoolYear: z.object({ startDate: IsoDateSchema, endDate: IsoDateSchema }),
+  events: z.array(CalendarEventSchema),
+  overrides: z.array(CalendarOverridePreviewSchema).default([]),
+  approvedEventKeys: z.array(z.string()).optional()
+});
+
+export const CalendarCommitResponseSchema = SchoolCalendarResponseSchema;
+
+export const SectionMeetingOverrideRequestSchema = z
+  .object({
+    date: IsoDateSchema,
+    startTime: IsoTimeSchema.nullable(),
+    endTime: IsoTimeSchema.nullable(),
+    room: z.string().nullable(),
+    cancelled: z.boolean().default(false)
+  })
+  .superRefine((value, context) => validateMeetingRange({ time: value.startTime, endTime: value.endTime }, context));
+
+export const MeetingInstanceSchema = z.object({
+  sectionId: UuidSchema,
+  courseId: UuidSchema,
+  courseName: z.string(),
+  sectionName: z.string(),
+  date: IsoDateSchema,
+  startTime: IsoTimeSchema.nullable(),
+  endTime: IsoTimeSchema.nullable(),
+  room: z.string().nullable(),
+  isAbnormal: z.boolean(),
+  calendarEvent: CalendarEventSchema.nullable()
+});
+
+export const MeetingInstancesResponseSchema = z.object({
+  meetings: z.array(MeetingInstanceSchema),
+  schoolYear: SchoolYearSchema.nullable()
+});
+
+export const TeacherPreferencesSchema = z.object({
+  walkthroughDismissed: z.boolean(),
+  setupStep: z.enum(['schedule', 'calendar', 'courses', 'year_plan', 'complete']),
+  returnPath: z.string().nullable()
+});
+export const TeacherPreferencesUpdateRequestSchema = TeacherPreferencesSchema.partial();
+
 export const FeedbackSubmitRequestSchema = z.object({
   type: z.enum(['Confusing', 'Broken', 'Missing feature', 'Nice to have']),
   page: z.string().min(1),
@@ -327,6 +421,7 @@ export const GenerateContinuityResponseSchema = z.object({
 
 export const AiJobTypeSchema = z.enum([
   'parse_schedule',
+  'parse_school_calendar',
   'generate_segments',
   'generate_continuity',
   'generate_unit_draft'
@@ -365,6 +460,7 @@ export const CourseSummarySchema = z.object({
   name: z.string(),
   subject: z.string().nullable(),
   gradeLevel: z.string().nullable(),
+  sortIndex: z.number().int(),
   createdAt: z.string()
 });
 
@@ -381,7 +477,8 @@ export const CourseCreateRequestSchema = z.object({
 export const CourseUpdateRequestSchema = z.object({
   name: z.string().min(1).optional(),
   subject: z.string().nullable().optional(),
-  gradeLevel: z.string().nullable().optional()
+  gradeLevel: z.string().nullable().optional(),
+  sortIndex: z.number().int().nonnegative().optional()
 });
 
 export const SegmentSchema = z.object({
@@ -398,6 +495,8 @@ export const LessonSchema = z.object({
   description: z.string().nullable(),
   orderIndex: z.number().int(),
   estimatedDurationMinutes: z.number().int().nullable(),
+  plannedStartMeeting: z.number().int().nonnegative().nullable(),
+  plannedMeetingCount: z.number().int().positive().nullable(),
   segments: z.array(SegmentSchema)
 });
 
@@ -437,7 +536,9 @@ export const LessonCreateRequestSchema = z.object({
   title: z.string().min(1),
   description: z.string().nullable(),
   estimatedDurationMinutes: z.number().int().positive().nullable(),
-  orderIndex: z.number().int().nonnegative().optional()
+  orderIndex: z.number().int().nonnegative().optional(),
+  plannedStartMeeting: z.number().int().nonnegative().nullable().optional(),
+  plannedMeetingCount: z.number().int().positive().nullable().optional()
 });
 
 export const LessonUpdateRequestSchema = z.object({
@@ -445,7 +546,9 @@ export const LessonUpdateRequestSchema = z.object({
   description: z.string().nullable().optional(),
   estimatedDurationMinutes: z.number().int().positive().nullable().optional(),
   orderIndex: z.number().int().nonnegative().optional(),
-  unitId: UuidSchema.optional()
+  unitId: UuidSchema.optional(),
+  plannedStartMeeting: z.number().int().nonnegative().nullable().optional(),
+  plannedMeetingCount: z.number().int().positive().nullable().optional()
 });
 
 export const SegmentCreateRequestSchema = z.object({
@@ -527,6 +630,16 @@ export type ScheduleImportCorrectionRequest = z.infer<typeof ScheduleImportCorre
 export type ScheduleImportApplyRequest = z.infer<typeof ScheduleImportApplyRequestSchema>;
 export type HolidaysUpsertRequest = z.infer<typeof HolidaysUpsertRequestSchema>;
 export type HolidaysUpsertResponse = z.infer<typeof HolidaysUpsertResponseSchema>;
+export type SchoolCalendarResponse = z.infer<typeof SchoolCalendarResponseSchema>;
+export type SchoolYearUpsertRequest = z.infer<typeof SchoolYearUpsertRequestSchema>;
+export type CalendarImportRequest = z.infer<typeof CalendarImportRequestSchema>;
+export type CalendarImportResponse = z.infer<typeof CalendarImportResponseSchema>;
+export type CalendarCommitRequest = z.infer<typeof CalendarCommitRequestSchema>;
+export type CalendarCommitResponse = z.infer<typeof CalendarCommitResponseSchema>;
+export type SectionMeetingOverrideRequest = z.infer<typeof SectionMeetingOverrideRequestSchema>;
+export type MeetingInstancesResponse = z.infer<typeof MeetingInstancesResponseSchema>;
+export type TeacherPreferences = z.infer<typeof TeacherPreferencesSchema>;
+export type TeacherPreferencesUpdateRequest = z.infer<typeof TeacherPreferencesUpdateRequestSchema>;
 export type FeedbackSubmitRequest = z.infer<typeof FeedbackSubmitRequestSchema>;
 export type FeedbackSubmitResponse = z.infer<typeof FeedbackSubmitResponseSchema>;
 export type LessonProgressUpsertRequest = z.infer<typeof LessonProgressUpsertRequestSchema>;

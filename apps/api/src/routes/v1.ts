@@ -8,6 +8,10 @@ import {
   AiJobControlResponseSchema,
   AiJobEnqueueResponseSchema,
   AiJobStatusResponseSchema,
+  CalendarCommitRequestSchema,
+  CalendarCommitResponseSchema,
+  CalendarImportRequestSchema,
+  CalendarImportResponseSchema,
   ClassroomResumeResponseSchema,
   ClassNotesUpsertRequestSchema,
   ClassNotesUpsertResponseSchema,
@@ -50,6 +54,12 @@ import {
   UnitUpdateRequestSchema,
   LessonCreateRequestSchema,
   LessonUpdateRequestSchema,
+  MeetingInstancesResponseSchema,
+  SchoolCalendarResponseSchema,
+  SchoolYearUpsertRequestSchema,
+  SectionMeetingOverrideRequestSchema,
+  TeacherPreferencesSchema,
+  TeacherPreferencesUpdateRequestSchema,
   UuidSchema
 } from '@teacheros/contracts';
 import {
@@ -61,12 +71,16 @@ import {
   db,
   lessonSegments,
   lessons,
+  schoolCalendarEvents,
   schoolHolidays,
+  schoolYears,
+  sectionMeetingOverrides,
   sectionLessonState,
   sectionMeetings,
   sections,
   schools,
   teacherProfiles,
+  teacherPreferences,
   units,
   users
 } from '@teacheros/db';
@@ -76,6 +90,7 @@ import { safeRedisGet, safeRedisSet } from '../lib/redis.js';
 import { createS3Client, createSignedUploadUrl } from '../lib/s3.js';
 import { AI_JOB_MAX_ATTEMPTS, enqueueAiJob } from '../lib/queue.js';
 import { ensureUserFromPrincipal, upsertOnboarding } from '../services/user-service.js';
+import { buildMeetingInstances, loadActiveSchoolYear } from '../services/meeting-instances.js';
 
 const InternalParseScheduleSchema = z.object({
   classes: z.array(
@@ -99,6 +114,30 @@ const InternalParseScheduleSchema = z.object({
   )
 });
 
+const InternalParseCalendarSchema = z.object({
+  schoolYear: z.object({ startDate: z.string(), endDate: z.string() }),
+  events: z.array(
+    z.object({
+      date: z.string(),
+      type: z.enum(['no_school', 'minimum_day', 'half_day', 'testing', 'special_schedule', 'other']),
+      label: z.string(),
+      confidence: z.number().int().min(0).max(100).default(70),
+      sourceText: z.string().nullable().default(null)
+    })
+  ),
+  overrides: z.array(
+    z.object({
+      date: z.string(),
+      classGroup: z.string(),
+      startTime: z.string().nullable(),
+      endTime: z.string().nullable(),
+      room: z.string().nullable(),
+      cancelled: z.boolean().default(false)
+    })
+  ).default([]),
+  notices: z.array(z.string()).default([])
+});
+
 type ScheduleImportBody = z.infer<typeof ScheduleImportRequestSchema>;
 type ScheduleImportCorrectionBody = z.infer<typeof ScheduleImportCorrectionRequestSchema>;
 
@@ -118,6 +157,22 @@ function scheduleImportFileDataUrl(body: ScheduleImportBody): string | undefined
   }
 
   return undefined;
+}
+
+function calendarImportPrompt(body: ScheduleImportBody, classGroups: string[]): string {
+  const instructions = [
+    'Parse this as a school-year calendar only. Do not extract or change recurring classes, courses, or class groups.',
+    'Return a structured school year plus one event per actual date. Expand every date range into daily events.',
+    'Infer a missing end year when a range crosses December into January. Use no_school only when classes do not meet; minimum_day, half_day, testing, and special_schedule are still school days.',
+    'For every event include the visible label, a 0-100 confidence, and a compact source excerpt. Do not invent alternate bell times when the source only names a special day.',
+    classGroups.length ? `If an alternate schedule explicitly identifies one of these Class Groups, emit a date-specific override for it: ${classGroups.join(', ')}.` : 'Do not emit an override unless the alternate schedule identifies a class group.',
+    'Return JSON only.'
+  ];
+  return body.text ? [...instructions, '', body.text].join('\n') : instructions.join('\n');
+}
+
+function calendarEventKey(event: { date: string; type: string; label: string }) {
+  return `${event.date}|${event.type}|${importNameKey(event.label)}`;
 }
 
 function scheduleImportUserPrompt(body: ScheduleImportBody): string {
@@ -188,10 +243,6 @@ function importNameKey(value: string): string {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ');
 }
 
-function dayName(date: Date): string {
-  return date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
-}
-
 function timeToMinutes(time: string | null): number | null {
   if (!time) return null;
   const parts = time.split(':');
@@ -232,6 +283,39 @@ async function loadTeacherSchoolId(userId: string): Promise<string> {
   return profile.schoolId;
 }
 
+async function buildSchoolCalendarResponse(schoolId: string) {
+  const schoolYear = await loadActiveSchoolYear(schoolId);
+  const events = schoolYear
+    ? await db
+        .select()
+        .from(schoolCalendarEvents)
+        .where(eq(schoolCalendarEvents.schoolYearId, schoolYear.id))
+        .orderBy(asc(schoolCalendarEvents.date), asc(schoolCalendarEvents.label))
+    : [];
+
+  return SchoolCalendarResponseSchema.parse({
+    schoolYear: schoolYear ? { id: schoolYear.id, startDate: schoolYear.startDate, endDate: schoolYear.endDate } : null,
+    events: events.map((event) => ({
+      id: event.id,
+      date: event.date,
+      type: event.type,
+      label: event.label,
+      confidence: event.confidence,
+      sourceText: event.sourceText
+    })),
+    isShared: true
+  });
+}
+
+async function buildTeacherPreferences(userId: string) {
+  const [preferences] = await db.select().from(teacherPreferences).where(eq(teacherPreferences.userId, userId)).limit(1);
+  return TeacherPreferencesSchema.parse({
+    walkthroughDismissed: preferences?.walkthroughDismissed ?? false,
+    setupStep: preferences?.setupStep ?? 'schedule',
+    returnPath: preferences?.returnPath ?? null
+  });
+}
+
 const CourseParamsSchema = z.object({ courseId: UuidSchema });
 const UnitParamsSchema = z.object({ unitId: UuidSchema });
 const LessonParamsSchema = z.object({ lessonId: UuidSchema });
@@ -247,6 +331,7 @@ async function findOwnedCourse(userId: string, courseId: string) {
       name: courses.name,
       subject: courses.subject,
       gradeLevel: courses.gradeLevel,
+      sortIndex: courses.sortIndex,
       createdAt: courses.createdAt
     })
     .from(courses)
@@ -421,7 +506,9 @@ async function buildCourseDetail(userId: string, courseId: string) {
             title: lessons.title,
             description: lessons.description,
             orderIndex: lessons.orderIndex,
-            estimatedDurationMinutes: lessons.estimatedDurationMinutes
+            estimatedDurationMinutes: lessons.estimatedDurationMinutes,
+            plannedStartMeeting: lessons.plannedStartMeeting,
+            plannedMeetingCount: lessons.plannedMeetingCount
           })
           .from(lessons)
           .where(inArray(lessons.unitId, unitIds))
@@ -471,6 +558,7 @@ async function buildCourseDetail(userId: string, courseId: string) {
       name: course.name,
       subject: course.subject,
       gradeLevel: course.gradeLevel,
+      sortIndex: course.sortIndex,
       createdAt: course.createdAt.toISOString(),
       units: unitRows.map((unit) => ({
         id: unit.id,
@@ -485,6 +573,8 @@ async function buildCourseDetail(userId: string, courseId: string) {
           description: lesson.description,
           orderIndex: lesson.orderIndex,
           estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+          plannedStartMeeting: lesson.plannedStartMeeting,
+          plannedMeetingCount: lesson.plannedMeetingCount,
           segments: (segmentsByLessonId.get(lesson.id) ?? []).map((segment) => ({
             id: segment.id,
             title: segment.title,
@@ -699,46 +789,21 @@ export async function v1Routes(app: FastifyInstance) {
         return JSON.parse(cached) as unknown;
       }
 
-      const weekday = dayName(date);
       const schoolId = await loadTeacherSchoolId(user.id);
-
-      const rows = await db
-        .select({
-          sectionId: sections.id,
-          sectionName: sections.name,
-          courseName: courses.name,
-          meetingTime: sectionMeetings.meetingTime,
-          endTime: sectionMeetings.endTime,
-          room: sectionMeetings.room
-        })
-        .from(sections)
-        .innerJoin(courses, eq(sections.courseId, courses.id))
-        .innerJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
-        .where(and(eq(courses.teacherId, user.id), eq(sectionMeetings.day, weekday)))
-        .orderBy(asc(sectionMeetings.meetingTime));
-
-      const [holiday] = await db
-        .select({
-          id: schoolHolidays.id,
-          date: schoolHolidays.date,
-          name: schoolHolidays.name
-        })
-        .from(schoolHolidays)
-        .where(and(eq(schoolHolidays.schoolId, schoolId), eq(schoolHolidays.date, isoDate)))
-        .limit(1);
-
-      const todaySchedule = rows.map((row) => ({
-        sectionId: row.sectionId,
-        sectionName: row.sectionName,
-        courseName: row.courseName,
-        meetingTime: row.meetingTime ? row.meetingTime.slice(0, 5) : null,
-        endTime: row.endTime ? row.endTime.slice(0, 5) : endTimeFromStart(row.meetingTime ? row.meetingTime.slice(0, 5) : null),
-        room: row.room,
-        isInSession: isInSession(
-          row.meetingTime ? row.meetingTime.slice(0, 5) : null,
-          row.endTime ? row.endTime.slice(0, 5) : null
-        )
+      const allMeetingInstances = await buildMeetingInstances(user.id, schoolId, { startDate: isoDate, endDate: isoDate });
+      const todaySchedule = allMeetingInstances.meetings.map((meeting) => ({
+        sectionId: meeting.sectionId,
+        sectionName: meeting.sectionName,
+        courseName: meeting.courseName,
+        meetingTime: meeting.startTime,
+        endTime: meeting.endTime,
+        room: meeting.room,
+        isInSession: isInSession(meeting.startTime, meeting.endTime)
       }));
+      const activeYear = await loadActiveSchoolYear(schoolId);
+      const [calendarClosure] = activeYear
+        ? await db.select({ id: schoolCalendarEvents.id, date: schoolCalendarEvents.date, name: schoolCalendarEvents.label }).from(schoolCalendarEvents).where(and(eq(schoolCalendarEvents.schoolYearId, activeYear.id), eq(schoolCalendarEvents.date, isoDate), eq(schoolCalendarEvents.type, 'no_school'))).limit(1)
+        : [];
 
       const nowMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
       const withMinutes = todaySchedule.map((entry) => ({
@@ -782,11 +847,11 @@ export async function v1Routes(app: FastifyInstance) {
           room,
           isInSession: inSession
         })),
-        holiday: holiday
+        holiday: calendarClosure
           ? {
-              id: holiday.id,
-              date: holiday.date,
-              name: holiday.name
+              id: calendarClosure.id,
+              date: calendarClosure.date,
+              name: calendarClosure.name
             }
           : null
       };
@@ -814,6 +879,131 @@ export async function v1Routes(app: FastifyInstance) {
       return buildScheduleResponse(user.id, schoolId);
     }
   );
+
+  app.get('/v1/school-calendar', { schema: { response: { 200: SchoolCalendarResponseSchema } } }, async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    return buildSchoolCalendarResponse(await loadTeacherSchoolId(user.id));
+  });
+
+  app.post('/v1/school-year', { schema: { body: SchoolYearUpsertRequestSchema, response: { 200: SchoolCalendarResponseSchema } } }, async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const schoolId = await loadTeacherSchoolId(user.id);
+    const body = SchoolYearUpsertRequestSchema.parse(request.body);
+    const current = await loadActiveSchoolYear(schoolId);
+    if (current) {
+      await db.update(schoolYears).set({ startDate: body.startDate, endDate: body.endDate, updatedAt: new Date() }).where(eq(schoolYears.id, current.id));
+    } else {
+      await db.insert(schoolYears).values({ schoolId, startDate: body.startDate, endDate: body.endDate, createdByUserId: user.id });
+    }
+    await db.insert(auditEvents).values({ userId: user.id, eventType: 'school_year_saved', entityType: 'school', entityId: schoolId, metadata: body });
+    return buildSchoolCalendarResponse(schoolId);
+  });
+
+  app.post('/v1/school-calendar/import', { schema: { body: CalendarImportRequestSchema, response: { 200: CalendarImportResponseSchema } } }, async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const body = CalendarImportRequestSchema.parse(request.body);
+    if (!hasScheduleImportInput(body)) {
+      (reply as any).code(400);
+      return { error: 'Paste calendar text or upload a calendar image/PDF', requestId: request.id };
+    }
+    if (!app.config.OPENAI_API_KEY) {
+      (reply as any).code(503);
+      return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
+    }
+    const classGroups = await db.select({ name: sections.name }).from(sections).innerJoin(courses, eq(sections.courseId, courses.id)).where(eq(courses.teacherId, user.id));
+    const result = await runStructuredPrompt<z.infer<typeof InternalParseCalendarSchema>>({
+      apiKey: app.config.OPENAI_API_KEY,
+      model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+      reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
+      schemaName: 'school_calendar_import',
+      schema: InternalParseCalendarSchema,
+      systemPrompt: 'You are a careful school calendar reader. Extract only evidence visible in the teacher supplied calendar.',
+      userPrompt: calendarImportPrompt(body, classGroups.map((group) => group.name)),
+      fileDataUrl: scheduleImportFileDataUrl(body),
+      fileName: body.fileName
+    });
+    return CalendarImportResponseSchema.parse(result);
+  });
+
+  app.post('/v1/school-calendar/commit', { schema: { body: CalendarCommitRequestSchema, response: { 200: CalendarCommitResponseSchema } } }, async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const schoolId = await loadTeacherSchoolId(user.id);
+    const body = CalendarCommitRequestSchema.parse(request.body);
+    let schoolYear = await loadActiveSchoolYear(schoolId);
+    if (!schoolYear) {
+      const [created] = await db.insert(schoolYears).values({ schoolId, ...body.schoolYear, createdByUserId: user.id }).returning();
+      if (!created) throw new Error('Could not create school year');
+      schoolYear = created;
+    } else {
+      await db.update(schoolYears).set({ ...body.schoolYear, updatedAt: new Date() }).where(eq(schoolYears.id, schoolYear.id));
+    }
+    const approved = body.approvedEventKeys ? new Set(body.approvedEventKeys) : null;
+    const events = body.events.filter((event) => !approved || approved.has(calendarEventKey(event)));
+    await db.transaction(async (tx) => {
+      if (body.mode === 'replace') await tx.delete(schoolCalendarEvents).where(eq(schoolCalendarEvents.schoolYearId, schoolYear!.id));
+      for (const event of events) {
+        const values = { schoolYearId: schoolYear!.id, date: event.date, type: event.type, label: event.label, confidence: event.confidence ?? null, sourceText: event.sourceText ?? null, createdByUserId: user.id };
+        if (body.mode === 'merge') {
+          await tx.insert(schoolCalendarEvents).values(values).onConflictDoNothing();
+        } else {
+          await tx.insert(schoolCalendarEvents).values(values);
+        }
+      }
+      const ownedSections = await tx
+        .select({ id: sections.id, name: sections.name })
+        .from(sections)
+        .innerJoin(courses, eq(sections.courseId, courses.id))
+        .where(eq(courses.teacherId, user.id));
+      for (const override of body.overrides) {
+        const section = ownedSections.find((candidate) => importNameKey(candidate.name) === importNameKey(override.classGroup));
+        if (!section) continue;
+        await tx.insert(sectionMeetingOverrides).values({
+          sectionId: section.id,
+          date: override.date,
+          startTime: override.startTime,
+          endTime: override.endTime,
+          room: override.room,
+          cancelled: override.cancelled,
+          createdByUserId: user.id
+        }).onConflictDoUpdate({
+          target: [sectionMeetingOverrides.sectionId, sectionMeetingOverrides.date],
+          set: { startTime: override.startTime, endTime: override.endTime, room: override.room, cancelled: override.cancelled, updatedAt: new Date() }
+        });
+      }
+      await tx.insert(auditEvents).values({ userId: user.id, eventType: `school_calendar_${body.mode}`, entityType: 'school_year', entityId: schoolYear!.id, metadata: { events: events.length } });
+    });
+    return buildSchoolCalendarResponse(schoolId);
+  });
+
+  app.get('/v1/meeting-instances', { schema: { response: { 200: MeetingInstancesResponseSchema } } }, async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    return buildMeetingInstances(user.id, await loadTeacherSchoolId(user.id));
+  });
+
+  app.get('/v1/preferences', { schema: { response: { 200: TeacherPreferencesSchema } } }, async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    return buildTeacherPreferences((await ensureUserFromPrincipal(principal)).id);
+  });
+
+  app.patch('/v1/preferences', { schema: { body: TeacherPreferencesUpdateRequestSchema, response: { 200: TeacherPreferencesSchema } } }, async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const body = TeacherPreferencesUpdateRequestSchema.parse(request.body);
+    await db.insert(teacherPreferences).values({ userId: user.id, ...body, updatedAt: new Date() }).onConflictDoUpdate({ target: teacherPreferences.userId, set: { ...body, updatedAt: new Date() } });
+    return buildTeacherPreferences(user.id);
+  });
 
   app.post(
     '/v1/sections',
@@ -944,6 +1134,24 @@ export async function v1Routes(app: FastifyInstance) {
       return { deleted: true };
     }
   );
+
+  app.post('/v1/sections/:sectionId/meeting-overrides', { schema: { params: SectionParamsSchema, body: SectionMeetingOverrideRequestSchema, response: { 200: MeetingInstancesResponseSchema } } }, async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const params = SectionParamsSchema.parse(request.params);
+    const body = SectionMeetingOverrideRequestSchema.parse(request.body);
+    if (!(await findOwnedSection(user.id, params.sectionId))) {
+      (reply as any).code(404);
+      return { error: 'Section not found', requestId: request.id };
+    }
+    await db.insert(sectionMeetingOverrides).values({ sectionId: params.sectionId, ...body, createdByUserId: user.id }).onConflictDoUpdate({
+      target: [sectionMeetingOverrides.sectionId, sectionMeetingOverrides.date],
+      set: { startTime: body.startTime, endTime: body.endTime, room: body.room, cancelled: body.cancelled, updatedAt: new Date() }
+    });
+    await db.insert(auditEvents).values({ userId: user.id, eventType: 'section_meeting_override_saved', entityType: 'section', entityId: params.sectionId, metadata: { date: body.date } });
+    return buildMeetingInstances(user.id, await loadTeacherSchoolId(user.id), { sectionId: params.sectionId });
+  });
 
   app.get(
     '/v1/sections/:sectionId/resume',
@@ -1108,14 +1316,15 @@ export async function v1Routes(app: FastifyInstance) {
       const courseRows = await db
         .select({
           id: courses.id,
-          name: courses.name,
-          subject: courses.subject,
-          gradeLevel: courses.gradeLevel,
-          createdAt: courses.createdAt
+      name: courses.name,
+      subject: courses.subject,
+      gradeLevel: courses.gradeLevel,
+      sortIndex: courses.sortIndex,
+      createdAt: courses.createdAt
         })
         .from(courses)
         .where(eq(courses.teacherId, user.id))
-        .orderBy(desc(courses.createdAt));
+        .orderBy(asc(courses.sortIndex), asc(courses.name), asc(courses.createdAt));
 
       return {
         courses: courseRows.map((course) => ({
@@ -1123,6 +1332,7 @@ export async function v1Routes(app: FastifyInstance) {
           name: course.name,
           subject: course.subject,
           gradeLevel: course.gradeLevel,
+          sortIndex: course.sortIndex,
           createdAt: course.createdAt.toISOString()
         }))
       };
@@ -1145,6 +1355,7 @@ export async function v1Routes(app: FastifyInstance) {
       const body = CourseCreateRequestSchema.parse(request.body);
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
+      const [lastCourse] = await db.select({ sortIndex: courses.sortIndex }).from(courses).where(eq(courses.teacherId, user.id)).orderBy(desc(courses.sortIndex)).limit(1);
 
       const [course] = await db
         .insert(courses)
@@ -1153,7 +1364,8 @@ export async function v1Routes(app: FastifyInstance) {
           schoolId,
           name: body.name,
           subject: body.subject,
-          gradeLevel: body.gradeLevel
+          gradeLevel: body.gradeLevel,
+          sortIndex: (lastCourse?.sortIndex ?? -1) + 1
         })
         .returning({ id: courses.id });
 
@@ -1214,6 +1426,7 @@ export async function v1Routes(app: FastifyInstance) {
       if (body.name !== undefined) updates.name = body.name;
       if (body.subject !== undefined) updates.subject = body.subject;
       if (body.gradeLevel !== undefined) updates.gradeLevel = body.gradeLevel;
+      if (body.sortIndex !== undefined) updates.sortIndex = body.sortIndex;
 
       const [updated] = await db
         .update(courses)
@@ -1412,7 +1625,9 @@ export async function v1Routes(app: FastifyInstance) {
         title: body.title,
         description: body.description,
         estimatedDurationMinutes: body.estimatedDurationMinutes,
-        orderIndex: body.orderIndex ?? (latestLesson?.orderIndex ?? -1) + 1
+        orderIndex: body.orderIndex ?? (latestLesson?.orderIndex ?? -1) + 1,
+        plannedStartMeeting: body.plannedStartMeeting ?? null,
+        plannedMeetingCount: body.plannedMeetingCount ?? null
       });
 
       const detail = await buildCourseDetail(user.id, courseId);
@@ -1454,6 +1669,8 @@ export async function v1Routes(app: FastifyInstance) {
         updates.estimatedDurationMinutes = body.estimatedDurationMinutes;
       }
       if (body.orderIndex !== undefined) updates.orderIndex = body.orderIndex;
+      if (body.plannedStartMeeting !== undefined) updates.plannedStartMeeting = body.plannedStartMeeting;
+      if (body.plannedMeetingCount !== undefined) updates.plannedMeetingCount = body.plannedMeetingCount;
       if (body.unitId !== undefined) {
         const destinationCourseId = await findOwnedCourseIdForUnit(user.id, body.unitId);
         if (destinationCourseId !== ownedCourseId) {

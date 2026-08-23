@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import type { ClassroomResumeResponse, DashboardTodayResponse } from '@teacheros/contracts';
+import type { ClassroomResumeResponse, DashboardTodayResponse, GetScheduleResponse, SchoolCalendarResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { rememberManagementTab, type ManagementTabTarget } from '../lib/management-tabs.js';
@@ -17,6 +17,9 @@ export function ClassroomPage() {
   const api = useApiClient();
   const navigate = useNavigate();
   const [data, setData] = useState<DashboardTodayResponse | null>(null);
+  const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
+  const [calendar, setCalendar] = useState<SchoolCalendarResponse | null>(null);
+  const [manualSectionId, setManualSectionId] = useState('');
   const [resume, setResume] = useState<ClassroomResumeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -24,12 +27,16 @@ export function ClassroomPage() {
   const totalSegments = resume?.lesson?.segments.length ?? 0;
   const stoppedSegment = resume?.lesson?.segments.find((segment) => segment.id === resume.state?.stoppedAtSegmentId);
   const nextSegment = resume?.lesson?.segments.find((segment) => !resume.state?.completedSegmentIds.includes(segment.id));
-  const targetClass = data?.currentClass ?? data?.nextClass ?? null;
+  const manualSection = schedule?.sections.find((section) => section.sectionId === manualSectionId);
+  const targetClass = data?.currentClass ?? data?.nextClass ?? (manualSection ? { sectionId: manualSection.sectionId, courseName: manualSection.courseName, sectionName: manualSection.sectionName, meetingTime: null, endTime: null, room: null } : null);
+  const today = new Date().toISOString().slice(0, 10);
+  const specialDay = calendar?.events.find((event) => event.date === today && event.type !== 'no_school') ?? null;
 
   useEffect(() => {
     void (async () => {
       try {
-        setData(await api.dashboardToday());
+        const [dashboard, scheduleResult, calendarResult] = await Promise.all([api.dashboardToday(), api.getSchedule(), api.getSchoolCalendar()]);
+        setData(dashboard); setSchedule(scheduleResult); setCalendar(calendarResult);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Failed to load classroom state');
       }
@@ -94,6 +101,7 @@ export function ClassroomPage() {
       <h1>Classroom</h1>
       {error ? <p className="notice warning">{error}</p> : null}
       {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
+      {specialDay && !data?.currentClass ? <section className="smart-prompt"><div><p className="eyebrow">{specialDay.type.replace('_', ' ')}</p><h2>{specialDay.label}</h2><p>Today has an abnormal schedule. Choose the Class Group you are teaching instead of using normal times.</p></div><select className="input" value={manualSectionId} onChange={(event) => setManualSectionId(event.target.value)}><option value="">Choose Class Group</option>{schedule?.sections.map((section) => <option key={section.sectionId} value={section.sectionId}>{section.courseName} · {section.sectionName}</option>)}</select></section> : null}
       {!data ? <p className="muted">Loading active class...</p> : null}
       {data?.currentClass ? (
         <div className="classroom-grid">

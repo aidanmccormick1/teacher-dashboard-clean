@@ -44,6 +44,16 @@ function inferCourseVariant(name: string): CourseVariant | null {
     };
   }
 
+  // AP/IB titles often have no grade number, but a trailing letter is still a
+  // class group rather than a second curriculum (AP Government A/B/C).
+  const advancedCourseLetterSuffix = trimmed.match(/^((?:AP|IB)\s+.+?)\s*(?:[-–—,:]?\s*|\(\s*)([A-Za-z])\)?$/i);
+  if (advancedCourseLetterSuffix?.[1] && advancedCourseLetterSuffix[2]) {
+    return {
+      courseName: advancedCourseLetterSuffix[1].trim().replace(/[\s,;:.-]+$/, ''),
+      groupLabel: `Group ${advancedCourseLetterSuffix[2].toUpperCase()}`
+    };
+  }
+
   // These labels explicitly describe scheduling groups. They can be safely
   // removed from any course title, including a title with no number.
   const namedGroup = trimmed.match(

@@ -48,6 +48,20 @@ describe('normalizeImportedCourseVariants', () => {
     ]);
   });
 
+  it('groups AP letter sections under their shared course', () => {
+    const result = normalizeImportedCourseVariants({
+      classes: [
+        { ...baseClass, name: 'AP Government A', period: '1' },
+        { ...baseClass, name: 'AP Government B', period: '2' }
+      ],
+      assignments: []
+    });
+    expect(result.classes.map(({ name, period }) => ({ name, period }))).toEqual([
+      { name: 'AP Government', period: 'Group A' },
+      { name: 'AP Government', period: 'Group B' }
+    ]);
+  });
+
   it('keeps repeated class-group labels together while preserving their meeting occurrences', () => {
     const result = normalizeImportedCourseVariants({
       classes: [

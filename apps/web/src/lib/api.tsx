@@ -4,6 +4,10 @@ import type {
   AiJobControlResponse,
   AiJobEnqueueResponse,
   AiJobStatusResponse,
+  CalendarCommitRequest,
+  CalendarCommitResponse,
+  CalendarImportRequest,
+  CalendarImportResponse,
   ClassNotesUpsertRequest,
   ClassNotesUpsertResponse,
   ClassroomResumeResponse,
@@ -28,6 +32,7 @@ import type {
   LessonProgressUpsertResponse,
   LessonCreateRequest,
   LessonUpdateRequest,
+  MeetingInstancesResponse,
   OnboardingRequest,
   OnboardingResponse,
   ParseScheduleResponse,
@@ -39,10 +44,15 @@ import type {
   ScheduleImportCorrectionRequest,
   ScheduleImportApplyRequest,
   ScheduleImportRequest,
+  SchoolCalendarResponse,
+  SchoolYearUpsertRequest,
+  SectionMeetingOverrideRequest,
   SectionMutationRequest,
   SectionUpdateRequest,
   UnitCreateRequest,
-  UnitUpdateRequest
+  UnitUpdateRequest,
+  TeacherPreferences,
+  TeacherPreferencesUpdateRequest
 } from '@teacheros/contracts';
 
 import { useAppAuth } from './auth.js';
@@ -137,6 +147,17 @@ export function useApiClient() {
         request<ProfileUpdateResponse>('/v1/profile', { method: 'PATCH', body: JSON.stringify(body) }, auth),
       dashboardToday: () => request<DashboardTodayResponse>('/v1/dashboard/today', { method: 'GET' }, auth),
       getSchedule: () => request<GetScheduleResponse>('/v1/schedule', { method: 'GET' }, auth),
+      getSchoolCalendar: () => request<SchoolCalendarResponse>('/v1/school-calendar', { method: 'GET' }, auth),
+      saveSchoolYear: (body: SchoolYearUpsertRequest) =>
+        request<SchoolCalendarResponse>('/v1/school-year', { method: 'POST', body: JSON.stringify(body) }, auth),
+      importSchoolCalendar: (body: CalendarImportRequest) =>
+        request<CalendarImportResponse>('/v1/school-calendar/import', { method: 'POST', body: JSON.stringify(body) }, auth, AI_REQUEST_TIMEOUT_MS),
+      commitSchoolCalendar: (body: CalendarCommitRequest) =>
+        request<CalendarCommitResponse>('/v1/school-calendar/commit', { method: 'POST', body: JSON.stringify(body) }, auth),
+      getMeetingInstances: () => request<MeetingInstancesResponse>('/v1/meeting-instances', { method: 'GET' }, auth),
+      getPreferences: () => request<TeacherPreferences>('/v1/preferences', { method: 'GET' }, auth),
+      updatePreferences: (body: TeacherPreferencesUpdateRequest) =>
+        request<TeacherPreferences>('/v1/preferences', { method: 'PATCH', body: JSON.stringify(body) }, auth),
       createSection: (body: SectionMutationRequest) =>
         request<GetScheduleResponse>('/v1/sections', { method: 'POST', body: JSON.stringify(body) }, auth),
       updateSection: (sectionId: string, body: SectionUpdateRequest) =>
@@ -145,6 +166,8 @@ export function useApiClient() {
           { method: 'PATCH', body: JSON.stringify(body) },
           auth
         ),
+      saveSectionMeetingOverride: (sectionId: string, body: SectionMeetingOverrideRequest) =>
+        request<MeetingInstancesResponse>(`/v1/sections/${sectionId}/meeting-overrides`, { method: 'POST', body: JSON.stringify(body) }, auth),
       deleteSection: (sectionId: string) =>
         request<DeleteEntityResponse>(`/v1/sections/${sectionId}`, { method: 'DELETE' }, auth),
       getClassroomResume: (sectionId: string) =>

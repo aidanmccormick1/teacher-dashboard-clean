@@ -33,6 +33,14 @@ export const aiJobStatusEnum = pgEnum('ai_job_status', [
   'cancelled'
 ]);
 export const classNoteTypeEnum = pgEnum('class_note_type', ['raw', 'cleaned']);
+export const calendarEventTypeEnum = pgEnum('calendar_event_type', [
+  'no_school',
+  'minimum_day',
+  'half_day',
+  'testing',
+  'special_schedule',
+  'other'
+]);
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -100,6 +108,7 @@ export const courses = pgTable(
     name: text('name').notNull(),
     subject: text('subject'),
     gradeLevel: text('grade_level'),
+    sortIndex: integer('sort_index').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
@@ -153,6 +162,88 @@ export const schoolHolidays = pgTable(
   (table) => [unique('uniq_school_holiday_date').on(table.schoolId, table.date)]
 );
 
+// A school year and its calendar are shared by teachers at a school. The
+// legacy holiday table remains readable while existing installations migrate.
+export const schoolYears = pgTable(
+  'school_years',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    schoolId: uuid('school_id')
+      .notNull()
+      .references(() => schools.id, { onDelete: 'cascade' }),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [unique('uniq_school_year_range').on(table.schoolId, table.startDate, table.endDate)]
+);
+
+export const schoolCalendarEvents = pgTable(
+  'school_calendar_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    schoolYearId: uuid('school_year_id')
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    type: calendarEventTypeEnum('type').notNull(),
+    label: text('label').notNull(),
+    sourceText: text('source_text'),
+    confidence: integer('confidence'),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_school_calendar_event_date_label').on(table.schoolYearId, table.date, table.label),
+    index('idx_school_calendar_events_year_date').on(table.schoolYearId, table.date)
+  ]
+);
+
+// Overrides only change one teacher's class group on an otherwise shared
+// calendar day. A missing override deliberately falls back to manual choice.
+export const sectionMeetingOverrides = pgTable(
+  'section_meeting_overrides',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => sections.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    startTime: time('start_time'),
+    endTime: time('end_time'),
+    room: text('room'),
+    cancelled: boolean('cancelled').notNull().default(false),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [unique('uniq_section_meeting_override').on(table.sectionId, table.date)]
+);
+
+export const teacherPreferences = pgTable(
+  'teacher_preferences',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    walkthroughDismissed: boolean('walkthrough_dismissed').notNull().default(false),
+    setupStep: text('setup_step').notNull().default('schedule'),
+    returnPath: text('return_path'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [primaryKey({ columns: [table.userId] })]
+);
+
 export const units = pgTable(
   'units',
   {
@@ -182,6 +273,8 @@ export const lessons = pgTable(
     description: text('description'),
     orderIndex: integer('order_index').notNull().default(0),
     estimatedDurationMinutes: integer('estimated_duration_minutes'),
+    plannedStartMeeting: integer('planned_start_meeting'),
+    plannedMeetingCount: integer('planned_meeting_count'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },

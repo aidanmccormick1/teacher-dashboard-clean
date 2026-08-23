@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
@@ -52,6 +52,7 @@ export function AppShell() {
   const auth = useAppAuth();
   const api = useApiClient();
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [feedbackType, setFeedbackType] = useState('Confusing');
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSaved, setFeedbackSaved] = useState(false);
@@ -188,6 +189,10 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
+        <div className="sidebar-import">
+          <button className="secondary" type="button" aria-expanded={isImportOpen} onClick={() => setIsImportOpen((open) => !open)}>⇧ Import</button>
+          {isImportOpen ? <div className="sidebar-import-menu"><Link to="/management" onClick={() => setIsImportOpen(false)}>Class Schedule</Link><Link to="/school" onClick={() => setIsImportOpen(false)}>School Calendar</Link></div> : null}
+        </div>
         <button
           className="secondary"
           type="button"

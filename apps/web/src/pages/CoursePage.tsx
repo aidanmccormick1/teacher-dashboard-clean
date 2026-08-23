@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
-import type { CourseDetailResponse } from '@teacheros/contracts';
+import type { CourseDetailResponse, GetScheduleResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { rememberManagementTab } from '../lib/management-tabs.js';
@@ -87,6 +87,7 @@ export function CoursePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
 
   const [courseName, setCourseName] = useState('');
   const [courseSubject, setCourseSubject] = useState('');
@@ -121,6 +122,10 @@ export function CoursePage() {
     void loadCourse();
   }, [loadCourse]);
 
+  useEffect(() => {
+    void api.getSchedule().then(setSchedule).catch(() => undefined);
+  }, [api]);
+
   const updateFromDetail = (detail: CourseDetailResponse) => {
     setCourse(detail.course);
     setCourseName(detail.course.name);
@@ -147,19 +152,16 @@ export function CoursePage() {
     <div className="stack">
       <div className="editor-topbar">
         <div>
-          <p className="eyebrow">Course editor</p>
-          <h1>Course Detail</h1>
+          <p className="eyebrow">Shared curriculum</p>
+          <h1>{course?.name ?? 'Course'}</h1>
+          <p className="muted">Shared curriculum for all of your Class Groups. Each group keeps its own schedule, progress, and classroom history.</p>
         </div>
         <div className="profile-actions">
-          <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('curriculum')}>
-            Back to Year Plan
-          </Link>
-          <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('courses')}>
-            Back to Management
-          </Link>
+          <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('courses')}>← Courses</Link>
           <button className="button-link secondary" type="button" disabled={!course} onClick={() => void copyCourseOutline()}>
             Copy outline
           </button>
+          <Link className="button-link done-editing" to="/management" onClick={() => rememberManagementTab('courses')}>Done Editing</Link>
         </div>
       </div>
       {error ? <p className="notice warning">{error}</p> : null}
@@ -232,6 +234,22 @@ export function CoursePage() {
                 Delete course
               </button>
             </div>
+          </div>
+
+          <div className="card stack">
+            <div className="section-heading"><div><h3>Class Groups</h3><p className="muted">{schedule?.sections.filter((section) => section.courseId === course.id).length ?? 0} Class Groups share this Course</p></div></div>
+            {schedule?.sections.filter((section) => section.courseId === course.id).map((section) => (
+              <div className="course-edit-meeting-row" key={section.sectionId}>
+                <div><strong>{section.sectionName}</strong><span>{section.meetings.map((meeting) => `${meeting.day} ${meeting.time ?? '—'}–${meeting.endTime ?? '—'}`).join(' · ') || 'No meeting times yet'}</span></div>
+                <button className="secondary" type="button" onClick={async () => {
+                  const sectionName = window.prompt('Class Group name', section.sectionName);
+                  if (!sectionName?.trim()) return;
+                  try { setSaving(true); setSchedule(await api.updateSection(section.sectionId, { sectionName: sectionName.trim() })); }
+                  catch (err) { setError(err instanceof ApiError ? err.message : 'Could not edit class group'); }
+                  finally { setSaving(false); }
+                }}>Edit Class Group</button>
+              </div>
+            )) ?? <p className="muted">Add Class Groups from Management.</p>}
           </div>
 
           <div className="card stack">

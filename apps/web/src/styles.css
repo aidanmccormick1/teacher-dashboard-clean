@@ -600,6 +600,12 @@ button.danger-button {
   background: #eef4e9;
 }
 
+.sidebar-import { position: relative; margin-top: 14px; }
+.sidebar-import-menu { display: grid; gap: 4px; padding: 8px 0; }
+.sidebar-import-menu a { padding: 6px 8px; border-radius: 6px; color: inherit; text-decoration: none; }
+.sidebar-import-menu a:hover { background: var(--surface-soft, rgba(255,255,255,.08)); }
+.done-editing { background: #2f9e5b !important; color: #fff !important; }
+
 .schedule-import-action button {
   width: 100%;
 }

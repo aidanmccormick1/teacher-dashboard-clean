@@ -1,6 +1,6 @@
-import { useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 
-import type { CourseDetailResponse, GetScheduleResponse } from '@teacheros/contracts';
+import type { CourseDetailResponse, GetScheduleResponse, MeetingInstancesResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 
@@ -116,12 +116,21 @@ export function CurriculumTimeline({
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dragPreview, setDragPreview] = useState<number | null>(null);
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
+  const [meetingData, setMeetingData] = useState<MeetingInstancesResponse | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void api.getMeetingInstances().then((value) => { if (active) setMeetingData(value); }).catch(() => { if (active) setMeetingData(null); });
+    return () => { active = false; };
+  }, [api]);
 
   const positions = useMemo(() => positionUnits(course.units), [course.units]);
-  const meetings = useMemo(
-    () => meetingInstances(schoolYearSettings, selectedSection, holidays),
-    [holidays, schoolYearSettings, selectedSection]
-  );
+  const meetings = useMemo(() => {
+    if (meetingData && selectedSection) {
+      return meetingData.meetings.filter((meeting) => meeting.sectionId === selectedSection.sectionId).map((meeting) => new Date(`${meeting.date}T12:00:00`));
+    }
+    return meetingInstances(schoolYearSettings, selectedSection, holidays);
+  }, [holidays, meetingData, schoolYearSettings, selectedSection]);
   const furthestMeeting = Math.max(24, ...positions.map((item) => item.start + item.span), meetings.length || 0);
   const visibleMeetings = zoom === 'year' ? Math.max(36, Math.min(furthestMeeting, 80)) : zoom === 'quarter' ? Math.max(28, Math.min(furthestMeeting, 52)) : zoom === 'month' ? Math.max(18, Math.min(furthestMeeting, 32)) : Math.max(8, Math.min(furthestMeeting, 16));
   const slotWidth = zoom === 'year' ? 34 : zoom === 'quarter' ? 48 : zoom === 'month' ? 78 : 108;
@@ -143,6 +152,12 @@ export function CurriculumTimeline({
       let detail: CourseDetailResponse | null = null;
       if (pendingChange.kind === 'move') {
         detail = await api.updateUnit(unit.unit.id, { plannedStartMeeting: pendingChange.start });
+        const movedUnit = detail.course.units.find((item) => item.id === unit.unit.id);
+        for (const lesson of movedUnit?.lessons ?? []) {
+          if (lesson.plannedStartMeeting !== null) {
+            detail = await api.updateLesson(lesson.id, { plannedStartMeeting: Math.max(0, lesson.plannedStartMeeting + pendingChange.delta) });
+          }
+        }
         if (mode === 'shift' && pendingChange.delta) {
           for (const later of positions.filter((item) => item.start > unit.start)) {
             detail = await api.updateUnit(later.unit.id, { plannedStartMeeting: Math.max(0, later.start + pendingChange.delta) });
@@ -150,6 +165,18 @@ export function CurriculumTimeline({
         }
       } else {
         detail = await api.updateUnit(unit.unit.id, { plannedMeetingCount: pendingChange.span });
+        // Lesson bars belong to their unit, not to fixed meeting IDs. Reflow
+        // them over the resized unit while preserving their order.
+        const refreshedUnit = detail.course.units.find((item) => item.id === unit.unit.id);
+        if (refreshedUnit?.lessons.length) {
+          const lessonSpan = Math.max(1, Math.floor(pendingChange.span / refreshedUnit.lessons.length));
+          for (const [index, lesson] of refreshedUnit.lessons.entries()) {
+            detail = await api.updateLesson(lesson.id, {
+              plannedStartMeeting: pendingChange.start + Math.min(pendingChange.span - 1, index * lessonSpan),
+              plannedMeetingCount: index === refreshedUnit.lessons.length - 1 ? Math.max(1, pendingChange.span - lessonSpan * index) : lessonSpan
+            });
+          }
+        }
         if (mode === 'shift' && pendingChange.delta) {
           for (const later of positions.filter((item) => item.start >= unit.start + unit.span && item.unit.id !== unit.unit.id)) {
             detail = await api.updateUnit(later.unit.id, { plannedStartMeeting: Math.max(0, later.start + pendingChange.delta) });
@@ -463,8 +490,9 @@ export function CurriculumTimeline({
                     <button className="curriculum-unit-resize" type="button" aria-label={`Resize ${position.unit.title}`} onPointerDown={(event) => beginUnitDrag(event, position, 'resize')} onPointerMove={updateUnitDrag} onPointerUp={finishUnitDrag} onPointerCancel={() => { setDrag(null); setDragPreview(null); }} />
                   </article>
                   {expanded && zoom !== 'year' ? position.unit.lessons.map((lesson, index) => {
-                    const lessonSpan = Math.max(1, Math.floor(span / Math.max(1, position.unit.lessons.length)));
-                    const lessonStart = start + Math.min(span - 1, index * lessonSpan);
+                    const defaultLessonSpan = Math.max(1, Math.floor(span / Math.max(1, position.unit.lessons.length)));
+                    const lessonSpan = lesson.plannedMeetingCount ?? defaultLessonSpan;
+                    const lessonStart = lesson.plannedStartMeeting ?? start + Math.min(span - 1, index * defaultLessonSpan);
                     const active = currentLessonId === lesson.id;
                     const selectedLesson = selection?.type === 'lesson' && selection.id === lesson.id;
                     return (
@@ -493,9 +521,8 @@ export function CurriculumTimeline({
           <strong>{pendingChange.kind === 'move' ? 'Move this unit' : 'Change this unit length'}</strong>
           <span>{pendingChange.kind === 'move' ? `Meeting ${pendingChange.start + 1}` : `${pendingChange.span} instructional meetings`}</span>
           <div>
-            <button type="button" disabled={saving} onClick={() => void applyPendingChange('only')}>{pendingChange.kind === 'move' ? 'Move only' : 'Change estimate'}</button>
-            <button className="secondary" type="button" disabled={saving} onClick={() => void applyPendingChange('shift')}>Shift following</button>
-            {pendingChange.kind === 'resize' ? <button className="secondary" type="button" disabled={saving} onClick={() => void applyPendingChange('fixed')}>Keep following fixed</button> : null}
+            <button type="button" disabled={saving} onClick={() => void applyPendingChange('shift')}>Shift Other Lessons</button>
+            <button className="secondary" type="button" disabled={saving} onClick={() => void applyPendingChange('only')}>Don’t Move Other Lessons</button>
             <button className="button-link" type="button" onClick={() => setPendingChange(null)}>Cancel</button>
           </div>
         </div>

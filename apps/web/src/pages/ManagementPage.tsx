@@ -116,7 +116,7 @@ type ManagementState = {
 };
 
 const tabs: Array<{ id: ManagementTab; label: string }> = [
-  { id: 'import', label: 'Import first' },
+  { id: 'import', label: 'Import' },
   { id: 'start', label: 'Guide' },
   { id: 'courses', label: 'Courses' },
   { id: 'periods', label: 'Class groups' },
@@ -705,6 +705,7 @@ export function ManagementPage() {
   const [yearPlanViewByCourseId, setYearPlanViewByCourseId] = useState<Record<string, YearPlanView>>({});
   const [schoolYearSettings, setSchoolYearSettings] = useState<SchoolYearSettings | null>(null);
   const [dismissedPromptIds, setDismissedPromptIds] = useState<string[]>([]);
+  const [walkthroughDismissed, setWalkthroughDismissed] = useState(false);
   const [isNewCourseOpen, setIsNewCourseOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -830,8 +831,11 @@ export function ManagementPage() {
 
   useEffect(() => {
     void loadManagement(true);
-    setSchoolYearSettings(readSchoolYearSettings());
-  }, [loadManagement]);
+    void api.getSchoolCalendar().then((calendar) => {
+      setSchoolYearSettings(calendar.schoolYear ? { startDate: calendar.schoolYear.startDate, endDate: calendar.schoolYear.endDate, meetingDays: [], bellScheduleType: 'weekly' } : null);
+    }).catch(() => setSchoolYearSettings(null));
+    void api.getPreferences().then((preferences) => setWalkthroughDismissed(preferences.walkthroughDismissed)).catch(() => undefined);
+  }, [api, loadManagement]);
 
   useEffect(() => {
     window.localStorage.setItem(activeTabStorageKey, activeTab);
@@ -1006,7 +1010,7 @@ export function ManagementPage() {
   }, [selectedSectionId, selectedSections]);
 
   const prompt = promptForState(state, selectedCourse);
-  const showPrompt = activeTab !== 'import' && prompt && !dismissedPromptIds.includes(prompt.id);
+  const showPrompt = activeTab !== 'import' && prompt && !walkthroughDismissed && !dismissedPromptIds.includes(prompt.id);
   const selectedDepth = selectedCourse ? courseDepth(selectedCourse) : { units: 0, lessons: 0, segments: 0 };
   const selectedCourseLessonIds = selectedCourse ? courseLessonIds(selectedCourse) : [];
   const plannedPercent = selectedDepth.lessons > 0 ? Math.min(100, Math.round((selectedDepth.segments / selectedDepth.lessons) * 20)) : 0;
@@ -1117,6 +1121,7 @@ export function ManagementPage() {
       name: nextCourse.name,
       subject: nextCourse.subject,
       gradeLevel: nextCourse.gradeLevel,
+      sortIndex: nextCourse.sortIndex,
       createdAt: nextCourse.createdAt
     };
 
@@ -1740,11 +1745,10 @@ export function ManagementPage() {
         existingCourse ??
         (await createCourse(firstClass.name, firstClass.subject, firstClass.grade ?? ''));
 
-      const schedule = await api.createSection({
-        courseId: course.id,
-        sectionName: firstClass.period,
-        meetings: meetingsFromParsedClasses(editedClasses)
-      });
+      const existingSection = state.schedule?.sections.find((section) => section.courseId === course.id && courseNameKey(section.sectionName) === courseNameKey(firstClass.period));
+      const schedule = existingSection
+        ? await api.updateSection(existingSection.sectionId, { sectionName: existingSection.sectionName, meetings: meetingsFromParsedClasses(editedClasses) })
+        : await api.createSection({ courseId: course.id, sectionName: firstClass.period, meetings: meetingsFromParsedClasses(editedClasses) });
 
       setState((previous) => ({ ...previous, schedule }));
       setSelectedCourseId(course.id);
@@ -1804,11 +1808,10 @@ export function ManagementPage() {
           coursesByImportedName.set(courseKey, course);
         }
 
-        schedule = await api.createSection({
-          courseId: course.id,
-          sectionName: firstClass.period,
-          meetings: meetingsFromParsedClasses(editedClasses)
-        });
+        const existingSection = (schedule ?? state.schedule)?.sections.find((section) => section.courseId === course!.id && courseNameKey(section.sectionName) === courseNameKey(firstClass.period));
+        schedule = existingSection
+          ? await api.updateSection(existingSection.sectionId, { sectionName: existingSection.sectionName, meetings: meetingsFromParsedClasses(editedClasses) })
+          : await api.createSection({ courseId: course.id, sectionName: firstClass.period, meetings: meetingsFromParsedClasses(editedClasses) });
         setGenerationProgress({ completed: index + 1, total: pendingClassGroups.length, status: 'creating' });
       }
 
@@ -1833,6 +1836,7 @@ export function ManagementPage() {
           0
         )
       });
+      void api.updatePreferences({ setupStep: 'calendar', walkthroughDismissed: false }).catch(() => undefined);
       setCompletedWalkthroughIds((previous) => [...new Set([...previous, 'course', 'periods', 'schedule'])]);
       flashCopyStatus(`Created ${pendingClassGroups.length} reviewed ${pendingClassGroups.length === 1 ? 'class group' : 'class groups'}.`);
     } catch (err) {
@@ -1940,7 +1944,11 @@ export function ManagementPage() {
             <button
               className="secondary"
               type="button"
-              onClick={() => setDismissedPromptIds((previous) => [...new Set([...previous, prompt.id])])}
+              onClick={() => {
+                setDismissedPromptIds((previous) => [...new Set([...previous, prompt.id])]);
+                setWalkthroughDismissed(true);
+                void api.updatePreferences({ walkthroughDismissed: true }).catch(() => undefined);
+              }}
             >
               Dismiss
             </button>
@@ -2149,9 +2157,6 @@ export function ManagementPage() {
                     <div className="profile-actions">
                       <button className="secondary" type="button" onClick={() => selectCourse(course.id, 'curriculum')}>
                         Open Year Plan
-                      </button>
-                      <button className="secondary" type="button" onClick={() => selectCourse(course.id, 'periods')}>
-                        Add class group
                       </button>
                       <button type="button" onClick={() => beginCourseEdit(course)}>
                         Edit Course
@@ -2382,16 +2387,16 @@ export function ManagementPage() {
                 <div className="import-next-steps">
                   <div>
                     <p className="eyebrow">Next step</p>
-                    <strong>Take a quick look at your weekly schedule.</strong>
-                    <span>You can fix any day, time, or room there.</span>
+                    <strong>Import your school calendar.</strong>
+                    <span>Breaks and special days make your plan accurate.</span>
                   </div>
-                  <button type="button" onClick={() => setActiveTab('weekly')}>
-                    View weekly schedule
+                  <button type="button" onClick={() => navigate('/school')}>
+                    Import calendar
                   </button>
                 </div>
                 <div className="profile-actions">
-                  <button className="secondary" type="button" onClick={() => setActiveTab('curriculum')}>
-                    Build my Year Plan
+                  <button className="secondary" type="button" onClick={() => setActiveTab('periods')}>
+                    Review class groups
                   </button>
                   <button className="secondary" type="button" onClick={() => navigate('/dashboard')}>
                     Open dashboard
@@ -3613,7 +3618,8 @@ export function ManagementPage() {
             </article>
           ) : null}
 
-          {selectedCourse && selectedYearPlanView === 'timeline' ? (
+          {selectedCourse && !schoolYearSettings ? <section className="curriculum-setup-callout"><span>Add your school dates first.</span><button className="secondary" type="button" onClick={() => navigate('/school')}>Add Dates</button></section> : null}
+          {selectedCourse && selectedYearPlanView === 'timeline' && schoolYearSettings ? (
             <CurriculumTimeline
               course={selectedCourse}
               selectedSection={selectedSection}
