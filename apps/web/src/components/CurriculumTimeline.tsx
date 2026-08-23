@@ -144,42 +144,45 @@ export function CurriculumTimeline({
     setExpandedUnitIds((previous) => (previous.includes(unitId) ? previous.filter((id) => id !== unitId) : [...previous, unitId]));
   };
 
-  const applyPendingChange = async (mode: 'only' | 'shift' | 'fixed') => {
-    if (!pendingChange) return;
-    const { unit } = pendingChange;
+  const applyPendingChange = async (
+    mode: 'only' | 'shift' | 'fixed',
+    change: PendingChange | null = pendingChange
+  ) => {
+    if (!change) return;
+    const { unit } = change;
     try {
       setSaving(true);
       let detail: CourseDetailResponse | null = null;
-      if (pendingChange.kind === 'move') {
-        detail = await api.updateUnit(unit.unit.id, { plannedStartMeeting: pendingChange.start });
+      if (change.kind === 'move') {
+        detail = await api.updateUnit(unit.unit.id, { plannedStartMeeting: change.start });
         const movedUnit = detail.course.units.find((item) => item.id === unit.unit.id);
         for (const lesson of movedUnit?.lessons ?? []) {
           if (lesson.plannedStartMeeting !== null) {
-            detail = await api.updateLesson(lesson.id, { plannedStartMeeting: Math.max(0, lesson.plannedStartMeeting + pendingChange.delta) });
+            detail = await api.updateLesson(lesson.id, { plannedStartMeeting: Math.max(0, lesson.plannedStartMeeting + change.delta) });
           }
         }
-        if (mode === 'shift' && pendingChange.delta) {
+        if (mode === 'shift' && change.delta) {
           for (const later of positions.filter((item) => item.start > unit.start)) {
-            detail = await api.updateUnit(later.unit.id, { plannedStartMeeting: Math.max(0, later.start + pendingChange.delta) });
+            detail = await api.updateUnit(later.unit.id, { plannedStartMeeting: Math.max(0, later.start + change.delta) });
           }
         }
       } else {
-        detail = await api.updateUnit(unit.unit.id, { plannedMeetingCount: pendingChange.span });
+        detail = await api.updateUnit(unit.unit.id, { plannedMeetingCount: change.span });
         // Lesson bars belong to their unit, not to fixed meeting IDs. Reflow
         // them over the resized unit while preserving their order.
         const refreshedUnit = detail.course.units.find((item) => item.id === unit.unit.id);
         if (refreshedUnit?.lessons.length) {
-          const lessonSpan = Math.max(1, Math.floor(pendingChange.span / refreshedUnit.lessons.length));
+          const lessonSpan = Math.max(1, Math.floor(change.span / refreshedUnit.lessons.length));
           for (const [index, lesson] of refreshedUnit.lessons.entries()) {
             detail = await api.updateLesson(lesson.id, {
-              plannedStartMeeting: unit.start + Math.min(pendingChange.span - 1, index * lessonSpan),
-              plannedMeetingCount: index === refreshedUnit.lessons.length - 1 ? Math.max(1, pendingChange.span - lessonSpan * index) : lessonSpan
+              plannedStartMeeting: unit.start + Math.min(change.span - 1, index * lessonSpan),
+              plannedMeetingCount: index === refreshedUnit.lessons.length - 1 ? Math.max(1, change.span - lessonSpan * index) : lessonSpan
             });
           }
         }
-        if (mode === 'shift' && pendingChange.delta) {
+        if (mode === 'shift' && change.delta) {
           for (const later of positions.filter((item) => item.start >= unit.start + unit.span && item.unit.id !== unit.unit.id)) {
-            detail = await api.updateUnit(later.unit.id, { plannedStartMeeting: Math.max(0, later.start + pendingChange.delta) });
+            detail = await api.updateUnit(later.unit.id, { plannedStartMeeting: Math.max(0, later.start + change.delta) });
           }
         }
       }
@@ -210,11 +213,26 @@ export function CurriculumTimeline({
     if (!drag || dragPreview === null) return;
     const delta = dragPreview - (drag.mode === 'move' ? drag.unit.start : drag.unit.span);
     if (delta) {
-      setPendingChange(
+      const change: PendingChange =
         drag.mode === 'move'
           ? { kind: 'move', unit: drag.unit, start: dragPreview, delta }
-          : { kind: 'resize', unit: drag.unit, span: dragPreview, delta }
+          : { kind: 'resize', unit: drag.unit, span: dragPreview, delta };
+      const proposed: PositionedUnit = {
+        unit: drag.unit.unit,
+        start: change.kind === 'move' ? change.start : drag.unit.start,
+        span: change.kind === 'resize' ? change.span : drag.unit.span
+      };
+      const hasCollision = positions.some(
+        (other) => other.unit.id !== drag.unit.unit.id && overlaps(proposed, other)
       );
+
+      // A clear spot is a simple move. Ask only when another planned unit would
+      // be displaced, so routine adjustments do not interrupt planning.
+      if (hasCollision) {
+        setPendingChange(change);
+      } else {
+        void applyPendingChange('only', change);
+      }
     }
     setDrag(null);
     setDragPreview(null);

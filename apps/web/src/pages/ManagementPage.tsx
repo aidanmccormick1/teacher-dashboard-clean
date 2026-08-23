@@ -611,7 +611,26 @@ function courseDepth(course: CourseDetail) {
 }
 
 function courseSections(course: CourseDetail, sections: ScheduleSection[]) {
-  return sections.filter((section) => section.courseId === course.id);
+  const groupOrder = (section: ScheduleSection) => {
+    const name = section.sectionName.trim();
+    const group = name.match(/(?:^|\b)group\s+([a-z])\b/i) ?? name.match(/^([a-z])$/i);
+    if (group) return [0, (group[1] ?? name).toUpperCase().charCodeAt(0), name] as const;
+    const period = name.match(/(?:^|\b)period\s*(\d+)\b/i) ?? name.match(/^(\d+)$/);
+    if (period) return [1, Number(period[1]), name] as const;
+    return [2, Number.MAX_SAFE_INTEGER, name] as const;
+  };
+
+  return sections
+    .filter((section) => section.courseId === course.id)
+    .sort((left, right) => {
+      const leftOrder = groupOrder(left);
+      const rightOrder = groupOrder(right);
+      return (
+        leftOrder[0] - rightOrder[0] ||
+        leftOrder[1] - rightOrder[1] ||
+        leftOrder[2].localeCompare(rightOrder[2], undefined, { numeric: true, sensitivity: 'base' })
+      );
+    });
 }
 
 function courseLessonIds(course: CourseDetail) {
@@ -3807,6 +3826,12 @@ export function ManagementPage() {
                   <span>{selectedDepth.segments} segments</span>
                   <span>{meetingsRemaining} meetings on schedule</span>
                   <span>{plannedPercent}% planned</span>
+                </div>
+                <div>
+                  <p className="eyebrow">Plan dates for class group</p>
+                  <p className="muted">
+                    Choose the group whose actual meeting dates you want to use. Group A is the default when available.
+                  </p>
                 </div>
                 <div className="section-progress-comparison">
                   {selectedSections.length ? (
