@@ -174,6 +174,10 @@ const InternalParseCalendarSchema = z.object({
   notices: z.array(z.string()).default([])
 });
 
+const InternalCalendarImportSchema = InternalParseCalendarSchema.extend({
+  schoolYear: InternalSchoolYearBoundariesSchema
+});
+
 type ScheduleImportBody = z.infer<typeof ScheduleImportRequestSchema>;
 type ScheduleImportCorrectionBody = z.infer<typeof ScheduleImportCorrectionRequestSchema>;
 
@@ -195,24 +199,12 @@ function scheduleImportFileDataUrl(body: ScheduleImportBody): string | undefined
   return undefined;
 }
 
-function schoolYearBoundaryPrompt(body: ScheduleImportBody): string {
-  const instructions = [
-    'Determine the actual instructional school-year boundaries from this academic calendar.',
-    'Find the first instructional day for students and the last instructional day for students. Prioritize explicit wording such as First Day of School, First Day for Students, Students Begin, Classes Begin, School Begins, Last Day of School, Last Day for Students, Classes End, and Final Instructional Day.',
-    'Do not use graduation, teacher checkout, teacher work after students finish, or administrative dates as the final day unless the source explicitly says students attend.',
-    'Return ISO dates, confidence, and compact source excerpts. If uncertain, choose the best evidence and lower confidence. Return JSON only.'
-  ];
-  return body.text ? [...instructions, '', body.text].join('\n') : instructions.join('\n');
-}
-
-function calendarImportPrompt(
-  body: ScheduleImportBody,
-  classGroups: string[],
-  schoolYear: z.infer<typeof InternalSchoolYearBoundariesSchema>
-): string {
+function calendarImportPrompt(body: ScheduleImportBody, classGroups: string[]): string {
   const instructions = [
     'You are not extracting every event from an academic calendar. You are identifying the instructional school year and events that affect normal student instruction.',
-    `The instructional school year has already been determined as ${schoolYear.startDate} through ${schoolYear.endDate}. Use these as strict boundaries unless the supplied document directly contradicts them.`,
+    'First determine the actual instructional school-year boundaries. Find the first instructional day for students and the last instructional day for students. Prioritize explicit wording such as First Day of School, First Day for Students, Students Begin, Classes Begin, School Begins, Last Day of School, Last Day for Students, Classes End, and Final Instructional Day.',
+    'Do not use graduation, teacher checkout, teacher work after students finish, or administrative dates as the final day unless the source explicitly says students attend.',
+    'Return those boundaries as `schoolYear`, with ISO dates, confidence, and compact source excerpts. Return events only inside those boundaries.',
     'Return one logical event per date range; never expand a break into daily rows. Only return events inside the instructional-year boundaries that cancel student instruction or alter the normal student schedule.',
     'Use no_school only when students do not attend. Use minimum_day, half_day, early_release, late_start, testing_schedule, special_schedule, or other_abnormal for altered school days. Do not invent bell times.',
     'Ignore ceremonies, extracurriculars, parent events, staff-only meetings, fundraisers, administrative deadlines, report cards, and informational events that do not affect regular student instruction. Teacher/staff days matter only when students do not attend or normal classes are affected.',
@@ -1184,40 +1176,25 @@ export async function v1Routes(app: FastifyInstance) {
         .from(sections)
         .innerJoin(courses, eq(sections.courseId, courses.id))
         .where(eq(courses.teacherId, user.id));
-      // The first pass establishes the student instructional year. The second
-      // pass can then reject otherwise-valid calendar dates such as graduation.
-      const schoolYear = await runStructuredPrompt<
-        z.infer<typeof InternalSchoolYearBoundariesSchema>
-      >({
-        apiKey: app.config.OPENAI_API_KEY,
-        model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
-        reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
-        schemaName: 'school_calendar_boundaries',
-        schema: InternalSchoolYearBoundariesSchema,
-        systemPrompt:
-          'You are a careful school calendar reader. Extract only evidence visible in the teacher supplied calendar.',
-        userPrompt: schoolYearBoundaryPrompt(body),
-        fileDataUrl: scheduleImportFileDataUrl(body),
-        fileName: body.fileName
-      });
-      const result = await runStructuredPrompt<z.infer<typeof InternalParseCalendarSchema>>({
+      // One structured call reads the calendar, identifies the instructional
+      // year, and extracts exceptions. The previous two-pass flow uploaded the
+      // same document twice and routinely exceeded the request deadline.
+      const result = await runStructuredPrompt<z.infer<typeof InternalCalendarImportSchema>>({
         apiKey: app.config.OPENAI_API_KEY,
         model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
         reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
         schemaName: 'school_calendar_import',
-        schema: InternalParseCalendarSchema,
+        schema: InternalCalendarImportSchema,
         systemPrompt:
           'You are a careful school calendar reader. Extract only evidence visible in the teacher supplied calendar.',
         userPrompt: calendarImportPrompt(
           body,
-          classGroups.map((group) => group.name),
-          schoolYear
+          classGroups.map((group) => group.name)
         ),
         fileDataUrl: scheduleImportFileDataUrl(body),
         fileName: body.fileName
       });
       return CalendarImportResponseSchema.parse({
-        schoolYear,
         ...result,
         ignoredEvents: result.ignoredEvents.map(({ date, ...event }) => ({
           ...event,

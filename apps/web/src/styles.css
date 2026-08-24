@@ -3579,6 +3579,35 @@ body.course-editor-open {
   color: var(--muted);
 }
 
+.manual-calendar-card {
+  border-color: rgba(71, 108, 88, 0.28);
+  background: #f7fbf8;
+}
+
+.manual-calendar-card .section-heading > div {
+  max-width: 680px;
+}
+
+.manual-calendar-card .section-heading p:not(.eyebrow) {
+  margin: 7px 0 0;
+  color: var(--muted);
+}
+
+.manual-days-off-list {
+  display: grid;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.manual-days-off-list .muted {
+  margin: 4px 0 0;
+}
+
+.manual-day-off-row {
+  align-items: end;
+}
+
 .calendar-reader-dot {
   display: inline-block;
   width: 9px;

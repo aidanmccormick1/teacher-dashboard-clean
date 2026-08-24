@@ -62,14 +62,17 @@ async function openAiErrorMessage(response: Response): Promise<string> {
     .join(': ');
 }
 
-function buildUserContent(params: PromptInput) {
+export function buildUserContent(params: PromptInput) {
   if (!params.fileDataUrl) return params.userPrompt;
 
-  if (params.fileDataUrl.startsWith('data:application/pdf')) {
+  // PDFs and Word documents are files, not images. Calendar import accepts
+  // both; sending a DOC/DOCX through `input_image` makes that valid UI path
+  // fail before the model can read the document.
+  if (!params.fileDataUrl.startsWith('data:image/')) {
     return [
       {
         type: 'input_file',
-        filename: params.fileName ?? 'schedule.pdf',
+        filename: params.fileName ?? 'document',
         file_data: params.fileDataUrl
       },
       {
@@ -103,7 +106,12 @@ function extractOutputText(payload: unknown): string {
     return payload.output_text;
   }
 
-  if (payload && typeof payload === 'object' && 'output' in payload && Array.isArray(payload.output)) {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'output' in payload &&
+    Array.isArray(payload.output)
+  ) {
     for (const output of payload.output) {
       if (output && typeof output === 'object' && 'content' in output) {
         const content = output.content;
@@ -130,19 +138,31 @@ function extractOutputText(payload: unknown): string {
   };
   const outputTypes = Array.isArray(response?.output)
     ? response.output
-        .flatMap((item) => item.content?.map((content) => `${item.type ?? 'unknown'}/${content.type ?? 'unknown'}`) ?? [])
+        .flatMap(
+          (item) =>
+            item.content?.map(
+              (content) => `${item.type ?? 'unknown'}/${content.type ?? 'unknown'}`
+            ) ?? []
+        )
         .join(', ')
     : 'none';
   const status = typeof response?.status === 'string' ? response.status : 'unknown';
   const incompleteReason =
-    typeof response?.incomplete_details?.reason === 'string' ? response.incomplete_details.reason : 'none';
+    typeof response?.incomplete_details?.reason === 'string'
+      ? response.incomplete_details.reason
+      : 'none';
   throw new Error(
     `OpenAI returned no structured schedule result (status: ${status}; incomplete: ${incompleteReason}; output: ${outputTypes || 'none'})`
   );
 }
 
 function normalizeScheduleTimes(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || !Array.isArray((value as { classes?: unknown }).classes)) return value;
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !Array.isArray((value as { classes?: unknown }).classes)
+  )
+    return value;
 
   const normalizeTime = (time: unknown): unknown => {
     if (time === null || time === undefined) return null;

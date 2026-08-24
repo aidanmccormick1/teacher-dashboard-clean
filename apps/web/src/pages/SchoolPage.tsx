@@ -4,6 +4,8 @@ import type { CalendarImportResponse, SchoolCalendarResponse } from '@teacheros/
 import { ApiError, useApiClient } from '../lib/api.js';
 import { rememberManagementTab } from '../lib/management-tabs.js';
 
+type ManualDayOff = { title: string; startDate: string; endDate: string };
+
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -77,6 +79,12 @@ export function SchoolPage() {
   const [saved, setSaved] = useState<string | null>(null);
   const [showIgnored, setShowIgnored] = useState(false);
   const [editingSchoolYear, setEditingSchoolYear] = useState(false);
+  const [showManualCalendar, setShowManualCalendar] = useState(false);
+  const [manualStartDate, setManualStartDate] = useState('');
+  const [manualEndDate, setManualEndDate] = useState('');
+  const [manualDaysOff, setManualDaysOff] = useState<ManualDayOff[]>([
+    { title: '', startDate: '', endDate: '' }
+  ]);
 
   const load = useCallback(async () => {
     try {
@@ -113,6 +121,58 @@ export function SchoolPage() {
     } finally {
       setBusy(false);
     }
+  };
+  const updateManualDayOff = (index: number, patch: Partial<ManualDayOff>) => {
+    setManualDaysOff((current) =>
+      current.map((event, eventIndex) => (eventIndex === index ? { ...event, ...patch } : event))
+    );
+  };
+  const reviewManualCalendar = () => {
+    if (!manualStartDate || !manualEndDate) {
+      setError('Add the first and last instructional day.');
+      return;
+    }
+    if (manualEndDate < manualStartDate) {
+      setError('The last instructional day must be after the first day.');
+      return;
+    }
+
+    const completedDaysOff = manualDaysOff.filter(
+      (event) => event.title.trim() || event.startDate || event.endDate
+    );
+    if (
+      completedDaysOff.some((event) => !event.title.trim() || !event.startDate || !event.endDate)
+    ) {
+      setError('Complete the name, start date, and end date for every day off.');
+      return;
+    }
+    if (completedDaysOff.some((event) => event.endDate < event.startDate)) {
+      setError('Each day-off end date must be on or after its start date.');
+      return;
+    }
+
+    const events: CalendarImportResponse['events'] = completedDaysOff.map((event) => ({
+      title: event.title.trim(),
+      startDate: event.startDate,
+      endDate: event.endDate,
+      type: 'no_school',
+      affectsInstruction: true,
+      scheduleKnown: true,
+      confidence: 100,
+      sourceText: 'Added manually',
+      needsReview: false
+    }));
+    setPreview({
+      schoolYear: { startDate: manualStartDate, endDate: manualEndDate, confidence: 100 },
+      events,
+      overrides: [],
+      ignoredEvents: [],
+      notices: []
+    });
+    setStartDate(manualStartDate);
+    setEndDate(manualEndDate);
+    setSelected(new Set(events.map(exceptionKey)));
+    setError(null);
   };
   const toggle = (event: CalendarImportResponse['events'][number]) =>
     setSelected((current) => {
@@ -233,6 +293,128 @@ export function SchoolPage() {
                 )}
               </button>
             </div>
+          </section>
+          <section className="card stack manual-calendar-card">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Manual option</p>
+                <h2>Set up the school calendar yourself</h2>
+                <p>
+                  Enter the instructional year and any days students are off. You can review before
+                  saving.
+                </p>
+              </div>
+              <button
+                className="secondary"
+                type="button"
+                aria-expanded={showManualCalendar}
+                onClick={() => setShowManualCalendar((shown) => !shown)}
+              >
+                {showManualCalendar ? 'Hide manual entry' : 'Enter calendar manually'}
+              </button>
+            </div>
+            {showManualCalendar ? (
+              <div className="stack">
+                <div className="profile-form-grid">
+                  <label>
+                    First instructional day
+                    <input
+                      className="input"
+                      type="date"
+                      value={manualStartDate}
+                      onChange={(event) => setManualStartDate(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Last instructional day
+                    <input
+                      className="input"
+                      type="date"
+                      value={manualEndDate}
+                      onChange={(event) => setManualEndDate(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="manual-days-off-list">
+                  <div>
+                    <p className="eyebrow">Days off</p>
+                    <p className="muted">
+                      Add a single day or a break date range. This is optional.
+                    </p>
+                  </div>
+                  {manualDaysOff.map((event, index) => (
+                    <div
+                      className="profile-form-grid manual-day-off-row"
+                      key={`manual-day-off-${index}`}
+                    >
+                      <label>
+                        Day off or break name
+                        <input
+                          className="input"
+                          value={event.title}
+                          placeholder="Winter Break"
+                          onChange={(input) =>
+                            updateManualDayOff(index, { title: input.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Starts
+                        <input
+                          className="input"
+                          type="date"
+                          value={event.startDate}
+                          onChange={(input) =>
+                            updateManualDayOff(index, { startDate: input.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Ends
+                        <input
+                          className="input"
+                          type="date"
+                          value={event.endDate}
+                          onChange={(input) =>
+                            updateManualDayOff(index, { endDate: input.target.value })
+                          }
+                        />
+                      </label>
+                      {manualDaysOff.length > 1 ? (
+                        <button
+                          className="secondary"
+                          type="button"
+                          onClick={() =>
+                            setManualDaysOff((current) =>
+                              current.filter((_, eventIndex) => eventIndex !== index)
+                            )
+                          }
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                <div className="profile-actions">
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() =>
+                      setManualDaysOff((current) => [
+                        ...current,
+                        { title: '', startDate: '', endDate: '' }
+                      ])
+                    }
+                  >
+                    Add a day off
+                  </button>
+                  <button type="button" onClick={reviewManualCalendar}>
+                    Review manual calendar
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </section>
           {calendar?.schoolYear ? (
             <section className="school-grid">
