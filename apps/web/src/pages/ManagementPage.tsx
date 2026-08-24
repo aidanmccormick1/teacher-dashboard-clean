@@ -1170,18 +1170,7 @@ export function ManagementPage() {
     prompt &&
     !walkthroughDismissed &&
     !dismissedPromptIds.includes(prompt.id);
-  const selectedDepth = selectedCourse
-    ? courseDepth(selectedCourse)
-    : { units: 0, lessons: 0, segments: 0 };
   const selectedCourseLessonIds = selectedCourse ? courseLessonIds(selectedCourse) : [];
-  const plannedPercent =
-    selectedDepth.lessons > 0
-      ? Math.min(100, Math.round((selectedDepth.segments / selectedDepth.lessons) * 20))
-      : 0;
-  const meetingsRemaining = selectedSections.reduce(
-    (count, section) => count + section.meetings.length,
-    0
-  );
   const setupSnapshot = [
     { label: 'Courses', value: state.courseDetails.length },
     { label: 'Classes', value: sections.length },
@@ -1426,22 +1415,6 @@ export function ManagementPage() {
     setMeetingRoom('');
     window.localStorage.removeItem(addPeriodDraftStorageKey);
     flashCopyStatus('Period draft cleared.');
-  };
-
-  const copyYearPlanSummary = async () => {
-    if (!selectedCourse) return;
-    const depth = courseDepth(selectedCourse);
-    const summary = [
-      `${selectedCourse.name} Year Plan`,
-      `${depth.units} units / ${depth.lessons} lessons / ${depth.segments} segments`,
-      '',
-      ...selectedCourse.units.flatMap((unit) => [
-        `Unit ${unit.orderIndex}: ${unit.title}`,
-        ...unit.lessons.map((lesson) => `- ${lesson.title} (${lesson.segments.length} segments)`)
-      ])
-    ].join('\n');
-    await navigator.clipboard?.writeText(summary).catch(() => undefined);
-    flashCopyStatus('Year plan copied.');
   };
 
   const copyImportSummary = async () => {
@@ -2075,7 +2048,9 @@ export function ManagementPage() {
           coursesByImportedName.set(courseKey, course);
         }
 
-        const existingSection: GetScheduleResponse['sections'][number] | undefined = (schedule ?? state.schedule)?.sections.find(
+        const existingSection: GetScheduleResponse['sections'][number] | undefined = (
+          schedule ?? state.schedule
+        )?.sections.find(
           (section) =>
             section.courseId === course.id &&
             courseNameKey(section.sectionName) === courseNameKey(firstClass.period)
@@ -2315,7 +2290,6 @@ export function ManagementPage() {
               );
             })}
           </div>
-
         </section>
       ) : null}
 
@@ -2363,7 +2337,8 @@ export function ManagementPage() {
                   <p className="muted">Draft saves on this device while you decide what to add.</p>
                 </div>
                 <div className="profile-actions">
-                  <button hidden
+                  <button
+                    hidden
                     className="secondary"
                     type="button"
                     onClick={() => void copyNewCourseDraft()}
@@ -2835,7 +2810,8 @@ export function ManagementPage() {
                   >
                     Add all reviewed classes
                   </button>
-                  <button hidden
+                  <button
+                    hidden
                     className="secondary"
                     type="button"
                     onClick={() => void copyImportSummary()}
@@ -3044,7 +3020,10 @@ export function ManagementPage() {
                                   const draft =
                                     parsedClassEditDrafts[key] ?? parsedClassToDraft(parsedClass);
                                   return (
-                                    <div key={key} className="parsed-class-fields parsed-meeting-row">
+                                    <div
+                                      key={key}
+                                      className="parsed-class-fields parsed-meeting-row"
+                                    >
                                       <MeetingDayPicker
                                         value={draft.days}
                                         onChange={(days) =>
@@ -3196,7 +3175,8 @@ export function ManagementPage() {
                 {isAddGroupOpen ? (
                   <>
                     <div className="profile-actions">
-                      <button hidden
+                      <button
+                        hidden
                         className="secondary"
                         type="button"
                         onClick={() => void copyAddPeriodDraft()}
@@ -3575,7 +3555,8 @@ export function ManagementPage() {
               </p>
             </div>
             <div className="profile-actions">
-              <button hidden
+              <button
+                hidden
                 className="secondary"
                 type="button"
                 onClick={() => void copyWeeklyScheduleSummary()}
@@ -3761,14 +3742,6 @@ export function ManagementPage() {
                 <h2>{selectedCourse ? `${selectedCourse.name} Year Plan` : 'Select a course'}</h2>
               </div>
               <div className="profile-actions">
-                                  <button
-                                    className="secondary"
-                  type="button"
-                  disabled={!selectedCourse}
-                  onClick={() => void copyYearPlanSummary()}
-                >
-                  Copy summary
-                </button>
                 <div className="management-tabs small-tabs" aria-label="Year plan view">
                   <button
                     className={selectedYearPlanView === 'outline' ? 'active' : ''}
@@ -3820,17 +3793,11 @@ export function ManagementPage() {
 
             {selectedCourse ? (
               <>
-                <div className="mini-stats">
-                  <span>{selectedDepth.units} units</span>
-                  <span>{selectedDepth.lessons} lessons</span>
-                  <span>{selectedDepth.segments} segments</span>
-                  <span>{meetingsRemaining} meetings on schedule</span>
-                  <span>{plannedPercent}% planned</span>
-                </div>
                 <div>
                   <p className="eyebrow">Plan dates for class group</p>
                   <p className="muted">
-                    Choose the group whose actual meeting dates you want to use. Group A is the default when available.
+                    Choose the group whose actual meeting dates you want to use. Group A is the
+                    default when available.
                   </p>
                 </div>
                 <div className="section-progress-comparison">
@@ -4484,7 +4451,12 @@ export function ManagementPage() {
             <button className="secondary" type="button" onClick={() => navigate('/classroom')}>
               Open Classroom
             </button>
-            <button hidden className="secondary" type="button" onClick={() => void copyProgressSummary()}>
+            <button
+              hidden
+              className="secondary"
+              type="button"
+              onClick={() => void copyProgressSummary()}
+            >
               Copy progress
             </button>
           </div>
@@ -4599,7 +4571,8 @@ export function ManagementPage() {
                   without compressing the rest of your Courses.
                 </p>
               </div>
-              <button hidden
+              <button
+                hidden
                 className="secondary"
                 type="button"
                 disabled={busy}

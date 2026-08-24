@@ -552,10 +552,24 @@ export const SegmentSchema = z.object({
   orderIndex: z.number().int()
 });
 
+export const LessonPlanSchema = z.object({
+  objective: z.string().nullable(),
+  teacherNotes: z.string().nullable(),
+  studentDirections: z.string().nullable(),
+  materials: z.string().nullable(),
+  links: z.array(
+    z.object({
+      title: z.string().min(1),
+      url: z.string().url()
+    })
+  )
+});
+
 export const LessonSchema = z.object({
   id: UuidSchema,
   title: z.string(),
   description: z.string().nullable(),
+  lessonPlan: LessonPlanSchema,
   orderIndex: z.number().int(),
   estimatedDurationMinutes: z.number().int().nullable(),
   plannedStartMeeting: z.number().int().nonnegative().nullable(),
@@ -598,6 +612,7 @@ export const UnitUpdateRequestSchema = z.object({
 export const LessonCreateRequestSchema = z.object({
   title: z.string().min(1),
   description: z.string().nullable(),
+  lessonPlan: LessonPlanSchema.optional(),
   estimatedDurationMinutes: z.number().int().positive().nullable(),
   orderIndex: z.number().int().nonnegative().optional(),
   plannedStartMeeting: z.number().int().nonnegative().nullable().optional(),
@@ -607,6 +622,7 @@ export const LessonCreateRequestSchema = z.object({
 export const LessonUpdateRequestSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
+  lessonPlan: LessonPlanSchema.optional(),
   estimatedDurationMinutes: z.number().int().positive().nullable().optional(),
   orderIndex: z.number().int().nonnegative().optional(),
   unitId: UuidSchema.optional(),

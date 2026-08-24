@@ -647,6 +647,7 @@ async function buildCourseDetail(userId: string, courseId: string) {
             unitId: lessons.unitId,
             title: lessons.title,
             description: lessons.description,
+            lessonPlan: lessons.lessonPlan,
             orderIndex: lessons.orderIndex,
             estimatedDurationMinutes: lessons.estimatedDurationMinutes,
             plannedStartMeeting: lessons.plannedStartMeeting,
@@ -713,6 +714,7 @@ async function buildCourseDetail(userId: string, courseId: string) {
           id: lesson.id,
           title: lesson.title,
           description: lesson.description,
+          lessonPlan: lesson.lessonPlan,
           orderIndex: lesson.orderIndex,
           estimatedDurationMinutes: lesson.estimatedDurationMinutes,
           plannedStartMeeting: lesson.plannedStartMeeting,
@@ -2105,6 +2107,13 @@ export async function v1Routes(app: FastifyInstance) {
         unitId: params.unitId,
         title: body.title,
         description: body.description,
+        lessonPlan: body.lessonPlan ?? {
+          objective: null,
+          teacherNotes: null,
+          studentDirections: null,
+          materials: null,
+          links: []
+        },
         estimatedDurationMinutes: body.estimatedDurationMinutes,
         orderIndex: body.orderIndex ?? (latestLesson?.orderIndex ?? -1) + 1,
         plannedStartMeeting: body.plannedStartMeeting ?? null,
@@ -2146,6 +2155,7 @@ export async function v1Routes(app: FastifyInstance) {
       };
       if (body.title !== undefined) updates.title = body.title;
       if (body.description !== undefined) updates.description = body.description;
+      if (body.lessonPlan !== undefined) updates.lessonPlan = body.lessonPlan;
       if (body.estimatedDurationMinutes !== undefined) {
         updates.estimatedDurationMinutes = body.estimatedDurationMinutes;
       }

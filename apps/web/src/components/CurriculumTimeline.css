@@ -1,0 +1,203 @@
+/* Timeline-specific controls stay compact so planning space belongs to the course. */
+.curriculum-workspace {
+  gap: 10px;
+}
+
+.curriculum-workspace-topbar {
+  align-items: flex-start;
+}
+
+.curriculum-add-unit-control {
+  display: grid;
+  gap: 8px;
+  flex: 1;
+}
+
+.curriculum-add-unit-control > button {
+  justify-self: start;
+}
+
+.curriculum-unit-composer {
+  display: flex;
+  gap: 8px;
+  max-width: 680px;
+}
+
+.curriculum-unit-composer .input {
+  min-width: 0;
+  flex: 1;
+}
+
+.curriculum-pacing {
+  gap: 6px;
+}
+
+.curriculum-pacing span {
+  padding: 4px 8px;
+  font-size: 0.76rem;
+}
+
+.curriculum-selection-actions,
+.lesson-plan-heading,
+.lesson-plan-resources > div:first-child,
+.lesson-plan-steps > div:first-child,
+.lesson-step-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.curriculum-selection-actions {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #f9fbfa;
+}
+
+.curriculum-selection-actions span {
+  font-weight: 800;
+}
+
+.curriculum-selection-actions small {
+  color: var(--muted);
+}
+
+.lesson-plan-workspace {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(62, 97, 122, 0.3);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background: #fcfdfd;
+}
+
+.lesson-plan-heading {
+  align-items: flex-start;
+}
+
+.lesson-plan-heading h3,
+.lesson-plan-heading p {
+  margin: 0;
+}
+
+.lesson-plan-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(120px, 0.45fr);
+  gap: 10px;
+}
+
+.lesson-plan-fields label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.lesson-plan-fields textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.lesson-plan-wide {
+  grid-column: 1 / -1;
+}
+
+.lesson-plan-resources,
+.lesson-plan-steps {
+  display: grid;
+  gap: 9px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.lesson-plan-resources span,
+.lesson-plan-steps span,
+.lesson-step-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.lesson-plan-resources > div:first-child,
+.lesson-plan-steps > div:first-child {
+  align-items: baseline;
+  justify-content: flex-start;
+}
+
+.lesson-plan-link-form,
+.lesson-step-form {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.55fr) minmax(160px, 1fr) auto;
+  gap: 8px;
+}
+
+.lesson-step-form {
+  grid-template-columns: minmax(130px, 0.65fr) 95px minmax(180px, 1fr) auto;
+}
+
+.lesson-plan-link-form .input,
+.lesson-step-form .input {
+  min-width: 0;
+}
+
+.lesson-plan-resources ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.lesson-plan-resources li {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+}
+
+.lesson-plan-save {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.lesson-step-list {
+  display: grid;
+  gap: 7px;
+}
+
+.lesson-step-list article {
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.lesson-step-list article > div {
+  display: grid;
+  gap: 3px;
+}
+
+.curriculum-split-view {
+  grid-template-columns: minmax(210px, 0.24fr) minmax(0, 1fr);
+}
+
+@media (max-width: 780px) {
+  .curriculum-unit-composer,
+  .lesson-plan-link-form,
+  .lesson-step-form,
+  .lesson-plan-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .curriculum-unit-composer {
+    display: grid;
+  }
+
+  .curriculum-selection-actions,
+  .lesson-plan-heading,
+  .lesson-step-list article {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

@@ -281,6 +281,22 @@ export const lessons = pgTable(
       .references(() => units.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
     description: text('description'),
+    lessonPlan: jsonb('lesson_plan')
+      .$type<{
+        objective: string | null;
+        teacherNotes: string | null;
+        studentDirections: string | null;
+        materials: string | null;
+        links: Array<{ title: string; url: string }>;
+      }>()
+      .notNull()
+      .default({
+        objective: null,
+        teacherNotes: null,
+        studentDirections: null,
+        materials: null,
+        links: []
+      }),
     orderIndex: integer('order_index').notNull().default(0),
     estimatedDurationMinutes: integer('estimated_duration_minutes'),
     plannedStartMeeting: integer('planned_start_meeting'),
