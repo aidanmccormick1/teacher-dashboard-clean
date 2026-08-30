@@ -1,338 +1,126 @@
-import { useState, type CSSProperties } from 'react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useAppAuth } from '../lib/auth.js';
 
-const workflowSteps = [
-  {
-    title: 'Create a course',
-    body: 'The shared home for units, lessons, and pacing.'
-  },
-  {
-    title: 'Add periods',
-    body: 'Connect each real class period to the course.'
-  },
-  {
-    title: 'Plan the year',
-    body: 'Units, lessons, and segments stay easy to scan.'
-  },
-  {
-    title: 'Teach from context',
-    body: 'Each period keeps its own progress and notes.'
-  }
-];
-
-const teacherQuestions = [
-  'What class do I have next?',
-  'Where did Period 2 stop yesterday?',
-  'Which section is ahead or behind?',
-  'What lesson should I teach today?',
-  'What needs to carry over tomorrow?'
-];
-
-const productPillars = [
-  {
-    title: 'Shared course plan',
-    body: 'One year plan can power every section of the same course.'
-  },
-  {
-    title: 'Separate period progress',
-    body: 'Each class period moves independently without duplicating curriculum.'
-  },
-  {
-    title: 'Daily teaching desk',
-    body: 'Open the app and see today, next class, readiness, and setup gaps.'
-  },
-  {
-    title: 'Practical helpers',
-    body: 'Use imports and helper outputs only when they save real teacher time.'
-  }
-];
-
-const previewModes = [
-  {
-    id: 'desk',
-    label: 'Daily Desk',
-    eyebrow: 'Current period',
-    title: 'US History',
-    meta: 'Period 3',
-    note: 'Stopped at source analysis.',
-    next: 'Period 5 is ready for Lesson 8, segment 2.',
-    rows: [
-      { label: 'Period 1', value: 'Lesson 8', state: 'On pace' },
-      { label: 'Period 3', value: 'Lesson 7', state: 'Behind' },
-      { label: 'Period 5', value: 'Lesson 9', state: 'Ahead' }
-    ]
-  },
-  {
-    id: 'plan',
-    label: 'Year Plan',
-    eyebrow: 'Unit 2',
-    title: 'Constitution',
-    meta: '5 lessons',
-    note: 'Lessons are organized into class-ready segments.',
-    next: 'Timeline shows where the week fits in the year.',
-    rows: [
-      { label: 'Lesson 5', value: 'Complete', state: 'Done' },
-      { label: 'Lesson 6', value: 'Today', state: 'Now' },
-      { label: 'Lesson 7', value: 'Friday', state: 'Next' }
-    ]
-  },
-  {
-    id: 'progress',
-    label: 'Progress',
-    eyebrow: 'Course pace',
-    title: '3 periods',
-    meta: '1 needs time',
-    note: 'See which class is ahead, behind, or ready.',
-    next: 'Catch-up planning starts from the real stopping point.',
-    rows: [
-      { label: 'Period 1', value: '42%', state: 'On pace' },
-      { label: 'Period 3', value: '36%', state: 'Behind' },
-      { label: 'Period 5', value: '47%', state: 'Ahead' }
-    ]
-  }
-] as const;
+function CardNumber({ children }: { children: ReactNode }) {
+  return <span className="note-card-number">{children}</span>;
+}
 
 export function LandingPage() {
   const auth = useAppAuth();
   const appTarget = auth.isSignedIn ? '/dashboard' : '/login';
-  const appLabel = auth.isSignedIn ? 'Open dashboard' : 'Try TeacherDesk';
-  const [activePreviewId, setActivePreviewId] = useState<(typeof previewModes)[number]['id']>('desk');
-  const activePreview = previewModes.find((preview) => preview.id === activePreviewId) ?? previewModes[0];
+  const appLabel = auth.isSignedIn ? 'Open dashboard' : 'Open TeacherDesk';
 
   return (
-    <main className="landing-page">
-      <div className="landing-ambient" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
-
-      <nav className="landing-nav" aria-label="TeacherDesk website navigation">
+    <main className="landing-page note-page">
+      <nav className="landing-nav note-nav" aria-label="TeacherDesk website navigation">
         <Link className="landing-brand brand-lockup" to="/">
           <span>TeacherDesk</span>
           <small>Calico EDU</small>
         </Link>
-        <div className="landing-nav-links">
-          <a href="#how-it-works">How it works</a>
-          <a href="#why">Why it matters</a>
-          <a href="#test">Pilot test</a>
+        <span className="note-nav-message">A calmer way to teach the day.</span>
+        <div className="note-nav-actions">
           <Link to="/login">Sign in</Link>
+          <Link className="landing-nav-cta" to={appTarget}>{appLabel}</Link>
         </div>
-        <Link className="landing-nav-cta" to={appTarget}>
-          {appLabel}
-        </Link>
       </nav>
 
-      <section className="landing-hero">
-        <div className="landing-hero-copy">
-          <p className="eyebrow">Daily teaching desk</p>
-          <h1>Know what to teach next.</h1>
-          <p>
-            TeacherDesk connects courses, class periods, schedules, year plans, and section progress so
-            teachers can move through the day without guessing where each class left off.
-          </p>
-          <div className="landing-actions">
-            <Link className="button-link" to={appTarget}>
-              {appLabel}
-            </Link>
-            <a className="button-link secondary" href="#how-it-works">
-              See the flow
-            </a>
-          </div>
-          <div className="landing-hero-metrics" aria-label="TeacherDesk product focus">
-            <div>
-              <strong>1</strong>
-              <span>shared course plan</span>
-            </div>
-            <div>
-              <strong>3+</strong>
-              <span>periods tracked separately</span>
-            </div>
-            <div>
-              <strong>0</strong>
-              <span>guesswork between classes</span>
+      <div className="note-stack" aria-label="How TeacherDesk helps teachers stay on track">
+        <section className="note-card note-card-intro" id="start">
+          <CardNumber>01</CardNumber>
+          <div className="note-card-copy">
+            <p className="eyebrow">TeacherDesk</p>
+            <h1>Know what you’re teaching next.</h1>
+            <p className="note-lede">TeacherDesk keeps track of your classes, lessons, and where each period left off.</p>
+            <div className="landing-actions">
+              <Link className="button-link" to={appTarget}>Import your schedule</Link>
+              <Link className="note-text-link" to={appTarget}>{appLabel} <span>→</span></Link>
             </div>
           </div>
-        </div>
-
-        <div className="landing-product-shot" aria-label="TeacherDesk product preview">
-          <div className="landing-preview-tabs" role="tablist" aria-label="Preview mode">
-            {previewModes.map((preview) => (
-              <button
-                key={preview.id}
-                className={activePreview.id === preview.id ? 'active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={activePreview.id === preview.id}
-                onClick={() => setActivePreviewId(preview.id)}
-              >
-                {preview.label}
-              </button>
-            ))}
+          <div className="note-preview next-class-preview" aria-label="Example next class">
+            <span className="note-preview-label">Your next class</span>
+            <strong>Period 3 <i>·</i> US History</strong>
+            <div className="note-preview-rule" />
+            <p>You stopped at <b>Source Analysis</b></p>
+            <p className="note-next-line">Next: <b>Primary Source Activity</b></p>
           </div>
-          <div className="landing-shot-top">
-            <span>Monday</span>
-            <strong>{activePreview.label}</strong>
-            <em>Live preview</em>
-          </div>
-          <div className="landing-shot-grid">
-            <div className="landing-shot-card current">
-              <span>{activePreview.eyebrow}</span>
-              <strong>{activePreview.title}</strong>
-              <p>{activePreview.meta}</p>
-              <small>{activePreview.note}</small>
-            </div>
-            <div className="landing-shot-card">
-              <span>Next class</span>
-              <strong>Next move</strong>
-              <p>{activePreview.next}</p>
-            </div>
-            <div className="landing-progress-card">
-              {activePreview.rows.map((row) => (
-                <div key={`${activePreview.id}-${row.label}`}>
-                  <span>{row.label}</span>
-                  <strong>{row.value}</strong>
-                  <small>{row.state}</small>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="landing-mini-timeline" aria-label="Year pacing preview">
-            <span style={{ '--offset': '12%' } as CSSProperties}>Unit 1</span>
-            <span style={{ '--offset': '38%' } as CSSProperties}>Unit 2</span>
-            <span style={{ '--offset': '66%' } as CSSProperties}>Unit 3</span>
-            <i />
-          </div>
-        </div>
-        <a className="landing-scroll-cue" href="#why" aria-label="Scroll to product details">
-          Scroll
-        </a>
-      </section>
+          <a className="note-scroll-cue" href="#classes">Scroll to flip through the day <span>↓</span></a>
+        </section>
 
-      <section className="landing-question-panel" id="why">
-        <div>
-          <p className="eyebrow">The teacher problem</p>
-          <h2>Teachers do not just plan lessons. They carry context across the whole day.</h2>
-        </div>
-        <div className="landing-question-list">
-          {teacherQuestions.map((question) => (
-            <span key={question}>{question}</span>
-          ))}
-        </div>
-      </section>
-
-      <section className="landing-section" id="how-it-works">
-        <div className="landing-section-heading">
-          <p className="eyebrow">How it works</p>
-          <h2>One shared plan. Many real class periods. Separate progress for each section.</h2>
-        </div>
-        <div className="landing-workflow">
-          {workflowSteps.map((step, index) => (
-            <article key={step.title}>
-              <span>{String(index + 1).padStart(2, '0')}</span>
-              <h3>{step.title}</h3>
-              <p>{step.body}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="landing-model-section">
-        <div className="landing-model-copy">
-          <p className="eyebrow">The core model</p>
-          <h2>A course is the plan. A period is the class. Progress belongs to each period.</h2>
-          <p>
-            Teach US History three times a day without copying the curriculum three times. Period 1,
-            Period 3, and Period 5 can share the same year plan while moving at their own pace.
-          </p>
-        </div>
-        <div className="landing-model-board">
-          <div className="course-node">
-            <span>Course</span>
-            <strong>US History</strong>
-            <p>6 units, 42 lessons, 128 segments</p>
+        <section className="note-card note-card-classes" id="classes">
+          <CardNumber>02</CardNumber>
+          <div className="note-card-copy">
+            <p className="eyebrow">Same course, real classes</p>
+            <h2>Every class moves differently.</h2>
+            <p className="note-lede">You might teach the same course three times. That doesn’t mean every class stays in the same place.</p>
           </div>
-          <div>
-            <span>Period 1</span>
-            <strong>Lesson 8</strong>
-            <p>On pace</p>
+          <div className="period-list" aria-label="Period progress example">
+            <div><span>Period 1</span><strong>Lesson 8</strong><em className="on-track">On track</em></div>
+            <div className="period-current"><span>Period 3</span><strong>Lesson 7</strong><em className="behind">1 class behind</em></div>
+            <div><span>Period 5</span><strong>Lesson 9</strong><em className="ahead">Ahead</em></div>
           </div>
-          <div>
-            <span>Period 3</span>
-            <strong>Lesson 7</strong>
-            <p>One class behind</p>
+          <span className="note-scribble">Same plan. Different days.</span>
+        </section>
+
+        <section className="note-card note-card-resume" id="resume">
+          <CardNumber>03</CardNumber>
+          <div className="note-card-copy">
+            <p className="eyebrow">The handoff</p>
+            <h2>Pick up where you left off.</h2>
           </div>
-          <div>
-            <span>Period 5</span>
-            <strong>Lesson 9</strong>
-            <p>Ahead</p>
+          <div className="resume-note">
+            <header><span>US History</span><b>Period 3</b></header>
+            <div><small>Last class</small><p>Finished source analysis.</p></div>
+            <div className="resume-today"><small>Today</small><p>Start with the primary source activity.</p></div>
+            <div><small>After class</small><p>Mark where you stopped.</p></div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="landing-section">
-        <div className="landing-section-heading">
-          <p className="eyebrow">What it gives teachers</p>
-          <h2>Powerful enough for the year. Simple enough for the next period.</h2>
-        </div>
-        <div className="landing-pillar-grid">
-          {productPillars.map((pillar) => (
-            <article key={pillar.title}>
-              <h3>{pillar.title}</h3>
-              <p>{pillar.body}</p>
-            </article>
-          ))}
-        </div>
-      </section>
+        <section className="note-card note-card-plan" id="plan">
+          <CardNumber>04</CardNumber>
+          <div className="note-card-copy">
+            <p className="eyebrow">One plan, many periods</p>
+            <h2>Plan once. Teach every class.</h2>
+            <p className="note-lede">Create the course once, then connect the actual classes you teach.</p>
+          </div>
+          <div className="course-connection" aria-label="US History connected to three periods">
+            <div className="course-chip"><span>Course</span><strong>US History</strong></div>
+            <div className="connection-line" aria-hidden="true" />
+            <div className="connection-periods"><span>Period 1</span><span>Period 3</span><span>Period 5</span></div>
+            <p>Each class follows the same course while keeping its own progress.</p>
+          </div>
+        </section>
 
-      <section className="landing-ai-section">
-        <div>
-          <p className="eyebrow">Practical helpers</p>
-          <h2>AI only where it saves time.</h2>
-          <p>
-            TeacherDesk keeps AI in the background: read a messy schedule, draft starter segments, suggest
-            pacing, or clean up notes. Teachers review before anything is saved.
-          </p>
-        </div>
-        <div className="landing-helper-list">
-          <span>Import a schedule</span>
-          <span>Break lessons into segments</span>
-          <span>Suggest pacing after missed days</span>
-          <span>Create a catch-up plan</span>
-        </div>
-      </section>
+        <section className="note-card note-card-calendar" id="calendar">
+          <CardNumber>05</CardNumber>
+          <div className="note-card-copy">
+            <p className="eyebrow">Start with your real year</p>
+            <h2>Your school year, already organized.</h2>
+            <p className="note-lede">Import your schedule and school calendar. Then your schedule connects directly to what you’re teaching.</p>
+          </div>
+          <div className="calendar-note">
+            <div className="calendar-top"><b>September</b><span>2026</span></div>
+            <div className="calendar-days"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><i>7</i><i>8</i><i className="marked">9</i><i>10</i><i>11</i></div>
+            <div className="calendar-tags"><span>Classes</span><span>Meeting times</span><span>Breaks</span><span>Days off</span></div>
+          </div>
+        </section>
 
-      <section className="landing-test-section" id="test">
-        <div>
-          <p className="eyebrow">Good first pilot</p>
-          <h2>Start small. Prove the core idea in one afternoon.</h2>
-          <p>
-            Create one course, add two or three periods, add meeting times, build two lessons, and use
-            Classroom Mode to mark where each period stops.
-          </p>
-        </div>
-        <Link className="button-link" to={appTarget}>
-          {appLabel}
-        </Link>
-      </section>
-
-      <section className="landing-final-cta">
-        <p className="eyebrow">TeacherDesk · Calico EDU</p>
-        <h2>Your course plan, your periods, your next move.</h2>
-        <p>
-          A calmer way to manage the school year, built around the real rhythm of teaching.
-        </p>
-        <div className="landing-actions">
-          <Link className="button-link" to={appTarget}>
-            {appLabel}
-          </Link>
-          <Link className="button-link secondary" to="/login">
-            Sign in
-          </Link>
-        </div>
-      </section>
+        <section className="note-card note-card-day" id="day">
+          <CardNumber>06</CardNumber>
+          <div className="note-card-copy">
+            <p className="eyebrow">The point of it all</p>
+            <h2>Open it. Know what’s next.</h2>
+          </div>
+          <div className="day-agenda">
+            <header><span>Monday</span><small>Your teaching day</small></header>
+            <div><time>8:00</time><p><b>Period 1</b><span>Lesson 8</span></p></div>
+            <div className="agenda-next"><time>10:15</time><p><b>Period 3</b><span>Resume Lesson 7</span></p></div>
+            <div><time>1:20</time><p><b>Period 5</b><span>Lesson 9</span></p></div>
+          </div>
+          <div className="note-card-footer"><Link className="button-link" to={appTarget}>{appLabel}</Link><span>Teach your day with less guesswork.</span></div>
+        </section>
+      </div>
     </main>
   );
 }
