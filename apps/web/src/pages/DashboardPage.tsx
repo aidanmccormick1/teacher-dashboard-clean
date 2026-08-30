@@ -101,7 +101,10 @@ function lessonProgress(resume: ClassroomResumeResponse | undefined): {
   };
 }
 
-function uniqueSections(today: DashboardTodayResponse | null, schedule: GetScheduleResponse | null): string[] {
+function uniqueSections(
+  today: DashboardTodayResponse | null,
+  schedule: GetScheduleResponse | null
+): string[] {
   const sectionIds = new Set<string>();
   today?.todaySchedule.forEach((item) => sectionIds.add(item.sectionId));
   if (today?.currentClass) sectionIds.add(today.currentClass.sectionId);
@@ -122,7 +125,9 @@ function buildReadinessScore(
     course.units.some((unit) => unit.lessons.length > 0)
   );
   const hasActiveLesson = Boolean(currentResume?.lesson);
-  const hasCarryOver = Boolean(currentResume?.state?.carryOverNote || currentResume?.lastNote?.content);
+  const hasCarryOver = Boolean(
+    currentResume?.state?.carryOverNote || currentResume?.lastNote?.content
+  );
   const hasSegments = Boolean(currentResume?.lesson?.segments.length);
 
   return Math.min(
@@ -140,8 +145,7 @@ function courseDepth(course: CourseDetail) {
   const lessons = course.units.reduce((count, unit) => count + unit.lessons.length, 0);
   const segments = course.units.reduce(
     (count, unit) =>
-      count +
-      unit.lessons.reduce((lessonCount, lesson) => lessonCount + lesson.segments.length, 0),
+      count + unit.lessons.reduce((lessonCount, lesson) => lessonCount + lesson.segments.length, 0),
     0
   );
 
@@ -184,12 +188,13 @@ export function DashboardPage() {
       setError(null);
 
       try {
-        const [todayResult, scheduleResult, coursesResult, calendarResult] = await Promise.allSettled([
-          api.dashboardToday(),
-          api.getSchedule(),
-          api.listCourses(),
-          api.getSchoolCalendar()
-        ]);
+        const [todayResult, scheduleResult, coursesResult, calendarResult] =
+          await Promise.allSettled([
+            api.dashboardToday(),
+            api.getSchedule(),
+            api.listCourses(),
+            api.getSchoolCalendar()
+          ]);
 
         if (cancelled) return;
 
@@ -201,17 +206,24 @@ export function DashboardPage() {
         const courseDetails = (
           await Promise.allSettled(courses.map((course) => api.getCourseDetail(course.id)))
         )
-          .filter((result): result is PromiseFulfilledResult<CourseDetailResponse> => result.status === 'fulfilled')
+          .filter(
+            (result): result is PromiseFulfilledResult<CourseDetailResponse> =>
+              result.status === 'fulfilled'
+          )
           .map((result) => result.value.course);
 
         const sectionIds = uniqueSections(today, schedule);
         const resumeEntries = await Promise.allSettled(
-          sectionIds.map(async (sectionId) => [sectionId, await api.getClassroomResume(sectionId)] as const)
+          sectionIds.map(
+            async (sectionId) => [sectionId, await api.getClassroomResume(sectionId)] as const
+          )
         );
         const resumesBySectionId = Object.fromEntries(
           resumeEntries
             .filter(
-              (result): result is PromiseFulfilledResult<readonly [string, ClassroomResumeResponse]> =>
+              (
+                result
+              ): result is PromiseFulfilledResult<readonly [string, ClassroomResumeResponse]> =>
                 result.status === 'fulfilled'
             )
             .map((result) => result.value)
@@ -269,7 +281,9 @@ export function DashboardPage() {
   const currentResume = state.today?.currentClass
     ? state.resumesBySectionId[state.today.currentClass.sectionId]
     : undefined;
-  const nextResume = state.today?.nextClass ? state.resumesBySectionId[state.today.nextClass.sectionId] : undefined;
+  const nextResume = state.today?.nextClass
+    ? state.resumesBySectionId[state.today.nextClass.sectionId]
+    : undefined;
   const teachingResume = currentResume ?? nextResume;
   const activeLessonProgress = lessonProgress(currentResume);
   const nextLessonProgress = lessonProgress(nextResume);
@@ -280,9 +294,11 @@ export function DashboardPage() {
   const calendarLookahead = useMemo(() => {
     const today = state.today?.date;
     if (!today) return null;
-    return [...(state.calendar?.events ?? [])]
-      .filter((event) => event.date >= today)
-      .sort((left, right) => left.date.localeCompare(right.date))[0] ?? null;
+    return (
+      [...(state.calendar?.events ?? [])]
+        .filter((event) => event.date >= today)
+        .sort((left, right) => left.date.localeCompare(right.date))[0] ?? null
+    );
   }, [state.calendar?.events, state.today?.date]);
   const calendarLookaheadLabel = useMemo(() => {
     if (!calendarLookahead || !state.today?.date) return '';
@@ -298,7 +314,8 @@ export function DashboardPage() {
     const courseCount = state.courses.length;
     const unitCount = state.courseDetails.reduce((count, course) => count + course.units.length, 0);
     const lessonCount = state.courseDetails.reduce(
-      (count, course) => count + course.units.reduce((unitCount, unit) => unitCount + unit.lessons.length, 0),
+      (count, course) =>
+        count + course.units.reduce((unitCount, unit) => unitCount + unit.lessons.length, 0),
       0
     );
     const segmentCount = state.courseDetails.reduce(
@@ -321,7 +338,8 @@ export function DashboardPage() {
     state.schedule?.sections.forEach((section: ScheduleSection) => {
       const missingTime = section.meetings.some((meeting) => !meeting.time || !meeting.endTime);
       const missingRoom = section.meetings.some((meeting) => !meeting.room);
-      if (missingTime) gaps.push(`${section.courseName} / ${section.sectionName} needs start and end times`);
+      if (missingTime)
+        gaps.push(`${section.courseName} / ${section.sectionName} needs start and end times`);
       if (missingRoom) gaps.push(`${section.courseName} / ${section.sectionName} needs a room`);
     });
     return gaps.slice(0, 4);
@@ -331,7 +349,9 @@ export function DashboardPage() {
   const hasSections = Boolean(state.schedule?.sections.length);
   const hasLessons = summary.lessonCount > 0;
   const hasSegments = summary.segmentCount > 0;
-  const hasClassroomResume = Object.values(state.resumesBySectionId).some((resume) => resume.lesson);
+  const hasClassroomResume = Object.values(state.resumesBySectionId).some(
+    (resume) => resume.lesson
+  );
   const setupSteps = [
     {
       title: 'Import class schedule',
@@ -380,7 +400,9 @@ export function DashboardPage() {
   const smartPrompts = useMemo(() => {
     const prompts = [];
 
-    const hasScheduleMeetings = Boolean(state.schedule?.sections.some((section) => section.meetings.length > 0));
+    const hasScheduleMeetings = Boolean(
+      state.schedule?.sections.some((section) => section.meetings.length > 0)
+    );
 
     if (!state.courses.length && !hasScheduleMeetings) {
       return [
@@ -418,7 +440,7 @@ export function DashboardPage() {
       prompts.push({
         title: 'Resume the active lesson',
         body: `${currentResume.lesson.title} is ready with ${activeLessonProgress.completed}/${activeLessonProgress.total} segments complete.`,
-        to: `/sections/${state.today.currentClass.sectionId}/lessons/${currentResume.lesson.id}`,
+        to: `/classroom?section=${state.today.currentClass.sectionId}`,
         managementTab: null,
         action: 'Resume class'
       });
@@ -428,7 +450,7 @@ export function DashboardPage() {
       prompts.push({
         title: 'Prep the next class',
         body: `${state.today.nextClass.sectionName} is ready for ${nextResume.lesson.title}.`,
-        to: `/sections/${state.today.nextClass.sectionId}/lessons/${nextResume.lesson.id}`,
+        to: `/classroom?section=${state.today.nextClass.sectionId}`,
         managementTab: null,
         action: 'Open tracker'
       });
@@ -500,7 +522,10 @@ export function DashboardPage() {
   }, [state.today?.date]);
 
   useEffect(() => {
-    window.localStorage.setItem(dashboardStorageKey('focus_note', state.today?.date ?? null), focusNote);
+    window.localStorage.setItem(
+      dashboardStorageKey('focus_note', state.today?.date ?? null),
+      focusNote
+    );
   }, [focusNote, state.today?.date]);
 
   useEffect(() => {
@@ -531,11 +556,14 @@ export function DashboardPage() {
           <p className="eyebrow">Your workspace is ready</p>
           <h1>Import your schedule to unlock TeacherDesk</h1>
           <p className="empty-dashboard-intro">
-            Once you import your teaching week, TeacherDesk can show today’s classes, your next class,
-            and the planning tools that match your real schedule.
+            Once you import your teaching week, TeacherDesk can show today’s classes, your next
+            class, and the planning tools that match your real schedule.
           </p>
 
-          <div className="empty-dashboard-checklist" aria-label="What importing your schedule unlocks">
+          <div
+            className="empty-dashboard-checklist"
+            aria-label="What importing your schedule unlocks"
+          >
             <div>
               <span>1</span>
               <strong>Upload your schedule</strong>
@@ -579,7 +607,7 @@ export function DashboardPage() {
             {state.today?.currentClass && currentResume?.lesson ? (
               <Link
                 className="button-link"
-                to={`/sections/${state.today.currentClass.sectionId}/lessons/${currentResume.lesson.id}`}
+                to={`/classroom?section=${state.today.currentClass.sectionId}`}
               >
                 Resume current class
               </Link>
@@ -588,7 +616,11 @@ export function DashboardPage() {
                 Open classroom
               </Link>
             )}
-            <button className="button-link secondary" type="button" onClick={() => openManagementTab('courses')}>
+            <button
+              className="button-link secondary"
+              type="button"
+              onClick={() => openManagementTab('courses')}
+            >
               Adjust schedule
             </button>
           </div>
@@ -637,14 +669,18 @@ export function DashboardPage() {
         <div className="section-heading">
           <div>
             <p className="eyebrow">Readiness</p>
-            <h2>{completedSetupSteps} of {setupSteps.length} ready</h2>
+            <h2>
+              {completedSetupSteps} of {setupSteps.length} ready
+            </h2>
             <p className="muted">Complete the basics as you go.</p>
           </div>
           <div className="setup-actions">
             <Link className="button-link secondary" to="/welcome">
               Welcome
             </Link>
-            <button className="secondary" type="button" onClick={() => openManagementTab('start')}>Open guide</button>
+            <button className="secondary" type="button" onClick={() => openManagementTab('start')}>
+              Open guide
+            </button>
           </div>
         </div>
         <progress className="setup-progress" max={100} value={setupCompletionPercent} />
@@ -673,7 +709,11 @@ export function DashboardPage() {
           <div>
             <p className="eyebrow">{calendarLookaheadLabel} · Calendar</p>
             <strong>{calendarLookahead.label}</strong>
-            <span>{calendarLookahead.type === 'no_school' ? 'No school — classes automatically move to the next real meeting.' : 'Special day — ordinary meeting times are skipped unless a group override is set.'}</span>
+            <span>
+              {calendarLookahead.type === 'no_school'
+                ? 'No school — classes automatically move to the next real meeting.'
+                : 'Special day — ordinary meeting times are skipped unless a group override is set.'}
+            </span>
           </div>
         </section>
       ) : null}
@@ -691,7 +731,9 @@ export function DashboardPage() {
           {state.today?.holiday ? (
             <div className="soft-panel">
               <strong>{state.today.holiday.name}</strong>
-              <p className="muted">No pressure today. Use this as planning time if you are working.</p>
+              <p className="muted">
+                No pressure today. Use this as planning time if you are working.
+              </p>
             </div>
           ) : state.today?.currentClass ? (
             <>
@@ -699,8 +741,14 @@ export function DashboardPage() {
                 <div>
                   <h3>{state.today.currentClass.courseName}</h3>
                   <p className="muted">
-                    {state.today.currentClass.sectionName} / {formatTimeRange(state.today.currentClass.meetingTime, state.today.currentClass.endTime)}
-                    {state.today.currentClass.room ? ` / Room ${state.today.currentClass.room}` : ''}
+                    {state.today.currentClass.sectionName} /{' '}
+                    {formatTimeRange(
+                      state.today.currentClass.meetingTime,
+                      state.today.currentClass.endTime
+                    )}
+                    {state.today.currentClass.room
+                      ? ` / Room ${state.today.currentClass.room}`
+                      : ''}
                   </p>
                 </div>
                 <span className="status-pill now">In session</span>
@@ -719,14 +767,17 @@ export function DashboardPage() {
                     <span>{activeLessonProgress.percent}%</span>
                     <progress max={100} value={activeLessonProgress.percent} />
                     <small>
-                      {activeLessonProgress.completed}/{activeLessonProgress.total || 0} segments complete
+                      {activeLessonProgress.completed}/{activeLessonProgress.total || 0} segments
+                      complete
                     </small>
                   </div>
                 </div>
               ) : (
                 <div className="soft-panel">
                   <strong>No lesson attached yet</strong>
-                  <p className="muted">Create a unit and lesson in Curriculum to enable precise class resume.</p>
+                  <p className="muted">
+                    Create a unit and lesson in Curriculum to enable precise class resume.
+                  </p>
                 </div>
               )}
 
@@ -750,14 +801,21 @@ export function DashboardPage() {
               <p className="eyebrow">Next Period</p>
               <h2>Next class prep</h2>
             </div>
-            <button className="secondary" type="button" onClick={() => openManagementTab('courses')}>Schedule</button>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => openManagementTab('courses')}
+            >
+              Schedule
+            </button>
           </div>
           {state.today?.nextClass ? (
             <div className="next-class-card">
               <span>{formatRelativeClass(state.today.nextClass.meetingTime)}</span>
               <h3>{state.today.nextClass.courseName}</h3>
               <p className="muted">
-                {state.today.nextClass.sectionName} / {formatTimeRange(state.today.nextClass.meetingTime, state.today.nextClass.endTime)}
+                {state.today.nextClass.sectionName} /{' '}
+                {formatTimeRange(state.today.nextClass.meetingTime, state.today.nextClass.endTime)}
               </p>
               {nextResume?.lesson ? (
                 <>
@@ -767,7 +825,9 @@ export function DashboardPage() {
                   <div className="classroom-context-grid">
                     <div>
                       <span>Progress</span>
-                      <strong>{nextLessonProgress.completed}/{nextLessonProgress.total || 0} segments</strong>
+                      <strong>
+                        {nextLessonProgress.completed}/{nextLessonProgress.total || 0} segments
+                      </strong>
                     </div>
                     <div>
                       <span>Next up</span>
@@ -775,17 +835,23 @@ export function DashboardPage() {
                     </div>
                     <div>
                       <span>Carry-over</span>
-                      <strong>{nextResume.state?.carryOverNote ?? nextResume.lastNote?.content ?? 'None'}</strong>
+                      <strong>
+                        {nextResume.state?.carryOverNote ?? nextResume.lastNote?.content ?? 'None'}
+                      </strong>
                     </div>
                   </div>
                   <div className="profile-actions">
                     <Link
                       className="button-link"
-                      to={`/sections/${state.today.nextClass.sectionId}/lessons/${nextResume.lesson.id}`}
+                      to={`/classroom?section=${state.today.nextClass.sectionId}`}
                     >
                       Prep next class
                     </Link>
-                    <button className="secondary" type="button" onClick={() => openManagementTab('progress')}>
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => openManagementTab('progress')}
+                    >
                       Compare progress
                     </button>
                   </div>
@@ -793,7 +859,11 @@ export function DashboardPage() {
               ) : (
                 <>
                   <p className="muted">No lesson found yet. Year Plan is the next stop.</p>
-                  <button className="secondary" type="button" onClick={() => openManagementTab('curriculum')}>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => openManagementTab('curriculum')}
+                  >
                     Open Year Plan
                   </button>
                 </>
@@ -810,7 +880,13 @@ export function DashboardPage() {
               <p className="eyebrow">Timeline</p>
               <h2>Teaching arc</h2>
             </div>
-            <button className="secondary" type="button" onClick={() => openManagementTab('courses')}>Edit day</button>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => openManagementTab('courses')}
+            >
+              Edit day
+            </button>
           </div>
           {state.today?.todaySchedule.length ? (
             <div className="timeline">
@@ -818,15 +894,24 @@ export function DashboardPage() {
                 const status = classStatus(item);
                 const resume = state.resumesBySectionId[item.sectionId];
                 return (
-                  <div key={`${item.sectionId}-${item.meetingTime ?? 'tbd'}`} className={`timeline-item ${status}`}>
-                    <div className="timeline-time">{formatTimeRange(item.meetingTime, item.endTime)}</div>
+                  <div
+                    key={`${item.sectionId}-${item.meetingTime ?? 'tbd'}`}
+                    className={`timeline-item ${status}`}
+                  >
+                    <div className="timeline-time">
+                      {formatTimeRange(item.meetingTime, item.endTime)}
+                    </div>
                     <div>
                       <strong>{item.courseName}</strong>
                       <p className="muted">
                         {item.sectionName}
                         {item.room ? ` / Room ${item.room}` : ' / Room TBD'}
                       </p>
-                      {resume?.lesson ? <small>Lesson: {resume.lesson.title}</small> : <small>No lesson attached</small>}
+                      {resume?.lesson ? (
+                        <small>Lesson: {resume.lesson.title}</small>
+                      ) : (
+                        <small>No lesson attached</small>
+                      )}
                     </div>
                     <span className={`status-pill ${status}`}>
                       {status === 'now'
@@ -842,7 +927,9 @@ export function DashboardPage() {
               })}
             </div>
           ) : (
-            <p className="muted">No schedule entries for today. Add sections or import a schedule to unlock this.</p>
+            <p className="muted">
+              No schedule entries for today. Add sections or import a schedule to unlock this.
+            </p>
           )}
         </div>
 
@@ -895,7 +982,9 @@ export function DashboardPage() {
                     checked={checked}
                     onChange={(event) => {
                       setCheckedItems((previous) =>
-                        event.target.checked ? [...previous, item] : previous.filter((value) => value !== item)
+                        event.target.checked
+                          ? [...previous, item]
+                          : previous.filter((value) => value !== item)
                       );
                     }}
                   />
@@ -912,7 +1001,13 @@ export function DashboardPage() {
               <p className="eyebrow">Curriculum Health</p>
               <h2>Course depth</h2>
             </div>
-            <button className="secondary" type="button" onClick={() => openManagementTab('curriculum')}>Open Year Plan</button>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => openManagementTab('curriculum')}
+            >
+              Open Year Plan
+            </button>
           </div>
           {state.courseDetails.length ? (
             <div className="course-health-grid">
@@ -936,7 +1031,9 @@ export function DashboardPage() {
               })}
             </div>
           ) : (
-            <p className="muted">No curriculum yet. Create the first course to begin tracking lessons.</p>
+            <p className="muted">
+              No curriculum yet. Create the first course to begin tracking lessons.
+            </p>
           )}
         </div>
 
@@ -949,7 +1046,9 @@ export function DashboardPage() {
           </div>
           {scheduleGaps.length || summary.lessonCount === 0 || summary.segmentCount === 0 ? (
             <ul className="signal-list">
-              {summary.lessonCount === 0 ? <li>Add at least one lesson to make classroom resume useful.</li> : null}
+              {summary.lessonCount === 0 ? (
+                <li>Add at least one lesson to make classroom resume useful.</li>
+              ) : null}
               {summary.lessonCount > 0 && summary.segmentCount === 0 ? (
                 <li>Break lessons into segments so stopped-at tracking has real detail.</li>
               ) : null}

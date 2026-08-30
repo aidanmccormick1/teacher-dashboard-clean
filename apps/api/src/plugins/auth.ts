@@ -17,14 +17,24 @@ export const authPlugin = fp(async (app) => {
 
   app.addHook('onRequest', async (request, reply) => {
     const path = request.url.split('?')[0] ?? '/';
-    if (path.startsWith('/health') || path.startsWith('/docs') || path.startsWith('/v1/test-auth')) return;
+    if (
+      path.startsWith('/health') ||
+      path.startsWith('/docs') ||
+      path.startsWith('/v1/test-auth') ||
+      (request.method === 'GET' && /^\/v1\/public\/lessons\/[0-9a-f-]{36}$/i.test(path))
+    )
+      return;
 
     const authHeader = request.headers.authorization;
     const devUser = request.headers['x-dev-user-id'];
     const devEmail = request.headers['x-dev-user-email'];
 
     if (!authHeader) {
-      if (app.config.NODE_ENV !== 'production' && typeof devUser === 'string' && devUser.length > 0) {
+      if (
+        app.config.NODE_ENV !== 'production' &&
+        typeof devUser === 'string' &&
+        devUser.length > 0
+      ) {
         request.principal = {
           clerkUserId: devUser,
           email: typeof devEmail === 'string' ? devEmail : null
@@ -69,7 +79,9 @@ export const authPlugin = fp(async (app) => {
     const clerkJwtKey = app.config.CLERK_JWT_KEY;
 
     if (!app.config.CLERK_SECRET_KEY && !clerkJwtKey) {
-      reply.code(500).send({ error: 'Clerk token verification is not configured', requestId: request.id });
+      reply
+        .code(500)
+        .send({ error: 'Clerk token verification is not configured', requestId: request.id });
       return;
     }
 
@@ -77,7 +89,9 @@ export const authPlugin = fp(async (app) => {
       const tokenClaims = await verifyToken(token, {
         secretKey: app.config.CLERK_SECRET_KEY,
         jwtKey: clerkJwtKey,
-        authorizedParties: app.config.CLERK_AUTHORIZED_PARTIES.split(',').map((value) => value.trim())
+        authorizedParties: app.config.CLERK_AUTHORIZED_PARTIES.split(',').map((value) =>
+          value.trim()
+        )
       });
 
       request.principal = {

@@ -317,10 +317,28 @@ export const lessonSegments = pgTable(
     title: text('title').notNull(),
     description: text('description'),
     durationMinutes: integer('duration_minutes'),
+    stepType: text('step_type'),
     orderIndex: integer('order_index').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => [index('idx_segments_lesson_order').on(table.lessonId, table.orderIndex)]
+);
+
+// This is deliberately a separate capability record instead of a lesson flag.
+// It keeps the public-link policy small today while allowing future teacher,
+// group, and school grants to be added without changing lesson ownership.
+export const lessonShares = pgTable(
+  'lesson_shares',
+  {
+    lessonId: uuid('lesson_id')
+      .notNull()
+      .references(() => lessons.id, { onDelete: 'cascade' }),
+    publicToken: uuid('public_token').defaultRandom().primaryKey(),
+    enabled: boolean('enabled').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [unique('uniq_lesson_share_lesson').on(table.lessonId)]
 );
 
 export const sectionLessonState = pgTable(
@@ -349,6 +367,38 @@ export const sectionLessonState = pgTable(
   (table) => [
     unique('uniq_section_lesson_state').on(table.sectionId, table.lessonId),
     index('idx_section_lesson_state_status').on(table.sectionId, table.status)
+  ]
+);
+
+// One real teaching occurrence. It records the facts of that day without
+// changing the shared lesson or losing the section's cumulative resume state.
+export const classMeetings = pgTable(
+  'class_meetings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => sections.id, { onDelete: 'cascade' }),
+    lessonId: uuid('lesson_id')
+      .notNull()
+      .references(() => lessons.id, { onDelete: 'cascade' }),
+    meetingDate: date('meeting_date').notNull(),
+    scheduledStartTime: time('scheduled_start_time'),
+    scheduledEndTime: time('scheduled_end_time'),
+    completedStepIds: jsonb('completed_step_ids').$type<string[]>().notNull().default([]),
+    stoppedAfterStepId: uuid('stopped_after_step_id').references(() => lessonSegments.id, {
+      onDelete: 'set null'
+    }),
+    rawNote: text('raw_note'),
+    status: text('status').notNull().default('in_progress'),
+    startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_class_meeting_section_date').on(table.sectionId, table.meetingDate),
+    index('idx_class_meetings_section_date').on(table.sectionId, table.meetingDate)
   ]
 );
 

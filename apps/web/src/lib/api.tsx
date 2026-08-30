@@ -10,6 +10,8 @@ import type {
   CalendarImportRequest,
   CalendarImportResponse,
   ClassNotesUpsertRequest,
+  ClassMeetingUpsertRequest,
+  ClassMeetingResponse,
   ClassNotesUpsertResponse,
   ClassroomResumeResponse,
   CourseCreateRequest,
@@ -34,6 +36,9 @@ import type {
   LessonProgressUpsertResponse,
   LessonCreateRequest,
   LessonUpdateRequest,
+  LessonShareResponse,
+  LessonWorkspaceResponse,
+  PublicLessonResponse,
   MeetingInstancesResponse,
   OnboardingRequest,
   OnboardingResponse,
@@ -75,6 +80,12 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+export async function getPublicLesson(token: string): Promise<PublicLessonResponse> {
+  const response = await fetch(`${API_BASE_URL}/v1/public/lessons/${encodeURIComponent(token)}`);
+  if (!response.ok) throw new ApiError('This lesson link is unavailable.', response.status);
+  return response.json() as Promise<PublicLessonResponse>;
 }
 
 async function request<TResponse>(
@@ -271,6 +282,18 @@ export function useApiClient() {
           { method: 'PATCH', body: JSON.stringify(body) },
           auth
         ),
+      getLessonWorkspace: (lessonId: string) =>
+        request<LessonWorkspaceResponse>(
+          `/v1/lessons/${lessonId}/workspace`,
+          { method: 'GET' },
+          auth
+        ),
+      updateLessonShare: (lessonId: string, enabled: boolean) =>
+        request<LessonShareResponse>(
+          `/v1/lessons/${lessonId}/share`,
+          { method: 'PATCH', body: JSON.stringify({ enabled }) },
+          auth
+        ),
       deleteLesson: (lessonId: string) =>
         request<DeleteEntityResponse>(`/v1/lessons/${lessonId}`, { method: 'DELETE' }, auth),
       createSegment: (lessonId: string, body: SegmentCreateRequest) =>
@@ -355,6 +378,12 @@ export function useApiClient() {
       upsertClassNote: (body: ClassNotesUpsertRequest) =>
         request<ClassNotesUpsertResponse>(
           '/v1/class-notes/upsert',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      upsertClassMeeting: (body: ClassMeetingUpsertRequest) =>
+        request<ClassMeetingResponse>(
+          '/v1/class-meetings/upsert',
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),

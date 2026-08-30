@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import type { MeetingInstancesResponse } from '@teacheros/contracts';
+import { meetingOccursOn } from './weekly-meetings.js';
 import {
   courses,
   db,
@@ -10,8 +11,6 @@ import {
   sectionMeetings,
   sections
 } from '@teacheros/db';
-
-const weekday = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function isoDate(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -113,7 +112,7 @@ export async function buildMeetingInstances(
   for (const row of sectionRows) {
     if (!row.day || /-day$/i.test(row.day)) continue;
     for (const day = new Date(first); day <= last; day.setUTCDate(day.getUTCDate() + 1)) {
-      if (weekday[day.getUTCDay()] !== row.day) continue;
+      if (!meetingOccursOn(row.day, day)) continue;
       const date = isoDate(day);
       const calendarEvents = eventsByDate.get(date) ?? [];
       // A closure always wins when multiple calendar labels are recorded on a

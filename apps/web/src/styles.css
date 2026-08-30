@@ -5332,3 +5332,253 @@ button,
     display: none !important;
   }
 }
+/* The workspace intentionally reads as a document, not an administration form. */
+.lesson-workspace {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 5rem;
+}
+.lesson-workspace-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  padding-bottom: 1rem;
+}
+.lesson-title-input {
+  border: 0;
+  background: transparent;
+  font: 700 2rem/1.15 inherit;
+  width: 100%;
+  padding: 0;
+}
+.autosave {
+  color: var(--muted, #64748b);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.autosave.error {
+  color: #b45309;
+}
+.lesson-document {
+  max-width: 720px;
+  margin: 2.5rem auto;
+}
+.lesson-meta {
+  color: var(--muted, #64748b);
+  margin-bottom: 2rem;
+}
+.lesson-meta input,
+.step-minutes {
+  width: 4.5rem;
+  border: 0;
+  border-bottom: 1px solid #cbd5e1;
+  background: transparent;
+  font: inherit;
+}
+.share-state {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-bottom: 1rem;
+}
+.workspace-label {
+  display: block;
+  font-weight: 650;
+  font-size: 1.05rem;
+  margin: 2rem 0;
+}
+.rich-field-wrap {
+  margin-top: 0.55rem;
+  font-weight: 400;
+}
+.rich-toolbar {
+  display: flex;
+  gap: 0.3rem;
+  opacity: 0.7;
+}
+.rich-toolbar button,
+.step-actions button {
+  border: 0;
+  background: transparent;
+  padding: 0.25rem 0.4rem;
+  cursor: pointer;
+}
+.rich-field {
+  min-height: 2.5rem;
+  padding: 0.45rem 0;
+  outline: 0;
+  line-height: 1.55;
+}
+.rich-field:empty:before {
+  content: attr(data-placeholder);
+  color: #94a3b8;
+}
+.lesson-step {
+  display: grid;
+  grid-template-columns: 1.2rem 4.6rem 1fr auto;
+  gap: 0.8rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid #e5e7eb;
+}
+.drag-handle {
+  color: #94a3b8;
+  cursor: grab;
+}
+.step-main {
+  min-width: 0;
+}
+.step-title {
+  font: 650 1.1rem inherit;
+  border: 0;
+  background: transparent;
+  width: 100%;
+  padding: 0;
+}
+.step-main select {
+  border: 0;
+  color: #64748b;
+  background: transparent;
+  margin: 0.35rem 0;
+}
+.step-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 0.8rem;
+}
+.add-step {
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  padding: 0.9rem 0;
+  font-weight: 650;
+  cursor: pointer;
+}
+.section-context {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  display: grid;
+  gap: 0.5rem;
+  color: #64748b;
+}
+.section-context strong {
+  color: inherit;
+}
+.shared-lesson {
+  max-width: 720px;
+  margin: 3rem auto;
+  padding: 0 1.25rem 4rem;
+  color: #172033;
+}
+.shared-lesson h1 {
+  font-size: 2.35rem;
+  margin: 0.25rem 0;
+}
+.shared-lesson h2 {
+  margin-top: 2.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.5rem;
+}
+.shared-lesson section {
+  margin: 1.5rem 0;
+}
+.shared-lesson h3 {
+  margin: 0.2rem 0;
+}
+.classroom-today {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+}
+.classroom-live-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 1rem;
+}
+.classroom-switcher {
+  max-width: 250px;
+}
+.live-now {
+  padding: 1.8rem 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+.live-now h2 {
+  margin: 0.15rem 0;
+}
+.live-now .button-link {
+  margin-left: 1rem;
+}
+.live-last,
+.live-steps,
+.live-note,
+.live-next {
+  padding: 1.25rem 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+.live-last blockquote {
+  margin: 0.75rem 0 0;
+  color: #475569;
+}
+.live-steps label {
+  display: flex;
+  gap: 0.65rem;
+  padding: 0.7rem 0;
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+.live-note label {
+  display: block;
+  font-weight: 600;
+}
+.live-note input {
+  margin-top: 0.5rem;
+}
+.live-note .autosave {
+  display: block;
+  margin-top: 0.4rem;
+}
+.live-end {
+  margin: 1.5rem 0;
+  background: #172033;
+  color: #fff;
+  border: 0;
+  padding: 0.75rem 1rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.live-next {
+  display: grid;
+  gap: 0.25rem;
+  color: #475569;
+}
+.live-empty {
+  padding: 3rem 0;
+}
+.live-end-summary {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+@media (max-width: 700px) {
+  .lesson-workspace-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .lesson-step {
+    grid-template-columns: 1rem 3.8rem 1fr;
+  }
+  .step-actions {
+    grid-column: 3;
+    flex-direction: row;
+    align-items: center;
+  }
+}

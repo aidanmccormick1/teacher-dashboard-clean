@@ -412,6 +412,28 @@ export const ClassNotesUpsertResponseSchema = z.object({
   updatedAt: z.string()
 });
 
+export const ClassMeetingUpsertRequestSchema = z.object({
+  sectionId: UuidSchema,
+  lessonId: UuidSchema,
+  meetingDate: IsoDateSchema,
+  scheduledStartTime: z.string().nullable(),
+  scheduledEndTime: z.string().nullable(),
+  completedStepIds: z.array(UuidSchema),
+  rawNote: z.string().nullable(),
+  endClass: z.boolean().default(false)
+});
+export const ClassMeetingResponseSchema = z.object({
+  id: UuidSchema,
+  status: z.enum(['in_progress', 'ended']),
+  completedStepIds: z.array(UuidSchema),
+  stoppedAfterStepId: UuidSchema.nullable(),
+  rawNote: z.string().nullable(),
+  meetingDate: IsoDateSchema,
+  endedAt: z.string().nullable(),
+  cumulativeCompletedStepIds: z.array(UuidSchema),
+  lessonCompleted: z.boolean()
+});
+
 export const ParseScheduleRequestSchema = z.object({
   text: z.string().min(1).optional(),
   imageBase64: z.string().min(1).optional(),
@@ -549,6 +571,7 @@ export const SegmentSchema = z.object({
   title: z.string(),
   description: z.string().nullable(),
   durationMinutes: z.number().int().nullable(),
+  stepType: z.string().nullable().optional(),
   orderIndex: z.number().int()
 });
 
@@ -634,6 +657,7 @@ export const SegmentCreateRequestSchema = z.object({
   title: z.string().min(1),
   description: z.string().nullable(),
   durationMinutes: z.number().int().positive().nullable(),
+  stepType: z.string().max(40).nullable().optional(),
   orderIndex: z.number().int().nonnegative().optional()
 });
 
@@ -641,7 +665,33 @@ export const SegmentUpdateRequestSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
   durationMinutes: z.number().int().positive().nullable().optional(),
+  stepType: z.string().max(40).nullable().optional(),
   orderIndex: z.number().int().nonnegative().optional()
+});
+
+export const LessonShareUpdateRequestSchema = z.object({ enabled: z.boolean() });
+export const LessonShareResponseSchema = z.object({
+  enabled: z.boolean(),
+  token: z.string().uuid().nullable()
+});
+export const LessonWorkspaceResponseSchema = z.object({
+  course: z.object({ id: UuidSchema, name: z.string() }),
+  unit: z.object({ id: UuidSchema, title: z.string() }),
+  lesson: LessonSchema,
+  sections: z.array(
+    z.object({
+      id: UuidSchema,
+      name: z.string(),
+      status: LessonProgressStatusSchema.nullable(),
+      lastTaughtDate: IsoDateSchema.nullable()
+    })
+  ),
+  share: LessonShareResponseSchema
+});
+export const PublicLessonResponseSchema = z.object({
+  courseName: z.string(),
+  unitTitle: z.string(),
+  lesson: LessonSchema
 });
 
 export const ClassroomResumeResponseSchema = z.object({
@@ -750,7 +800,12 @@ export type UnitCreateRequest = z.infer<typeof UnitCreateRequestSchema>;
 export type UnitUpdateRequest = z.infer<typeof UnitUpdateRequestSchema>;
 export type LessonCreateRequest = z.infer<typeof LessonCreateRequestSchema>;
 export type LessonUpdateRequest = z.infer<typeof LessonUpdateRequestSchema>;
+export type LessonWorkspaceResponse = z.infer<typeof LessonWorkspaceResponseSchema>;
+export type LessonShareResponse = z.infer<typeof LessonShareResponseSchema>;
+export type PublicLessonResponse = z.infer<typeof PublicLessonResponseSchema>;
 export type SegmentCreateRequest = z.infer<typeof SegmentCreateRequestSchema>;
 export type SegmentUpdateRequest = z.infer<typeof SegmentUpdateRequestSchema>;
 export type ClassroomResumeResponse = z.infer<typeof ClassroomResumeResponseSchema>;
+export type ClassMeetingUpsertRequest = z.infer<typeof ClassMeetingUpsertRequestSchema>;
+export type ClassMeetingResponse = z.infer<typeof ClassMeetingResponseSchema>;
 export type DeleteEntityResponse = z.infer<typeof DeleteEntityResponseSchema>;

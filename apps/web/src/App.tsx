@@ -9,6 +9,8 @@ import { DashboardPage } from './pages/DashboardPage.js';
 import { GuidePage } from './pages/GuidePage.js';
 import { LandingPage } from './pages/LandingPage.js';
 import { LessonTrackerPage } from './pages/LessonTrackerPage.js';
+import { LessonWorkspacePage } from './pages/LessonWorkspacePage.js';
+import { SharedLessonPage } from './pages/SharedLessonPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { ManagementPage } from './pages/ManagementPage.js';
 import { OnboardingPage } from './pages/OnboardingPage.js';
@@ -29,6 +31,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/shared/lessons/:token" element={<SharedLessonPage />} />
 
       <Route element={<RequireAuth />}>
         <Route path="/onboarding" element={<OnboardingPage />} />
@@ -43,6 +46,7 @@ export default function App() {
           <Route path="/courses/:id" element={<CoursePage />} />
           <Route path="/schedule" element={<SchedulePage />} />
           <Route path="/sections/:sectionId/lessons/:lessonId" element={<LessonTrackerPage />} />
+          <Route path="/lessons/:lessonId" element={<LessonWorkspacePage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Route>
       </Route>

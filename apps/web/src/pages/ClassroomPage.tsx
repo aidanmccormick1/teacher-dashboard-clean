@@ -1,255 +1,298 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-
-import type { ClassroomResumeResponse, DashboardTodayResponse, GetScheduleResponse, SchoolCalendarResponse } from '@teacheros/contracts';
-
+import { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import type {
+  ClassroomResumeResponse,
+  DashboardTodayResponse,
+  GetScheduleResponse
+} from '@teacheros/contracts';
 import { ApiError, useApiClient } from '../lib/api.js';
-import { rememberManagementTab, type ManagementTabTarget } from '../lib/management-tabs.js';
 
-function formatTimeRange(startTime: string | null, endTime: string | null): string {
-  if (!startTime && !endTime) return 'Time TBD';
-  if (!startTime) return `Ends ${endTime}`;
-  if (!endTime) return `${startTime} – end TBD`;
-  return `${startTime} – ${endTime}`;
-}
+const localDate = () => new Date().toISOString().slice(0, 10);
+const timeRange = (start: string | null, end: string | null) =>
+  start ? `${start} – ${end ?? 'end TBD'}` : 'Time TBD';
 
 export function ClassroomPage() {
   const api = useApiClient();
-  const navigate = useNavigate();
-  const [data, setData] = useState<DashboardTodayResponse | null>(null);
+  const [params, setParams] = useSearchParams();
+  const [dashboard, setDashboard] = useState<DashboardTodayResponse | null>(null);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
-  const [calendar, setCalendar] = useState<SchoolCalendarResponse | null>(null);
-  const [manualSectionId, setManualSectionId] = useState('');
   const [resume, setResume] = useState<ClassroomResumeResponse | null>(null);
+  const [checks, setChecks] = useState<string[]>([]);
+  const [ending, setEnding] = useState(false);
+  const [note, setNote] = useState('');
+  const [state, setState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [error, setError] = useState<string | null>(null);
-  const [copyStatus, setCopyStatus] = useState<string | null>(null);
-  const completedCount = resume?.state?.completedSegmentIds.length ?? 0;
-  const totalSegments = resume?.lesson?.segments.length ?? 0;
-  const stoppedSegment = resume?.lesson?.segments.find((segment) => segment.id === resume.state?.stoppedAtSegmentId);
-  const nextSegment = resume?.lesson?.segments.find((segment) => !resume.state?.completedSegmentIds.includes(segment.id));
-  const manualSection = schedule?.sections.find((section) => section.sectionId === manualSectionId);
-  const targetClass = data?.currentClass ?? data?.nextClass ?? (manualSection ? { sectionId: manualSection.sectionId, courseName: manualSection.courseName, sectionName: manualSection.sectionName, meetingTime: null, endTime: null, room: null } : null);
-  const today = new Date().toISOString().slice(0, 10);
-  const specialDay = calendar?.events.find((event) => event.date === today && event.type !== 'no_school') ?? null;
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [dashboard, scheduleResult, calendarResult] = await Promise.all([api.dashboardToday(), api.getSchedule(), api.getSchoolCalendar()]);
-        setData(dashboard); setSchedule(scheduleResult); setCalendar(calendarResult);
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Failed to load classroom state');
+  const timer = useRef<number | null>(null);
+  const latest = useRef<{ checks: string[]; note: string } | null>(null);
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const requested = params.get('section');
+  const detected = dashboard?.currentClass ?? dashboard?.nextClass ?? null;
+  const sectionId = requested ?? detected?.sectionId ?? '';
+  const selected = schedule?.sections.find((item) => item.sectionId === sectionId);
+  const context = selected
+    ? {
+        sectionId: selected.sectionId,
+        courseName: selected.courseName,
+        sectionName: selected.sectionName,
+        meetingTime: detected?.sectionId === selected.sectionId ? detected.meetingTime : null,
+        endTime: detected?.sectionId === selected.sectionId ? detected.endTime : null
       }
-    })();
-  }, [api]);
-
+    : detected;
+  const lesson = resume?.lesson;
+  const prior = resume?.state?.completedSegmentIds ?? [];
+  const allChecked = [...new Set([...prior, ...checks])];
+  const lastStop = lesson?.segments.find((step) => step.id === resume?.state?.stoppedAtSegmentId);
   useEffect(() => {
-    if (!targetClass) {
+    void Promise.all([api.dashboardToday(), api.getSchedule()])
+      .then(([today, sections]) => {
+        setDashboard(today);
+        setSchedule(sections);
+      })
+      .catch((err) =>
+        setError(err instanceof ApiError ? err.message : 'Could not load Classroom.')
+      );
+  }, [api]);
+  useEffect(() => {
+    if (!sectionId) {
       setResume(null);
       return;
     }
-
-    void (async () => {
+    void api
+      .getClassroomResume(sectionId)
+      .then((value) => {
+        setResume(value);
+        setChecks([]);
+        setNote(value.lastNote?.content ?? value.state?.carryOverNote ?? '');
+      })
+      .catch((err) =>
+        setError(err instanceof ApiError ? err.message : 'Could not load lesson progress.')
+      );
+  }, [api, sectionId]);
+  const persist = (endClass = false) => {
+    if (!lesson || !context) return;
+    const current = latest.current ?? { checks, note };
+    setState('saving');
+    chain.current = chain.current.then(async () => {
       try {
-        setResume(await api.getClassroomResume(targetClass.sectionId));
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Failed to load resume lesson');
+        const response = await api.upsertClassMeeting({
+          sectionId: context.sectionId,
+          lessonId: lesson.id,
+          meetingDate: localDate(),
+          scheduledStartTime: context.meetingTime,
+          scheduledEndTime: context.endTime,
+          completedStepIds: current.checks,
+          rawNote: current.note.trim() || null,
+          endClass
+        });
+        setChecks(response.completedStepIds);
+        setState('saved');
+        if (endClass)
+          setResume((previous) =>
+            previous?.state
+              ? {
+                  ...previous,
+                  state: {
+                    ...previous.state,
+                    completedSegmentIds: response.cumulativeCompletedStepIds,
+                    status: response.lessonCompleted ? 'completed' : 'stopped_at_segment',
+                    stoppedAtSegmentId: response.stoppedAfterStepId,
+                    carryOverNote: response.rawNote,
+                    lastTaughtDate: response.meetingDate
+                  }
+                }
+              : previous
+          );
+      } catch {
+        setState('error');
       }
-    })();
-  }, [api, targetClass]);
-
-  const openManagementTab = (tab: ManagementTabTarget) => {
-    rememberManagementTab(tab);
-    navigate('/management');
+    });
   };
-
-  const copyClassBrief = async () => {
-    const currentClass = data?.currentClass;
-    const lines = currentClass
-      ? [
-          'Classroom brief',
-          `Class: ${currentClass.courseName}`,
-          `Period: ${currentClass.sectionName}`,
-          `Time: ${formatTimeRange(currentClass.meetingTime, currentClass.endTime)}`,
-          `Room: ${currentClass.room ?? 'TBD'}`,
-          `Lesson: ${resume?.lesson?.title ?? 'No lesson ready'}`,
-          totalSegments
-            ? `Progress: ${completedCount}/${totalSegments} segments complete`
-            : 'Progress: no segments yet',
-          `Next: ${nextSegment?.title ?? (resume?.lesson ? 'Lesson complete' : 'No lesson ready')}`,
-          `Stopped at: ${stoppedSegment?.title ?? 'Not set'}`,
-          `Last taught: ${resume?.state?.lastTaughtDate ?? 'Not saved yet'}`,
-          `Carry-over: ${resume?.state?.carryOverNote ?? resume?.lastNote?.content ?? 'None'}`
-        ]
-      : [
-          'Classroom brief',
-          'No class detected right now',
-          `Classes today: ${data?.todaySchedule.length ?? 0}`,
-          data?.nextClass ? `Next: ${data.nextClass.courseName} / ${data.nextClass.sectionName}` : 'Next: none scheduled',
-          data?.nextClass ? `Next lesson: ${resume?.lesson?.title ?? 'No lesson ready'}` : null,
-          data?.nextClass ? `Next up: ${nextSegment?.title ?? (resume?.lesson ? 'Lesson complete' : 'No lesson ready')}` : null,
-          data?.nextClass ? `Carry-over: ${resume?.state?.carryOverNote ?? resume?.lastNote?.content ?? 'None'}` : null
-        ];
-
-    await navigator.clipboard?.writeText(lines.filter(Boolean).join('\n')).catch(() => undefined);
-    setCopyStatus('Class brief copied.');
-    window.setTimeout(() => setCopyStatus(null), 1600);
+  const queue = (nextChecks: string[], nextNote: string) => {
+    latest.current = { checks: nextChecks, note: nextNote };
+    setChecks(nextChecks);
+    setNote(nextNote);
+    setState('saving');
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => persist(), 500);
   };
-
+  useEffect(
+    () => () => {
+      if (timer.current) {
+        clearTimeout(timer.current);
+        persist();
+      }
+    },
+    []
+  );
+  const changeSection = (id: string) => {
+    const next = new URLSearchParams(params);
+    id ? next.set('section', id) : next.delete('section');
+    setParams(next);
+  };
+  const nextClass =
+    dashboard?.nextClass && dashboard.nextClass.sectionId !== sectionId
+      ? dashboard.nextClass
+      : (dashboard?.todaySchedule.find(
+          (item) => item.sectionId !== sectionId && !item.isInSession
+        ) ?? null);
   return (
-    <div className="stack">
-      <h1>Classroom</h1>
+    <main className="classroom-today">
+      <header className="classroom-live-header">
+        <div>
+          <p className="eyebrow">Classroom / Today</p>
+          <h1>
+            {context
+              ? dashboard?.currentClass?.sectionId === context.sectionId
+                ? 'Now'
+                : 'Prepare class'
+              : 'Next class'}
+          </h1>
+        </div>
+        <select
+          className="input classroom-switcher"
+          value={sectionId}
+          onChange={(e) => changeSection(e.target.value)}
+        >
+          <option value="">Choose class</option>
+          {schedule?.sections.map((item) => (
+            <option key={item.sectionId} value={item.sectionId}>
+              {item.courseName} · {item.sectionName}
+            </option>
+          ))}
+        </select>
+      </header>
       {error ? <p className="notice warning">{error}</p> : null}
-      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
-      {specialDay && !data?.currentClass ? <section className="smart-prompt"><div><p className="eyebrow">{specialDay.type.replace('_', ' ')}</p><h2>{specialDay.label}</h2><p>Today has an abnormal schedule. Choose the Class Group you are teaching instead of using normal times.</p></div><select className="input" value={manualSectionId} onChange={(event) => setManualSectionId(event.target.value)}><option value="">Choose Class Group</option>{schedule?.sections.map((section) => <option key={section.sectionId} value={section.sectionId}>{section.courseName} · {section.sectionName}</option>)}</select></section> : null}
-      {!data ? <p className="muted">Loading active class...</p> : null}
-      {data?.currentClass ? (
-        <div className="classroom-grid">
-          <section className="card stack classroom-focus-card">
-            <p className="eyebrow">Now teaching</p>
-            <h2>{data.currentClass.courseName}</h2>
-            <p className="muted">
-              {data.currentClass.sectionName} / {formatTimeRange(data.currentClass.meetingTime, data.currentClass.endTime)}
-              {data.currentClass.room ? ` / Room ${data.currentClass.room}` : ''}
-            </p>
-            {resume?.lesson ? (
-              <div className="soft-panel">
-                <strong>{resume.lesson.title}</strong>
-                <p className="muted">
-                  {totalSegments
-                    ? `${completedCount}/${totalSegments} segments complete`
-                    : 'No segments yet'}
-                </p>
-                <div className="classroom-context-grid">
-                  <div>
-                    <span>Next up</span>
-                    <strong>{nextSegment?.title ?? 'Lesson complete'}</strong>
-                  </div>
-                  <div>
-                    <span>Stopped at</span>
-                    <strong>{stoppedSegment?.title ?? 'Not set'}</strong>
-                  </div>
-                  <div>
-                    <span>Last taught</span>
-                    <strong>{resume.state?.lastTaughtDate ?? 'Not saved yet'}</strong>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="soft-panel">
-                <strong>No lesson ready yet</strong>
-                <p className="muted">Build a Year Plan in Management, then Classroom can resume the right lesson.</p>
-                <button className="secondary" type="button" onClick={() => openManagementTab('curriculum')}>
-                  Open Year Plan
-                </button>
-              </div>
-            )}
-            {resume?.state?.carryOverNote ? (
-              <blockquote className="carry-note">{resume.state.carryOverNote}</blockquote>
-            ) : null}
-            <div className="profile-actions">
-              <button
-                type="button"
-                disabled={!resume?.lesson}
-                onClick={() => {
-                  if (!data.currentClass || !resume?.lesson) return;
-                  navigate(`/sections/${data.currentClass.sectionId}/lessons/${resume.lesson.id}`);
-                }}
-              >
-                {resume?.lesson ? 'Start class tracker' : 'No lesson ready'}
-              </button>
-              <button className="secondary" type="button" onClick={() => openManagementTab('progress')}>
-                Open Management
-              </button>
-              <button hidden className="secondary" type="button" onClick={() => void copyClassBrief()}>
-                Copy class brief
-              </button>
-            </div>
-          </section>
-
-          <section className="card stack">
-            <p className="eyebrow">Today</p>
-            <h2>Class timeline</h2>
-            {data.todaySchedule.length ? (
-              <div className="mini-timeline">
-                {data.todaySchedule.map((item) => (
-                  <div key={`${item.sectionId}-${item.meetingTime ?? 'tbd'}`} className={item.isInSession ? 'active' : ''}>
-                    <strong>{formatTimeRange(item.meetingTime, item.endTime)}</strong>
-                    <span>
-                      {item.courseName} / {item.sectionName}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="muted">No classes scheduled today.</p>
-            )}
-            {data.nextClass ? (
-              <p className="muted">
-                Next: {data.nextClass.courseName} / {data.nextClass.sectionName}
-              </p>
-            ) : null}
-          </section>
-        </div>
+      {!context ? (
+        <section className="live-empty">
+          <h2>No class selected</h2>
+          <p>Choose a scheduled section to prepare its live lesson.</p>
+        </section>
       ) : (
-        <div className="card stack">
-          <h2>No class detected right now</h2>
-          <p className="muted">Open Management to add meeting times, or use Dashboard to see what is next today.</p>
-          {data?.nextClass ? (
-            <div className="soft-panel">
-              <p className="eyebrow">Up next</p>
-              <strong>{data.nextClass.courseName}</strong>
-              <p className="muted">
-                {data.nextClass.sectionName} / {formatTimeRange(data.nextClass.meetingTime, data.nextClass.endTime)}
-              </p>
-              {resume?.lesson ? (
-                <div className="classroom-context-grid">
+        <>
+          <section className="live-now">
+            <p className="eyebrow">{context.courseName}</p>
+            <h2>{context.sectionName}</h2>
+            <p>{timeRange(context.meetingTime, context.endTime)}</p>
+            {lesson ? (
+              <>
+                <strong>
+                  Lesson {lesson.orderIndex + 1} · {lesson.title}
+                </strong>
+                <Link className="button-link" to={`/lessons/${lesson.id}`}>
+                  Open full lesson
+                </Link>
+              </>
+            ) : (
+              <>
+                <strong>No lesson planned</strong>
+                <Link className="button-link" to={`/courses/${selected?.courseId ?? ''}`}>
+                  Open Year Plan
+                </Link>
+              </>
+            )}
+          </section>
+          {lesson ? (
+            <>
+              <section className="live-last">
+                <p className="eyebrow">Last time</p>
+                <strong>
+                  {resume?.state?.lastTaughtDate ?? 'This is the first time teaching this lesson.'}
+                </strong>
+                {lastStop ? <p>Stopped after: {lastStop.title}</p> : null}
+                {resume?.lastNote?.content ? (
+                  <blockquote>{resume.lastNote.content}</blockquote>
+                ) : null}
+              </section>
+              <section className="live-steps">
+                <p className="eyebrow">Today</p>
+                {lesson.segments.length ? (
+                  lesson.segments.map((step) => (
+                    <label key={step.id}>
+                      <input
+                        type="checkbox"
+                        checked={allChecked.includes(step.id)}
+                        onChange={(e) =>
+                          queue(
+                            e.target.checked
+                              ? [...checks, step.id]
+                              : checks.filter((id) => id !== step.id),
+                            note
+                          )
+                        }
+                        disabled={prior.includes(step.id)}
+                      />
+                      <span>
+                        {prior.includes(step.id) ? '✓ Previously completed · ' : ''}
+                        {step.title}
+                      </span>
+                    </label>
+                  ))
+                ) : (
+                  <p>
+                    No lesson steps yet. <Link to={`/lessons/${lesson.id}`}>Open lesson</Link>
+                  </p>
+                )}
+              </section>
+              <section className="live-note">
+                <label>
+                  Quick note
+                  <input
+                    className="input"
+                    value={note}
+                    placeholder="What happened today?"
+                    onChange={(e) => queue(checks, e.target.value)}
+                  />
+                </label>
+                <span className="autosave">
+                  {state === 'saving' ? 'Saving…' : state === 'error' ? 'Saved locally' : 'Saved'}
+                </span>
+              </section>
+              {ending ? (
+                <section className="live-end-summary">
+                  <p className="eyebrow">End class</p>
+                  <p>
+                    Completed today:{' '}
+                    {checks.length
+                      ? checks
+                          .map((id) => lesson.segments.find((step) => step.id === id)?.title)
+                          .filter(Boolean)
+                          .join(', ')
+                      : 'No new steps'}
+                  </p>
+                  <p>
+                    Not completed:{' '}
+                    {lesson.segments
+                      .filter((step) => !allChecked.includes(step.id))
+                      .map((step) => step.title)
+                      .join(', ') || 'None'}
+                  </p>
                   <div>
-                    <span>Lesson</span>
-                    <strong>{resume.lesson.title}</strong>
+                    <button className="live-end" type="button" onClick={() => persist(true)}>
+                      Save and end
+                    </button>
+                    <button className="button-link" type="button" onClick={() => setEnding(false)}>
+                      Cancel
+                    </button>
                   </div>
-                  <div>
-                    <span>Next up</span>
-                    <strong>{nextSegment?.title ?? 'Lesson complete'}</strong>
-                  </div>
-                  <div>
-                    <span>Stopped at</span>
-                    <strong>{stoppedSegment?.title ?? 'Not set'}</strong>
-                  </div>
-                </div>
+                </section>
               ) : (
-                <p className="muted">No lesson is ready for this period yet.</p>
+                <button className="live-end" type="button" onClick={() => setEnding(true)}>
+                  End class
+                </button>
               )}
-            </div>
+            </>
           ) : null}
-          <div className="profile-actions">
-            {data?.nextClass ? (
-              <button
-                type="button"
-                disabled={!resume?.lesson}
-                onClick={() => {
-                  if (!data.nextClass || !resume?.lesson) return;
-                  navigate(`/sections/${data.nextClass.sectionId}/lessons/${resume.lesson.id}`);
-                }}
-              >
-                {resume?.lesson ? 'Prep next class' : 'No lesson ready'}
-              </button>
-            ) : null}
-            <button type="button" onClick={() => openManagementTab('courses')}>
-              Open Weekly Schedule
-            </button>
-            <button className="secondary" type="button" onClick={() => openManagementTab('courses')}>
-              Add periods
-            </button>
-            <button className="secondary" type="button" onClick={() => navigate('/dashboard')}>
-              Back to dashboard
-            </button>
-            <button hidden className="secondary" type="button" onClick={() => void copyClassBrief()}>
-              Copy brief
-            </button>
-          </div>
-        </div>
+        </>
       )}
-    </div>
+      {nextClass ? (
+        <section className="live-next">
+          <p className="eyebrow">Next</p>
+          <strong>
+            {nextClass.courseName} · {nextClass.sectionName}
+          </strong>
+          <span>{nextClass.meetingTime ?? 'Time TBD'}</span>
+        </section>
+      ) : null}
+    </main>
   );
 }

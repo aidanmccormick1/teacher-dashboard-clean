@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import type {
   CourseDetailResponse,
@@ -159,6 +160,7 @@ export function CurriculumTimeline({
   onOpenSchool: () => void;
 }) {
   const api = useApiClient();
+  const navigate = useNavigate();
   const [zoom, setZoom] = useState<Zoom>('year');
   const [selection, setSelection] = useState<Selection>(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState<string[]>([]);
@@ -989,7 +991,7 @@ export function CurriculumTimeline({
                               selected ? 'curriculum-lesson-row selected' : 'curriculum-lesson-row'
                             }
                           >
-                            <button type="button" onClick={() => selectLesson(lesson)}>
+                            <button type="button" onClick={() => navigate(`/lessons/${lesson.id}`)}>
                               {lesson.title}
                             </button>
                             <span>
@@ -1168,7 +1170,7 @@ export function CurriculumTimeline({
                               gridColumn: `${lessonStart + 1} / span ${Math.max(1, Math.min(lessonSpan, visibleMeetings - lessonStart))}`
                             }}
                             type="button"
-                            onClick={() => selectLesson(lesson)}
+                            onClick={() => navigate(`/lessons/${lesson.id}`)}
                           >
                             {lesson.title}
                           </button>

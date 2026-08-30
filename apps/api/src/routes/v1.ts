@@ -17,6 +17,8 @@ import {
   ClassroomResumeResponseSchema,
   ClassNotesUpsertRequestSchema,
   ClassNotesUpsertResponseSchema,
+  ClassMeetingUpsertRequestSchema,
+  ClassMeetingResponseSchema,
   CreateUploadUrlRequestSchema,
   CreateUploadUrlResponseSchema,
   CourseCreateRequestSchema,
@@ -57,6 +59,10 @@ import {
   UnitUpdateRequestSchema,
   LessonCreateRequestSchema,
   LessonUpdateRequestSchema,
+  LessonShareResponseSchema,
+  LessonShareUpdateRequestSchema,
+  LessonWorkspaceResponseSchema,
+  PublicLessonResponseSchema,
   MeetingInstancesQuerySchema,
   MeetingInstancesResponseSchema,
   SchoolCalendarResponseSchema,
@@ -71,9 +77,11 @@ import {
   aiOutputs,
   auditEvents,
   classNotes,
+  classMeetings,
   courses,
   db,
   lessonSegments,
+  lessonShares,
   lessons,
   schoolCalendarEvents,
   schoolHolidays,
@@ -541,6 +549,76 @@ async function findOwnedLessonInSectionCourse(userId: string, sectionId: string,
   return row ?? null;
 }
 
+async function buildLessonWorkspace(userId: string, lessonId: string) {
+  const [row] = await db
+    .select({
+      courseId: courses.id,
+      courseName: courses.name,
+      unitId: units.id,
+      unitTitle: units.title,
+      lessonId: lessons.id,
+      title: lessons.title,
+      description: lessons.description,
+      lessonPlan: lessons.lessonPlan,
+      orderIndex: lessons.orderIndex,
+      estimatedDurationMinutes: lessons.estimatedDurationMinutes,
+      plannedStartMeeting: lessons.plannedStartMeeting,
+      plannedMeetingCount: lessons.plannedMeetingCount,
+      shareEnabled: lessonShares.enabled,
+      shareToken: lessonShares.publicToken
+    })
+    .from(lessons)
+    .innerJoin(units, eq(lessons.unitId, units.id))
+    .innerJoin(courses, eq(units.courseId, courses.id))
+    .leftJoin(lessonShares, eq(lessonShares.lessonId, lessons.id))
+    .where(and(eq(lessons.id, lessonId), eq(courses.teacherId, userId)))
+    .limit(1);
+  if (!row) return null;
+  const segmentRows = await db
+    .select({
+      id: lessonSegments.id,
+      title: lessonSegments.title,
+      description: lessonSegments.description,
+      durationMinutes: lessonSegments.durationMinutes,
+      stepType: lessonSegments.stepType,
+      orderIndex: lessonSegments.orderIndex
+    })
+    .from(lessonSegments)
+    .where(eq(lessonSegments.lessonId, lessonId))
+    .orderBy(asc(lessonSegments.orderIndex), asc(lessonSegments.createdAt));
+  const sectionRows = await db
+    .select({
+      id: sections.id,
+      name: sections.name,
+      status: sectionLessonState.status,
+      lastTaughtDate: sectionLessonState.lastTaughtDate
+    })
+    .from(sections)
+    .leftJoin(
+      sectionLessonState,
+      and(eq(sectionLessonState.sectionId, sections.id), eq(sectionLessonState.lessonId, lessonId))
+    )
+    .where(eq(sections.courseId, row.courseId))
+    .orderBy(asc(sections.name));
+  return LessonWorkspaceResponseSchema.parse({
+    course: { id: row.courseId, name: row.courseName },
+    unit: { id: row.unitId, title: row.unitTitle },
+    lesson: {
+      id: row.lessonId,
+      title: row.title,
+      description: row.description,
+      lessonPlan: row.lessonPlan,
+      orderIndex: row.orderIndex,
+      estimatedDurationMinutes: row.estimatedDurationMinutes,
+      plannedStartMeeting: row.plannedStartMeeting,
+      plannedMeetingCount: row.plannedMeetingCount,
+      segments: segmentRows
+    },
+    sections: sectionRows,
+    share: { enabled: row.shareEnabled ?? false, token: row.shareToken ?? null }
+  });
+}
+
 async function buildScheduleResponse(userId: string, schoolId: string) {
   const rows = await db
     .select({
@@ -660,6 +738,7 @@ async function buildCourseDetail(userId: string, courseId: string) {
             title: lessonSegments.title,
             description: lessonSegments.description,
             durationMinutes: lessonSegments.durationMinutes,
+            stepType: lessonSegments.stepType,
             orderIndex: lessonSegments.orderIndex
           })
           .from(lessonSegments)
@@ -716,6 +795,7 @@ async function buildCourseDetail(userId: string, courseId: string) {
             title: segment.title,
             description: segment.description,
             durationMinutes: segment.durationMinutes,
+            stepType: segment.stepType,
             orderIndex: segment.orderIndex
           }))
         }))
@@ -1600,16 +1680,25 @@ export async function v1Routes(app: FastifyInstance) {
         .orderBy(desc(sectionLessonState.updatedAt))
         .limit(1);
 
-      const [firstLesson] = !activeState
+      const orderedLessons = !activeState
         ? await db
-            .select({ id: lessons.id })
+            .select({ id: lessons.id, status: sectionLessonState.status })
             .from(lessons)
             .innerJoin(units, eq(lessons.unitId, units.id))
+            .leftJoin(
+              sectionLessonState,
+              and(
+                eq(sectionLessonState.lessonId, lessons.id),
+                eq(sectionLessonState.sectionId, params.sectionId)
+              )
+            )
             .where(eq(units.courseId, ownedSection.courseId))
             .orderBy(asc(units.orderIndex), asc(lessons.orderIndex), asc(lessons.createdAt))
-            .limit(1)
         : [];
 
+      const firstLesson = orderedLessons.find(
+        (candidate) => candidate.status !== 'completed' && candidate.status !== 'skipped'
+      );
       const lessonId = activeState?.lessonId ?? firstLesson?.id ?? null;
 
       const [lesson] = lessonId
@@ -1618,6 +1707,7 @@ export async function v1Routes(app: FastifyInstance) {
               id: lessons.id,
               title: lessons.title,
               description: lessons.description,
+              lessonPlan: lessons.lessonPlan,
               orderIndex: lessons.orderIndex,
               estimatedDurationMinutes: lessons.estimatedDurationMinutes
             })
@@ -1633,6 +1723,7 @@ export async function v1Routes(app: FastifyInstance) {
               title: lessonSegments.title,
               description: lessonSegments.description,
               durationMinutes: lessonSegments.durationMinutes,
+              stepType: lessonSegments.stepType,
               orderIndex: lessonSegments.orderIndex
             })
             .from(lessonSegments)
@@ -1664,8 +1755,11 @@ export async function v1Routes(app: FastifyInstance) {
               id: lesson.id,
               title: lesson.title,
               description: lesson.description,
+              lessonPlan: lesson.lessonPlan,
               orderIndex: lesson.orderIndex,
               estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+              plannedStartMeeting: null,
+              plannedMeetingCount: null,
               segments: segmentRows
             }
           : null,
@@ -2158,6 +2252,131 @@ export async function v1Routes(app: FastifyInstance) {
     }
   );
 
+  app.get(
+    '/v1/lessons/:lessonId/workspace',
+    { schema: { params: LessonParamsSchema, response: { 200: LessonWorkspaceResponseSchema } } },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const workspace = await buildLessonWorkspace(
+        user.id,
+        LessonParamsSchema.parse(request.params).lessonId
+      );
+      if (!workspace) {
+        (reply as any).code(404);
+        return { error: 'Lesson not found', requestId: request.id };
+      }
+      return workspace;
+    }
+  );
+
+  app.patch(
+    '/v1/lessons/:lessonId/share',
+    {
+      schema: {
+        params: LessonParamsSchema,
+        body: LessonShareUpdateRequestSchema,
+        response: { 200: LessonShareResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const lessonId = LessonParamsSchema.parse(request.params).lessonId;
+      const body = LessonShareUpdateRequestSchema.parse(request.body);
+      if (!(await findOwnedCourseIdForLesson(user.id, lessonId))) {
+        (reply as any).code(404);
+        return { error: 'Lesson not found', requestId: request.id };
+      }
+      const [existing] = await db
+        .select()
+        .from(lessonShares)
+        .where(eq(lessonShares.lessonId, lessonId))
+        .limit(1);
+      if (existing)
+        await db
+          .update(lessonShares)
+          .set({ enabled: body.enabled, updatedAt: new Date() })
+          .where(eq(lessonShares.lessonId, lessonId));
+      else await db.insert(lessonShares).values({ lessonId, enabled: body.enabled });
+      const [share] = await db
+        .select()
+        .from(lessonShares)
+        .where(eq(lessonShares.lessonId, lessonId))
+        .limit(1);
+      return LessonShareResponseSchema.parse({
+        enabled: share?.enabled ?? false,
+        token: share?.publicToken ?? null
+      });
+    }
+  );
+
+  app.get(
+    '/v1/public/lessons/:token',
+    {
+      schema: {
+        params: z.object({ token: z.string().uuid() }),
+        response: { 200: PublicLessonResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const token = z.object({ token: z.string().uuid() }).parse(request.params).token;
+      const [row] = await db
+        .select({
+          courseName: courses.name,
+          unitTitle: units.title,
+          lessonId: lessons.id,
+          title: lessons.title,
+          description: lessons.description,
+          lessonPlan: lessons.lessonPlan,
+          orderIndex: lessons.orderIndex,
+          estimatedDurationMinutes: lessons.estimatedDurationMinutes,
+          plannedStartMeeting: lessons.plannedStartMeeting,
+          plannedMeetingCount: lessons.plannedMeetingCount
+        })
+        .from(lessonShares)
+        .innerJoin(lessons, eq(lessonShares.lessonId, lessons.id))
+        .innerJoin(units, eq(lessons.unitId, units.id))
+        .innerJoin(courses, eq(units.courseId, courses.id))
+        .where(and(eq(lessonShares.publicToken, token), eq(lessonShares.enabled, true)))
+        .limit(1);
+      if (!row) {
+        (reply as any).code(404);
+        return { error: 'Lesson not found', requestId: request.id };
+      }
+      const segments = await db
+        .select({
+          id: lessonSegments.id,
+          title: lessonSegments.title,
+          description: lessonSegments.description,
+          durationMinutes: lessonSegments.durationMinutes,
+          stepType: lessonSegments.stepType,
+          orderIndex: lessonSegments.orderIndex
+        })
+        .from(lessonSegments)
+        .where(eq(lessonSegments.lessonId, row.lessonId))
+        .orderBy(asc(lessonSegments.orderIndex), asc(lessonSegments.createdAt));
+      reply.header('Cache-Control', 'no-store');
+      return PublicLessonResponseSchema.parse({
+        courseName: row.courseName,
+        unitTitle: row.unitTitle,
+        lesson: {
+          id: row.lessonId,
+          title: row.title,
+          description: row.description,
+          lessonPlan: row.lessonPlan,
+          orderIndex: row.orderIndex,
+          estimatedDurationMinutes: row.estimatedDurationMinutes,
+          plannedStartMeeting: row.plannedStartMeeting,
+          plannedMeetingCount: row.plannedMeetingCount,
+          segments
+        }
+      });
+    }
+  );
+
   app.delete(
     '/v1/lessons/:lessonId',
     {
@@ -2221,6 +2440,7 @@ export async function v1Routes(app: FastifyInstance) {
         title: body.title,
         description: body.description,
         durationMinutes: body.durationMinutes,
+        stepType: body.stepType ?? null,
         orderIndex: body.orderIndex ?? (latestSegment?.orderIndex ?? -1) + 1
       });
 
@@ -2258,6 +2478,7 @@ export async function v1Routes(app: FastifyInstance) {
       if (body.title !== undefined) updates.title = body.title;
       if (body.description !== undefined) updates.description = body.description;
       if (body.durationMinutes !== undefined) updates.durationMinutes = body.durationMinutes;
+      if (body.stepType !== undefined) updates.stepType = body.stepType;
       if (body.orderIndex !== undefined) updates.orderIndex = body.orderIndex;
 
       if (Object.keys(updates).length > 0) {
@@ -2626,6 +2847,137 @@ export async function v1Routes(app: FastifyInstance) {
       }
 
       return FeedbackSubmitResponseSchema.parse({ feedbackId: event.id, saved: true });
+    }
+  );
+
+  app.post(
+    '/v1/class-meetings/upsert',
+    {
+      schema: {
+        body: ClassMeetingUpsertRequestSchema,
+        response: { 200: ClassMeetingResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const body = ClassMeetingUpsertRequestSchema.parse(request.body);
+      if (!(await findOwnedLessonInSectionCourse(user.id, body.sectionId, body.lessonId))) {
+        (reply as any).code(404);
+        return { error: 'Section or lesson not found', requestId: request.id };
+      }
+      const steps = await db
+        .select({ id: lessonSegments.id })
+        .from(lessonSegments)
+        .where(eq(lessonSegments.lessonId, body.lessonId))
+        .orderBy(asc(lessonSegments.orderIndex));
+      const validIds = new Set(steps.map((step) => step.id));
+      const completedStepIds = [...new Set(body.completedStepIds.filter((id) => validIds.has(id)))];
+      const [meeting] = await db
+        .insert(classMeetings)
+        .values({
+          sectionId: body.sectionId,
+          lessonId: body.lessonId,
+          meetingDate: body.meetingDate,
+          scheduledStartTime: body.scheduledStartTime,
+          scheduledEndTime: body.scheduledEndTime,
+          completedStepIds,
+          rawNote: body.rawNote,
+          status: body.endClass ? 'ended' : 'in_progress',
+          endedAt: body.endClass ? new Date() : null
+        })
+        .onConflictDoUpdate({
+          target: [classMeetings.sectionId, classMeetings.meetingDate],
+          set: {
+            completedStepIds,
+            rawNote: body.rawNote,
+            status: body.endClass ? 'ended' : 'in_progress',
+            endedAt: body.endClass ? new Date() : null,
+            updatedAt: new Date()
+          }
+        })
+        .returning();
+      if (!meeting) throw new Error('Failed to save class meeting');
+      const history = await db
+        .select({ completedStepIds: classMeetings.completedStepIds })
+        .from(classMeetings)
+        .where(
+          and(
+            eq(classMeetings.sectionId, body.sectionId),
+            eq(classMeetings.lessonId, body.lessonId)
+          )
+        );
+      const cumulativeCompletedStepIds = [
+        ...new Set(history.flatMap((item) => item.completedStepIds))
+      ];
+      const contiguous = steps.findIndex((step) => !cumulativeCompletedStepIds.includes(step.id));
+      const stoppedAfterStepId =
+        contiguous === -1
+          ? (steps.at(-1)?.id ?? null)
+          : contiguous === 0
+            ? null
+            : (steps[contiguous - 1]?.id ?? null);
+      const lessonCompleted =
+        steps.length > 0 && steps.every((step) => cumulativeCompletedStepIds.includes(step.id));
+      await db
+        .insert(sectionLessonState)
+        .values({
+          sectionId: body.sectionId,
+          lessonId: body.lessonId,
+          status: lessonCompleted
+            ? 'completed'
+            : body.endClass
+              ? 'stopped_at_segment'
+              : 'in_progress',
+          currentSegmentId: lessonCompleted ? null : stoppedAfterStepId,
+          stoppedAtSegmentId: lessonCompleted ? null : stoppedAfterStepId,
+          completedSegmentIds: cumulativeCompletedStepIds,
+          carryOverNote: body.rawNote,
+          lastTaughtDate: body.meetingDate
+        })
+        .onConflictDoUpdate({
+          target: [sectionLessonState.sectionId, sectionLessonState.lessonId],
+          set: {
+            status: lessonCompleted
+              ? 'completed'
+              : body.endClass
+                ? 'stopped_at_segment'
+                : 'in_progress',
+            currentSegmentId: lessonCompleted ? null : stoppedAfterStepId,
+            stoppedAtSegmentId: lessonCompleted ? null : stoppedAfterStepId,
+            completedSegmentIds: cumulativeCompletedStepIds,
+            carryOverNote: body.rawNote,
+            lastTaughtDate: body.meetingDate,
+            updatedAt: new Date()
+          }
+        });
+      if (body.rawNote?.trim()) {
+        await db
+          .insert(classNotes)
+          .values({
+            sectionId: body.sectionId,
+            userId: user.id,
+            date: body.meetingDate,
+            noteType: 'raw',
+            content: body.rawNote
+          })
+          .onConflictDoUpdate({
+            target: [classNotes.sectionId, classNotes.userId, classNotes.date, classNotes.noteType],
+            set: { content: body.rawNote, updatedAt: new Date() }
+          });
+      }
+      return ClassMeetingResponseSchema.parse({
+        id: meeting.id,
+        status: meeting.status,
+        completedStepIds: meeting.completedStepIds,
+        stoppedAfterStepId,
+        rawNote: meeting.rawNote,
+        meetingDate: meeting.meetingDate,
+        endedAt: meeting.endedAt?.toISOString() ?? null,
+        cumulativeCompletedStepIds,
+        lessonCompleted
+      });
     }
   );
 
