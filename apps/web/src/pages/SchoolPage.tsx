@@ -85,11 +85,13 @@ export function SchoolPage() {
   const [manualDaysOff, setManualDaysOff] = useState<ManualDayOff[]>([
     { title: '', startDate: '', endDate: '' }
   ]);
+  const [timezone, setTimezone] = useState('');
 
   const load = useCallback(async () => {
     try {
       const next = await api.getSchoolCalendar();
       setCalendar(next);
+      setTimezone(next.timezone);
       setStartDate(next.schoolYear?.startDate ?? '');
       setEndDate(next.schoolYear?.endDate ?? '');
     } catch (err) {
@@ -231,6 +233,19 @@ export function SchoolPage() {
   const savedDaysOff = savedGroups.filter((event) => event.type === 'no_school');
   const savedSpecialDays = savedGroups.filter((event) => event.type !== 'no_school');
   const hasExistingCalendar = Boolean(calendar?.schoolYear || calendar?.events.length);
+  const saveTimezone = async () => {
+    try {
+      setBusy(true);
+      const next = await api.updateSchoolTimezone(timezone);
+      setCalendar(next);
+      setTimezone(next.timezone);
+      setSaved('School timezone saved.');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save school timezone');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="school-page stack">
@@ -250,6 +265,31 @@ export function SchoolPage() {
       </section>
       {error ? <p className="notice warning">{error}</p> : null}
       {saved ? <p className="notice success">{saved}</p> : null}
+      <section className="card stack">
+        <div>
+          <p className="eyebrow">Local time</p>
+          <h2>School timezone</h2>
+          <p className="muted">
+            Used to resolve class times, today’s schedule, and calendar dates.
+          </p>
+        </div>
+        <div className="profile-actions">
+          <input
+            className="input"
+            value={timezone}
+            onChange={(event) => setTimezone(event.target.value)}
+            placeholder="America/Los_Angeles"
+            aria-label="School timezone"
+          />
+          <button
+            type="button"
+            disabled={busy || !timezone.trim()}
+            onClick={() => void saveTimezone()}
+          >
+            Save timezone
+          </button>
+        </div>
+      </section>
       {!preview ? (
         <>
           <section className="card stack calendar-import-card">

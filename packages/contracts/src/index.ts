@@ -157,7 +157,8 @@ export const DashboardTodayResponseSchema = z.object({
       meetingTime: IsoTimeSchema.nullable(),
       endTime: IsoTimeSchema.nullable(),
       room: z.string().nullable(),
-      isInSession: z.boolean()
+      isInSession: z.boolean(),
+      status: z.enum(['now', 'upcoming', 'completed', 'unscheduled'])
     })
   ),
   holiday: z
@@ -273,7 +274,12 @@ export const SchoolYearSchema = z.object({
 export const SchoolCalendarResponseSchema = z.object({
   schoolYear: SchoolYearSchema.nullable(),
   events: z.array(CalendarEventSchema.extend({ id: UuidSchema })),
-  isShared: z.literal(true)
+  isShared: z.literal(true),
+  timezone: z.string()
+});
+
+export const SchoolTimezoneUpdateRequestSchema = z.object({
+  timezone: z.string().min(1).max(100)
 });
 
 export const SchoolYearUpsertRequestSchema = z

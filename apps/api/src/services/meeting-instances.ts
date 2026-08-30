@@ -2,10 +2,12 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import type { MeetingInstancesResponse } from '@teacheros/contracts';
 import { meetingOccursOn } from './weekly-meetings.js';
+import { localDateFor } from './schedule-resolution.js';
 import {
   courses,
   db,
   schoolCalendarEvents,
+  schoolHolidays,
   schoolYears,
   sectionMeetingOverrides,
   sectionMeetings,
@@ -25,8 +27,8 @@ function defaultEndTime(startTime: string | null) {
   return `${String(Math.floor(end / 60) % 24).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`;
 }
 
-export async function loadActiveSchoolYear(schoolId: string) {
-  const today = isoDate(new Date());
+export async function loadActiveSchoolYear(schoolId: string, timeZone = 'UTC') {
+  const today = localDateFor(new Date(), timeZone);
   const all = await db
     .select()
     .from(schoolYears)
@@ -41,9 +43,9 @@ export async function loadActiveSchoolYear(schoolId: string) {
 export async function buildMeetingInstances(
   userId: string,
   schoolId: string,
-  options: { sectionId?: string; startDate?: string; endDate?: string } = {}
+  options: { sectionId?: string; startDate?: string; endDate?: string; timeZone?: string } = {}
 ): Promise<MeetingInstancesResponse> {
-  const schoolYear = await loadActiveSchoolYear(schoolId);
+  const schoolYear = await loadActiveSchoolYear(schoolId, options.timeZone);
   if (!schoolYear) return { meetings: [], schoolYear: null };
 
   const sectionRows = await db
@@ -71,6 +73,13 @@ export async function buildMeetingInstances(
     .select()
     .from(schoolCalendarEvents)
     .where(eq(schoolCalendarEvents.schoolYearId, schoolYear.id));
+  // Legacy holidays are still written by older School flows. Treat them as
+  // authoritative closures until all callers have migrated to calendar events.
+  const legacyHolidays = await db
+    .select({ date: schoolHolidays.date })
+    .from(schoolHolidays)
+    .where(eq(schoolHolidays.schoolId, schoolId));
+  const legacyHolidayDates = new Set(legacyHolidays.map((holiday) => holiday.date));
   const eventsByDate = new Map<string, typeof events>();
   for (const event of events) {
     const sameDateEvents = eventsByDate.get(event.date) ?? [];
@@ -119,7 +128,11 @@ export async function buildMeetingInstances(
       // date (for example, a named break and a staff-development label).
       const calendarEvent =
         calendarEvents.find((event) => event.type === 'no_school') ?? calendarEvents[0] ?? null;
-      if (calendarEvents.some((event) => event.type === 'no_school')) continue;
+      if (
+        legacyHolidayDates.has(date) ||
+        calendarEvents.some((event) => event.type === 'no_school')
+      )
+        continue;
       const override = overrideByKey.get(`${row.sectionId}:${date}`);
       // A special/minimum/testing day does not inherit the ordinary bell
       // schedule. We only create a real meeting when the calendar import (or
@@ -170,7 +183,11 @@ export async function buildMeetingInstances(
     const section = sectionById.get(override.sectionId);
     if (!section) continue;
     const calendarEvents = eventsByDate.get(override.date) ?? [];
-    if (calendarEvents.some((event) => event.type === 'no_school')) continue;
+    if (
+      legacyHolidayDates.has(override.date) ||
+      calendarEvents.some((event) => event.type === 'no_school')
+    )
+      continue;
     const calendarEvent = calendarEvents[0] ?? null;
     output.push({
       sectionId: override.sectionId,

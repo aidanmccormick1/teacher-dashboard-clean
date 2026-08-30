@@ -43,7 +43,12 @@ async function runMigrations() {
     '0002_test_accounts.sql',
     '0003_section_meeting_end_times.sql',
     '0004_unit_timeline_pacing.sql',
-    '0005_school_calendar_and_planning.sql'
+    '0005_school_calendar_and_planning.sql',
+    '0006_instructional_calendar_types.sql',
+    '0007_lesson_plan_workspace.sql',
+    '0008_lesson_workspace_sharing.sql',
+    '0009_class_meetings.sql',
+    '0010_school_timezone.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -57,7 +62,9 @@ async function resetDatabase() {
     TRUNCATE TABLE
       ai_outputs,
       ai_jobs,
+      class_meetings,
       class_notes,
+      lesson_shares,
       section_lesson_state,
       lesson_segments,
       lessons,
@@ -487,6 +494,99 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       });
       expect(afterDelete.statusCode).toBe(200);
       expect(afterDelete.json<{ holidays: unknown[] }>().holidays).toEqual([]);
+    });
+  });
+
+  describe('effective meeting instances', () => {
+    it('applies legacy holidays and normal/alternate section overrides', async () => {
+      await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: onboardingBody
+      });
+      const courseResponse = await app.inject({
+        method: 'POST',
+        url: '/v1/courses',
+        headers: teacherHeaders,
+        payload: { name: 'Spanish 7', subject: 'World Languages', gradeLevel: '7' }
+      });
+      const courseId = courseResponse.json<{ course: { id: string } }>().course.id;
+      await app.inject({
+        method: 'POST',
+        url: '/v1/school-year',
+        headers: teacherHeaders,
+        payload: { startDate: '2026-01-01', endDate: '2026-12-31' }
+      });
+      const sectionResponse = await app.inject({
+        method: 'POST',
+        url: '/v1/sections',
+        headers: teacherHeaders,
+        payload: {
+          courseId,
+          sectionName: 'Group C',
+          meetings: [{ day: 'Monday', time: '10:20', endTime: '11:10', room: '101' }]
+        }
+      });
+      const sectionId = sectionResponse.json<{ sections: Array<{ sectionId: string }> }>()
+        .sections[0]!.sectionId;
+      const baseline = await app.inject({
+        method: 'GET',
+        url: '/v1/meeting-instances?startDate=2026-09-07&endDate=2026-09-07',
+        headers: teacherHeaders
+      });
+      expect(baseline.json<{ meetings: Array<{ sectionId: string }> }>().meetings).toEqual([
+        expect.objectContaining({ sectionId })
+      ]);
+      await app.inject({
+        method: 'POST',
+        url: '/v1/holidays',
+        headers: teacherHeaders,
+        payload: { holidays: [{ date: '2026-09-07', name: 'Labor Day' }] }
+      });
+      const closed = await app.inject({
+        method: 'GET',
+        url: '/v1/meeting-instances?startDate=2026-09-07&endDate=2026-09-07',
+        headers: teacherHeaders
+      });
+      expect(closed.json<{ meetings: unknown[] }>().meetings).toEqual([]);
+      await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${sectionId}/meeting-overrides`,
+        headers: teacherHeaders,
+        payload: {
+          date: '2026-09-14',
+          startTime: '09:00',
+          endTime: '09:30',
+          room: '102',
+          cancelled: false
+        }
+      });
+      await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${sectionId}/meeting-overrides`,
+        headers: teacherHeaders,
+        payload: {
+          date: '2026-09-16',
+          startTime: '13:00',
+          endTime: '13:30',
+          room: '103',
+          cancelled: false
+        }
+      });
+      const overridden = await app.inject({
+        method: 'GET',
+        url: '/v1/meeting-instances?startDate=2026-09-14&endDate=2026-09-16',
+        headers: teacherHeaders
+      });
+      expect(
+        overridden.json<{ meetings: Array<{ date: string; startTime: string | null }> }>().meetings
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ date: '2026-09-14', startTime: '09:00' }),
+          expect.objectContaining({ date: '2026-09-16', startTime: '13:00' })
+        ])
+      );
     });
   });
 

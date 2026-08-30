@@ -66,6 +66,7 @@ import {
   MeetingInstancesQuerySchema,
   MeetingInstancesResponseSchema,
   SchoolCalendarResponseSchema,
+  SchoolTimezoneUpdateRequestSchema,
   SchoolYearUpsertRequestSchema,
   SectionMeetingOverrideRequestSchema,
   TeacherPreferencesSchema,
@@ -103,6 +104,11 @@ import { createS3Client, createSignedUploadUrl } from '../lib/s3.js';
 import { AI_JOB_MAX_ATTEMPTS, enqueueAiJob } from '../lib/queue.js';
 import { ensureUserFromPrincipal, upsertOnboarding } from '../services/user-service.js';
 import { buildMeetingInstances, loadActiveSchoolYear } from '../services/meeting-instances.js';
+import {
+  localDateFor,
+  resolveTodayMeetings,
+  validTimeZone
+} from '../services/schedule-resolution.js';
 
 const InternalParseScheduleSchema = z.object({
   classes: z.array(
@@ -354,17 +360,6 @@ function endTimeFromStart(startTime: string | null): string | null {
   return `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
 }
 
-function isInSession(startTime: string | null, endTime: string | null): boolean {
-  const startMinutes = timeToMinutes(startTime);
-  if (startMinutes === null) return false;
-  const endMinutes = timeToMinutes(endTime ?? endTimeFromStart(startTime));
-  if (endMinutes === null) return false;
-
-  const now = new Date();
-  const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  return nowMinutes >= startMinutes && nowMinutes < endMinutes;
-}
-
 async function loadTeacherSchoolId(userId: string): Promise<string> {
   const [profile] = await db
     .select({ schoolId: teacherProfiles.schoolId })
@@ -378,7 +373,26 @@ async function loadTeacherSchoolId(userId: string): Promise<string> {
   return profile.schoolId;
 }
 
-async function buildSchoolCalendarResponse(schoolId: string, requestedSchoolYearId?: string) {
+async function loadSchoolTimezone(schoolId: string, request?: FastifyRequest): Promise<string> {
+  const [school] = await db
+    .select({ timezone: schools.timezone })
+    .from(schools)
+    .where(eq(schools.id, schoolId))
+    .limit(1);
+  const browserTimeZone = request?.headers['x-teacher-timezone'];
+  return (
+    validTimeZone(school?.timezone) ??
+    validTimeZone(typeof browserTimeZone === 'string' ? browserTimeZone : null) ??
+    'UTC'
+  );
+}
+
+async function buildSchoolCalendarResponse(
+  schoolId: string,
+  requestedSchoolYearId?: string,
+  request?: FastifyRequest
+) {
+  const timezone = await loadSchoolTimezone(schoolId, request);
   const schoolYear = requestedSchoolYearId
     ? ((
         await db
@@ -387,7 +401,7 @@ async function buildSchoolCalendarResponse(schoolId: string, requestedSchoolYear
           .where(and(eq(schoolYears.id, requestedSchoolYearId), eq(schoolYears.schoolId, schoolId)))
           .limit(1)
       )[0] ?? null)
-    : await loadActiveSchoolYear(schoolId);
+    : await loadActiveSchoolYear(schoolId, timezone);
   const events = schoolYear
     ? await db
         .select()
@@ -408,7 +422,8 @@ async function buildSchoolCalendarResponse(schoolId: string, requestedSchoolYear
       confidence: event.confidence,
       sourceText: event.sourceText
     })),
-    isShared: true
+    isShared: true,
+    timezone
   });
 }
 
@@ -1049,29 +1064,33 @@ export async function v1Routes(app: FastifyInstance) {
 
       const user = await ensureUserFromPrincipal(principal);
       const date = new Date();
-      const isoDate = dateToIso(date);
-      const cacheKey = `dashboard:today:v2:${user.id}:${isoDate}`;
+      const schoolId = await loadTeacherSchoolId(user.id);
+      const timezone = await loadSchoolTimezone(schoolId, request);
+      const isoDate = localDateFor(date, timezone);
+      const cacheKey = `dashboard:today:v3:${user.id}:${timezone}:${isoDate}`;
 
       const cached = await safeRedisGet(app.redis, cacheKey);
       if (cached) {
         return JSON.parse(cached) as unknown;
       }
 
-      const schoolId = await loadTeacherSchoolId(user.id);
       const allMeetingInstances = await buildMeetingInstances(user.id, schoolId, {
         startDate: isoDate,
-        endDate: isoDate
+        endDate: isoDate,
+        timeZone: timezone
       });
-      const todaySchedule = allMeetingInstances.meetings.map((meeting) => ({
+      const resolved = resolveTodayMeetings(allMeetingInstances.meetings, date, timezone);
+      const todaySchedule = resolved.todaySchedule.map((meeting) => ({
         sectionId: meeting.sectionId,
         sectionName: meeting.sectionName,
         courseName: meeting.courseName,
         meetingTime: meeting.startTime,
         endTime: meeting.endTime,
         room: meeting.room,
-        isInSession: isInSession(meeting.startTime, meeting.endTime)
+        isInSession: meeting.isInSession,
+        status: meeting.status
       }));
-      const activeYear = await loadActiveSchoolYear(schoolId);
+      const activeYear = await loadActiveSchoolYear(schoolId, timezone);
       const [calendarClosure] = activeYear
         ? await db
             .select({
@@ -1089,18 +1108,14 @@ export async function v1Routes(app: FastifyInstance) {
             )
             .limit(1)
         : [];
+      const [legacyHoliday] = await db
+        .select({ id: schoolHolidays.id, date: schoolHolidays.date, name: schoolHolidays.name })
+        .from(schoolHolidays)
+        .where(and(eq(schoolHolidays.schoolId, schoolId), eq(schoolHolidays.date, isoDate)))
+        .limit(1);
 
-      const nowMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
-      const withMinutes = todaySchedule.map((entry) => ({
-        ...entry,
-        startMinutes: timeToMinutes(entry.meetingTime) ?? Number.MAX_SAFE_INTEGER,
-        endMinutes: timeToMinutes(entry.endTime) ?? Number.MAX_SAFE_INTEGER
-      }));
-
-      const currentClass = withMinutes.find(
-        (entry) => nowMinutes >= entry.startMinutes && nowMinutes < entry.endMinutes
-      );
-      const nextClass = withMinutes.find((entry) => entry.startMinutes > nowMinutes);
+      const currentClass = resolved.currentClass;
+      const nextClass = resolved.nextClass;
 
       const response = {
         date: isoDate,
@@ -1109,7 +1124,7 @@ export async function v1Routes(app: FastifyInstance) {
               sectionId: currentClass.sectionId,
               courseName: currentClass.courseName,
               sectionName: currentClass.sectionName,
-              meetingTime: currentClass.meetingTime,
+              meetingTime: currentClass.startTime,
               endTime: currentClass.endTime,
               room: currentClass.room
             }
@@ -1119,36 +1134,19 @@ export async function v1Routes(app: FastifyInstance) {
               sectionId: nextClass.sectionId,
               courseName: nextClass.courseName,
               sectionName: nextClass.sectionName,
-              meetingTime: nextClass.meetingTime,
+              meetingTime: nextClass.startTime,
               endTime: nextClass.endTime
             }
           : null,
-        todaySchedule: todaySchedule.map(
-          ({
-            sectionId,
-            courseName,
-            sectionName,
-            meetingTime,
-            endTime,
-            room,
-            isInSession: inSession
-          }) => ({
-            sectionId,
-            courseName,
-            sectionName,
-            meetingTime,
-            endTime,
-            room,
-            isInSession: inSession
-          })
-        ),
-        holiday: calendarClosure
-          ? {
-              id: calendarClosure.id,
-              date: calendarClosure.date,
-              name: calendarClosure.name
-            }
-          : null
+        todaySchedule,
+        holiday:
+          calendarClosure || legacyHoliday
+            ? {
+                id: (calendarClosure ?? legacyHoliday)!.id,
+                date: (calendarClosure ?? legacyHoliday)!.date,
+                name: (calendarClosure ?? legacyHoliday)!.name
+              }
+            : null
       };
 
       await safeRedisSet(app.redis, cacheKey, JSON.stringify(response), 30);
@@ -1182,7 +1180,34 @@ export async function v1Routes(app: FastifyInstance) {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
-      return buildSchoolCalendarResponse(await loadTeacherSchoolId(user.id));
+      return buildSchoolCalendarResponse(await loadTeacherSchoolId(user.id), undefined, request);
+    }
+  );
+
+  app.patch(
+    '/v1/school/timezone',
+    {
+      schema: {
+        body: SchoolTimezoneUpdateRequestSchema,
+        response: { 200: SchoolCalendarResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const body = SchoolTimezoneUpdateRequestSchema.parse(request.body);
+      const timezone = validTimeZone(body.timezone);
+      if (!timezone) {
+        (reply as any).code(400);
+        return { error: 'Timezone must be a valid IANA timezone', requestId: request.id };
+      }
+      const schoolId = await loadTeacherSchoolId(user.id);
+      await db
+        .update(schools)
+        .set({ timezone, updatedAt: new Date() })
+        .where(eq(schools.id, schoolId));
+      return buildSchoolCalendarResponse(schoolId, undefined, request);
     }
   );
 
@@ -1200,7 +1225,10 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
       const body = SchoolYearUpsertRequestSchema.parse(request.body);
-      const activeSchoolYear = await loadActiveSchoolYear(schoolId);
+      const activeSchoolYear = await loadActiveSchoolYear(
+        schoolId,
+        await loadSchoolTimezone(schoolId, request)
+      );
       // Editing dates is an edit of the school's current instructional year,
       // not a second empty year that would disconnect its imported calendar.
       const { schoolYear, created } = activeSchoolYear
@@ -1226,7 +1254,7 @@ export async function v1Routes(app: FastifyInstance) {
         entityId: schoolYear.id,
         metadata: body
       });
-      return buildSchoolCalendarResponse(schoolId, schoolYear.id);
+      return buildSchoolCalendarResponse(schoolId, schoolYear.id, request);
     }
   );
 
@@ -1398,7 +1426,7 @@ export async function v1Routes(app: FastifyInstance) {
           metadata: { events: events.length }
         });
       });
-      return buildSchoolCalendarResponse(schoolId, schoolYear.id);
+      return buildSchoolCalendarResponse(schoolId, schoolYear.id, request);
     }
   );
 
@@ -1415,7 +1443,11 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
       const query = MeetingInstancesQuerySchema.parse(request.query);
-      return buildMeetingInstances(user.id, await loadTeacherSchoolId(user.id), query);
+      const schoolId = await loadTeacherSchoolId(user.id);
+      return buildMeetingInstances(user.id, schoolId, {
+        ...query,
+        timeZone: await loadSchoolTimezone(schoolId, request)
+      });
     }
   );
 
@@ -1622,8 +1654,10 @@ export async function v1Routes(app: FastifyInstance) {
         entityId: params.sectionId,
         metadata: { date: body.date }
       });
-      return buildMeetingInstances(user.id, await loadTeacherSchoolId(user.id), {
-        sectionId: params.sectionId
+      const schoolId = await loadTeacherSchoolId(user.id);
+      return buildMeetingInstances(user.id, schoolId, {
+        sectionId: params.sectionId,
+        timeZone: await loadSchoolTimezone(schoolId, request)
       });
     }
   );

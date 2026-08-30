@@ -7,7 +7,6 @@ import type {
 } from '@teacheros/contracts';
 import { ApiError, useApiClient } from '../lib/api.js';
 
-const localDate = () => new Date().toISOString().slice(0, 10);
 const timeRange = (start: string | null, end: string | null) =>
   start ? `${start} – ${end ?? 'end TBD'}` : 'Time TBD';
 
@@ -69,7 +68,7 @@ export function ClassroomPage() {
       );
   }, [api, sectionId]);
   const persist = (endClass = false) => {
-    if (!lesson || !context) return;
+    if (!lesson || !context || !dashboard) return;
     const current = latest.current ?? { checks, note };
     setState('saving');
     chain.current = chain.current.then(async () => {
@@ -77,7 +76,7 @@ export function ClassroomPage() {
         const response = await api.upsertClassMeeting({
           sectionId: context.sectionId,
           lessonId: lesson.id,
-          meetingDate: localDate(),
+          meetingDate: dashboard.date,
           scheduledStartTime: context.meetingTime,
           scheduledEndTime: context.endTime,
           completedStepIds: current.checks,
@@ -133,7 +132,7 @@ export function ClassroomPage() {
     dashboard?.nextClass && dashboard.nextClass.sectionId !== sectionId
       ? dashboard.nextClass
       : (dashboard?.todaySchedule.find(
-          (item) => item.sectionId !== sectionId && !item.isInSession
+          (item) => item.sectionId !== sectionId && item.status === 'upcoming'
         ) ?? null);
   return (
     <main className="classroom-today">

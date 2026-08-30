@@ -96,39 +96,6 @@ function overlaps(a: PositionedUnit, b: PositionedUnit) {
   return a.start < b.start + b.span && b.start < a.start + a.span;
 }
 
-function weekdayName(date: Date) {
-  return (
-    ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()] ??
-    ''
-  );
-}
-
-function meetingInstances(
-  settings: SchoolYearSettings | null,
-  section: Section | null,
-  holidays: string[]
-) {
-  if (!settings?.startDate || !settings.endDate || !section?.meetings.length) return [];
-  const meetingDays = section.meetings
-    .map((meeting) => meeting.day)
-    .filter((day) => /day$/i.test(day) === false);
-  if (!meetingDays.length) return [];
-  const start = new Date(`${settings.startDate}T12:00:00`);
-  const end = new Date(`${settings.endDate}T12:00:00`);
-  const holidaySet = new Set(holidays);
-  const instances: Date[] = [];
-  for (
-    const day = new Date(start);
-    day <= end && instances.length < 240;
-    day.setDate(day.getDate() + 1)
-  ) {
-    const iso = day.toISOString().slice(0, 10);
-    if (meetingDays.some((meetingDay) => meetingDay === weekdayName(day)) && !holidaySet.has(iso))
-      instances.push(new Date(day));
-  }
-  return instances;
-}
-
 function dateLabel(date: Date | undefined, zoom: Zoom, index: number) {
   if (!date) return `M${index + 1}`;
   if (zoom === 'week')
@@ -211,14 +178,15 @@ export function CurriculumTimeline({
       null,
     [course.units, selection]
   );
-  const meetings = useMemo(() => {
-    if (meetingData && selectedSection) {
-      return meetingData.meetings
-        .filter((meeting) => meeting.sectionId === selectedSection.sectionId)
-        .map((meeting) => new Date(`${meeting.date}T12:00:00`));
-    }
-    return meetingInstances(schoolYearSettings, selectedSection, holidays);
-  }, [holidays, meetingData, schoolYearSettings, selectedSection]);
+  const meetings = useMemo(
+    () =>
+      meetingData && selectedSection
+        ? meetingData.meetings
+            .filter((meeting) => meeting.sectionId === selectedSection.sectionId)
+            .map((meeting) => new Date(`${meeting.date}T12:00:00`))
+        : [],
+    [meetingData, selectedSection]
+  );
   const furthestMeeting = Math.max(
     24,
     ...positions.map((item) => item.start + item.span),

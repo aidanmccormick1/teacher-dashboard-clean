@@ -33,22 +33,6 @@ const CHECKLIST_ITEMS = [
   'Check next class materials',
   'Capture end-of-class note'
 ];
-function minutesFromTime(time: string | null): number | null {
-  if (!time) return null;
-  const parts = time.split(':').map(Number);
-  const hours = parts[0];
-  const minutes = parts[1];
-  if (
-    typeof hours !== 'number' ||
-    typeof minutes !== 'number' ||
-    !Number.isFinite(hours) ||
-    !Number.isFinite(minutes)
-  ) {
-    return null;
-  }
-  return hours * 60 + minutes;
-}
-
 function formatDateLabel(isoDate: string | null): string {
   const date = isoDate ? new Date(`${isoDate}T12:00:00`) : new Date();
   return new Intl.DateTimeFormat(undefined, {
@@ -58,18 +42,14 @@ function formatDateLabel(isoDate: string | null): string {
   }).format(date);
 }
 
-function formatRelativeClass(time: string | null): string {
-  const startMinutes = minutesFromTime(time);
-  if (startMinutes === null) return 'Time TBD';
-
-  const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const delta = startMinutes - currentMinutes;
-
-  if (delta > 90) return `Starts in ${Math.round(delta / 60)} hr`;
-  if (delta > 0) return `Starts in ${delta} min`;
-  if (delta >= -55) return 'In session now';
-  return 'Finished';
+function formatResolvedStatus(status: TodayClass['status']): string {
+  return status === 'now'
+    ? 'In session now'
+    : status === 'upcoming'
+      ? 'Starts later today'
+      : status === 'completed'
+        ? 'Finished'
+        : 'Time TBD';
 }
 
 function formatTimeRange(startTime: string | null, endTime: string | null): string {
@@ -80,11 +60,7 @@ function formatTimeRange(startTime: string | null, endTime: string | null): stri
 }
 
 function classStatus(item: TodayClass): 'now' | 'upcoming' | 'done' | 'unscheduled' {
-  if (item.isInSession) return 'now';
-  const startMinutes = minutesFromTime(item.meetingTime);
-  if (startMinutes === null) return 'unscheduled';
-  const now = new Date();
-  return startMinutes > now.getHours() * 60 + now.getMinutes() ? 'upcoming' : 'done';
+  return item.status === 'completed' ? 'done' : item.status;
 }
 
 function lessonProgress(resume: ClassroomResumeResponse | undefined): {
@@ -811,7 +787,7 @@ export function DashboardPage() {
           </div>
           {state.today?.nextClass ? (
             <div className="next-class-card">
-              <span>{formatRelativeClass(state.today.nextClass.meetingTime)}</span>
+              <span>{formatResolvedStatus('upcoming')}</span>
               <h3>{state.today.nextClass.courseName}</h3>
               <p className="muted">
                 {state.today.nextClass.sectionName} /{' '}

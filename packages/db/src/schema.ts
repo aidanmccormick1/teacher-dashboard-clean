@@ -74,6 +74,7 @@ export const schools = pgTable('schools', {
   name: text('name').notNull(),
   district: text('district'),
   state: text('state'),
+  timezone: text('timezone'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });

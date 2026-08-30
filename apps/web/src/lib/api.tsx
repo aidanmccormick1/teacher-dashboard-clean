@@ -96,6 +96,10 @@ async function request<TResponse>(
 ): Promise<TResponse> {
   const token = await auth.getToken();
   const headers = new Headers(init.headers);
+  const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (browserTimeZone && !headers.has('x-teacher-timezone')) {
+    headers.set('x-teacher-timezone', browserTimeZone);
+  }
   // An empty DELETE request with an application/json header is rejected by
   // Fastify as an empty JSON body. Only advertise JSON when we actually send
   // a JSON payload. This also keeps body-less GET/DELETE requests simple.
@@ -183,6 +187,12 @@ export function useApiClient() {
         request<SchoolCalendarResponse>(
           '/v1/school-year',
           { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      updateSchoolTimezone: (timezone: string) =>
+        request<SchoolCalendarResponse>(
+          '/v1/school/timezone',
+          { method: 'PATCH', body: JSON.stringify({ timezone }) },
           auth
         ),
       importSchoolCalendar: (body: CalendarImportRequest) =>
