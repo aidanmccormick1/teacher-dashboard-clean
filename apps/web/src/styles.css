@@ -5783,6 +5783,7 @@ button,
     grid-template-columns: 1fr;
   }
 }
+
 .lesson-workspace-header {
   display: flex;
   justify-content: space-between;
@@ -7008,5 +7009,345 @@ button:disabled,
   .lesson-writing-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 20px;
+  }
+}
+
+/* Final planning-surface cascade: these intentionally follow legacy page rules. */
+.year-plan-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.year-plan-title h1 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.year-plan-title span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.year-plan-canvas-page .year-plan-page-header {
+  align-items: center;
+  padding-bottom: 9px;
+}
+
+.year-plan-canvas-page .year-plan-header-controls label {
+  min-width: min(190px, 26vw);
+}
+
+.year-plan-canvas-page .year-plan-header-controls .input {
+  min-height: 34px;
+  padding-block: 5px;
+}
+
+.lesson-document-page {
+  padding-inline: clamp(18px, 3vw, 42px);
+}
+
+.lesson-document-page .lesson-workspace-header {
+  margin: 0 -2px 18px;
+  padding-block: 10px;
+}
+
+.lesson-document-page .lesson-document {
+  width: min(100%, 1180px);
+  gap: 18px;
+}
+
+.lesson-document-page .workspace-label {
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.055em;
+}
+
+.lesson-writing-grid {
+  grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.65fr);
+  gap: 28px;
+  padding: 18px 0 20px;
+  border-block: 1px solid var(--line);
+}
+
+.lesson-primary-fields {
+  gap: 18px;
+}
+
+.lesson-notes-panel {
+  min-height: 0;
+  padding: 12px 14px;
+  border-color: transparent;
+  background: #f7f9f7;
+}
+
+.lesson-notes-panel .rich-field,
+.rich-field {
+  min-height: 34px;
+}
+
+.lesson-document-page .lesson-step {
+  grid-template-columns: 32px minmax(0, 1fr) 34px;
+  gap: 12px;
+  padding: 12px 8px 13px 0;
+}
+
+.step-main select {
+  width: auto;
+  max-width: 140px;
+  font-size: 0.76rem;
+  font-weight: 400;
+}
+
+.step-actions {
+  display: block;
+  grid-column: auto;
+  align-self: start;
+}
+
+.step-actions-menu {
+  display: grid;
+}
+
+.step-actions-menu button {
+  border-radius: 4px;
+}
+
+.lesson-title-input {
+  max-width: 900px;
+  border-radius: 4px;
+  padding: 2px 4px 3px;
+  font-size: clamp(1.65rem, 2.4vw, 2.25rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.lesson-title-input:hover,
+.lesson-document-page .step-title:hover,
+.rich-field:hover {
+  background: rgba(84, 119, 101, 0.055);
+}
+
+.lesson-title-input:focus,
+.lesson-document-page .step-title:focus {
+  background: rgba(62, 97, 122, 0.1);
+  box-shadow: inset 0 -1px var(--green);
+  outline: 0;
+}
+
+.lesson-meta,
+.lesson-duration,
+.step-duration,
+.step-heading-row,
+.step-metadata {
+  display: flex;
+  align-items: center;
+}
+
+.lesson-meta {
+  gap: 14px;
+  min-height: 32px;
+  font-size: 0.82rem;
+}
+
+.lesson-duration,
+.step-duration {
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.lesson-meta input {
+  width: 3.2rem;
+}
+
+.rich-field {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 5px 6px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+.rich-field:focus {
+  border-color: rgba(62, 97, 122, 0.3);
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(62, 97, 122, 0.12);
+}
+
+.rich-toolbar {
+  position: absolute;
+  top: -35px;
+  left: 4px;
+  margin: 0;
+}
+
+.lesson-steps-heading {
+  padding-top: 2px;
+  border-top: 0;
+}
+
+.lesson-steps-heading h2 {
+  font-size: 1.08rem;
+  font-weight: 650;
+}
+
+.lesson-sequence {
+  position: relative;
+  display: grid;
+}
+
+.lesson-sequence::before {
+  position: absolute;
+  top: 22px;
+  bottom: 22px;
+  left: 15px;
+  width: 1px;
+  background: #dce3de;
+  content: '';
+}
+
+.lesson-document-page .lesson-step:hover,
+.lesson-document-page .lesson-step.is-selected {
+  background: linear-gradient(90deg, transparent 0 40px, rgba(62, 97, 122, 0.055) 40px);
+}
+
+.step-sequence-rail {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 5px;
+}
+
+.step-number {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid #d5ddd7;
+  border-radius: 50%;
+  background: #fff;
+  color: #65736c;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.drag-handle {
+  width: 26px;
+  min-height: 23px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+}
+
+.lesson-step:hover .drag-handle,
+.lesson-step.is-selected .drag-handle,
+.drag-handle:focus-visible,
+.lesson-step:hover .step-actions summary,
+.lesson-step.is-selected .step-actions summary,
+.step-actions[open] summary,
+.step-actions summary:focus-visible {
+  opacity: 1;
+}
+
+.step-heading-row {
+  gap: 14px;
+}
+
+.lesson-document-page .step-title {
+  min-width: 120px;
+  flex: 1;
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-weight: 650;
+}
+
+.step-metadata {
+  gap: 10px;
+}
+
+.step-minutes {
+  width: 2.5rem;
+  padding: 2px;
+  text-align: right;
+}
+
+.step-actions {
+  position: relative;
+}
+
+.step-actions summary {
+  display: grid;
+  width: 30px;
+  height: 28px;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  list-style: none;
+  opacity: 0;
+}
+
+.step-actions summary::-webkit-details-marker {
+  display: none;
+}
+
+.step-actions-menu {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 8;
+  width: 132px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(43, 57, 66, 0.16);
+}
+
+.step-actions-menu button {
+  border: 0;
+  padding: 7px 9px;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  text-align: left;
+  font-size: 0.82rem;
+}
+
+.step-actions-menu button.danger {
+  color: var(--red);
+}
+
+.autosave.saved {
+  opacity: 0;
+}
+
+@media (max-width: 760px) {
+  .year-plan-canvas-page .year-plan-page-header,
+  .year-plan-header-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lesson-writing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lesson-document-page .lesson-step {
+    grid-template-columns: 30px minmax(0, 1fr) 30px;
   }
 }

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type {
-  ClassroomResumeResponse,
   CourseDetailResponse,
   GetScheduleResponse,
   SchoolCalendarResponse
@@ -34,7 +33,6 @@ export function YearPlanPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
   const [calendar, setCalendar] = useState<SchoolCalendarResponse | null>(null);
-  const [resumes, setResumes] = useState<Record<string, ClassroomResumeResponse>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const remembered = useMemo(readRememberedContext, []);
@@ -51,17 +49,10 @@ export function YearPlanPage() {
         const details = await Promise.all(
           courseList.courses.map((course) => api.getCourseDetail(course.id))
         );
-        const resumeEntries = await Promise.all(
-          scheduleResult.sections.map(
-            async (section) =>
-              [section.sectionId, await api.getClassroomResume(section.sectionId)] as const
-          )
-        );
         if (!cancelled) {
           setCourses(details.map((detail) => detail.course));
           setSchedule(scheduleResult);
           setCalendar(calendarResult);
-          setResumes(Object.fromEntries(resumeEntries));
         }
       } catch (err) {
         if (!cancelled)
@@ -76,21 +67,10 @@ export function YearPlanPage() {
   }, [api]);
 
   const context = useMemo(
-    () =>
-      resolveYearPlanContext(
-        params,
-        courses,
-        (schedule?.sections ?? []).map((section) => ({
-          id: section.sectionId,
-          courseId: section.courseId
-        })),
-        remembered
-      ),
-    [courses, params, remembered, schedule?.sections]
+    () => resolveYearPlanContext(params, courses, [], remembered),
+    [courses, params, remembered]
   );
   const selectedCourse = courses.find((course) => course.id === context.courseId) ?? null;
-  const selectedSection =
-    schedule?.sections.find((section) => section.sectionId === context.sectionId) ?? null;
 
   useEffect(() => {
     if (loading) return;
@@ -105,7 +85,7 @@ export function YearPlanPage() {
 
   const updateContext = (patch: Partial<YearPlanContext>) => {
     const next = { ...context, ...patch };
-    if (patch.courseId !== undefined) next.sectionId = null;
+    next.sectionId = null;
     setParams(yearPlanSearch(next));
   };
   const updateCourse = (detail: CourseDetailResponse) => {
@@ -146,19 +126,12 @@ export function YearPlanPage() {
         )}
       </main>
     );
-  const courseSections =
-    schedule?.sections.filter((section) => section.courseId === selectedCourse.id) ?? [];
-
-  const plannedMeetingCount = selectedCourse.units.reduce(
-    (total, unit) => total + (unit.plannedMeetingCount ?? 0),
-    0
-  );
   return (
     <main className="year-plan-page year-plan-canvas-page">
       <header className="year-plan-page-header">
-        <div>
-          <p className="eyebrow">Year Plan</p>
-          <h1 className="visually-hidden">{selectedCourse.name} Year Plan</h1>
+        <div className="year-plan-title">
+          <h1>Year Plan</h1>
+          <span>{selectedCourse.name} curriculum</span>
         </div>
         <div className="year-plan-header-controls">
           <label>
@@ -175,27 +148,6 @@ export function YearPlanPage() {
               ))}
             </select>
           </label>
-          <label>
-            <span className="visually-hidden">Optional section date preview</span>
-            <select
-              className="input"
-              value={selectedSection?.sectionId ?? ''}
-              onChange={(event) => updateContext({ sectionId: event.target.value || null })}
-            >
-              <option value="">Course meetings</option>
-              {courseSections.map((section) => (
-                <option key={section.sectionId} value={section.sectionId}>
-                  {section.sectionName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="year-plan-summary" aria-label="Planning status">
-            <span>{plannedMeetingCount} planned</span>
-            <span>
-              {selectedSection ? `${selectedSection.sectionName} dates` : 'Course meeting index'}
-            </span>
-          </div>
           <div className="year-plan-view-toggle small-tabs" aria-label="Year plan view">
             <button
               className={context.view === 'outline' ? 'active' : ''}
@@ -216,7 +168,7 @@ export function YearPlanPage() {
       </header>
       <CurriculumTimeline
         course={selectedCourse}
-        selectedSection={selectedSection}
+        selectedSection={null}
         holidays={(schedule?.holidays ?? []).map((holiday) => holiday.date)}
         schoolYearSettings={
           calendar?.schoolYear
@@ -228,9 +180,7 @@ export function YearPlanPage() {
               }
             : null
         }
-        currentLessonId={
-          selectedSection ? (resumes[selectedSection.sectionId]?.lesson?.id ?? null) : null
-        }
+        currentLessonId={null}
         onCourseChange={updateCourse}
         onOpenSchool={() => navigate('/school')}
         displayMode={context.view}

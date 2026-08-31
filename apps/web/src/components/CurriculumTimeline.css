@@ -431,3 +431,132 @@
     order: 4;
   }
 }
+
+/* Shared spatial tokens keep bars, hit targets, and previews on one geometry. */
+.curriculum-workspace {
+  --timeline-row-height: 48px;
+  --timeline-block-height: 38px;
+  --timeline-row-pad: 5px;
+  --timeline-grid-color: #eef1ef;
+}
+
+.curriculum-workspace-topbar {
+  align-items: center;
+  min-height: 36px;
+}
+
+.curriculum-zoom {
+  border-radius: 7px;
+  padding: 2px;
+}
+
+.curriculum-zoom button {
+  border-radius: 5px;
+  padding: 6px 9px;
+}
+
+.curriculum-pacing span {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.curriculum-track-row {
+  position: relative;
+  min-height: var(--timeline-row-height);
+  padding-block: var(--timeline-row-pad);
+}
+
+.curriculum-unit-bar {
+  height: var(--timeline-block-height);
+  border-radius: 7px;
+  box-shadow: 0 1px 3px rgba(41, 68, 90, 0.08);
+}
+
+.curriculum-unit-bar:hover {
+  box-shadow: 0 3px 8px rgba(41, 68, 90, 0.12);
+}
+
+.curriculum-unit-bar.selected {
+  outline-width: 1px;
+  box-shadow: 0 0 0 3px rgba(62, 97, 122, 0.14);
+}
+
+.curriculum-create-lane {
+  min-height: var(--timeline-row-height);
+  border-width: 1px 0;
+  border-color: transparent;
+  border-radius: 0;
+}
+
+.curriculum-create-lane:hover {
+  background: rgba(84, 119, 101, 0.035);
+  border-color: rgba(84, 119, 101, 0.16);
+}
+
+.curriculum-range-preview {
+  top: 0;
+  bottom: auto;
+  height: var(--timeline-block-height);
+  align-content: center;
+  border-radius: 7px;
+  font-weight: 650;
+  transform: translateY(var(--timeline-row-pad));
+}
+
+.curriculum-canvas {
+  gap: 0;
+  padding-block: 10px 30px;
+  background-image: linear-gradient(90deg, var(--timeline-grid-color) 1px, transparent 1px);
+}
+
+.curriculum-selection-actions {
+  position: relative;
+  justify-content: flex-start;
+  min-height: 38px;
+  padding: 5px 8px 5px 11px;
+  border-color: rgba(62, 97, 122, 0.18);
+  background: rgba(62, 97, 122, 0.045);
+}
+
+.curriculum-selection-actions > small {
+  margin-left: auto;
+}
+
+.curriculum-selection-menu {
+  position: relative;
+}
+
+.curriculum-selection-menu summary {
+  display: grid;
+  width: 30px;
+  height: 27px;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  list-style: none;
+}
+
+.curriculum-selection-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.curriculum-selection-menu summary:hover {
+  background: rgba(62, 97, 122, 0.09);
+}
+
+.curriculum-selection-menu button {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 9;
+  width: 132px;
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--red);
+  box-shadow: 0 9px 22px rgba(43, 57, 66, 0.15);
+  text-align: left;
+}

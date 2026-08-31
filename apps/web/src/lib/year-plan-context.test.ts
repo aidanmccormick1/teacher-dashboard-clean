@@ -8,7 +8,7 @@ const sections = [
 ];
 
 describe('Year Plan URL context', () => {
-  it('uses a valid direct URL exactly', () => {
+  it('keeps valid course context while dropping section planning context', () => {
     expect(
       resolveYearPlanContext(
         new URLSearchParams('course=spanish&section=5c&view=outline'),
@@ -16,7 +16,7 @@ describe('Year Plan URL context', () => {
         sections,
         null
       )
-    ).toEqual({ courseId: 'spanish', sectionId: '5c', view: 'outline' });
+    ).toEqual({ courseId: 'spanish', sectionId: null, view: 'outline' });
   });
   it('does not arbitrarily choose among multiple valid courses or sections', () => {
     expect(resolveYearPlanContext(new URLSearchParams(), courses, sections, null)).toEqual({

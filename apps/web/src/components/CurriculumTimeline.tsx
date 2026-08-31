@@ -42,7 +42,7 @@ type PendingChange =
   | { kind: 'move'; unit: PositionedUnit; start: number; delta: number }
   | { kind: 'resize'; unit: PositionedUnit; span: number; delta: number };
 type Drag = { unit: PositionedUnit; mode: 'move' | 'resize'; originX: number };
-type RangeDrag = { originIndex: number; originX: number; unitId: string | null };
+type RangeDrag = { originIndex: number; originX: number; unitId: string | null; laneTop: number };
 type RangeDraft = PlanningRange & { unitId: string | null };
 type LessonPlanDraft = {
   title: string;
@@ -362,7 +362,12 @@ export function CurriculumTimeline({
     if (index === null) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    setRangeDrag({ originIndex: index, originX: event.clientX, unitId });
+    setRangeDrag({
+      originIndex: index,
+      originX: event.clientX,
+      unitId,
+      laneTop: event.currentTarget.offsetTop
+    });
     setRangePreview(null);
   };
   const updateRangeDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1020,11 +1025,17 @@ export function CurriculumTimeline({
                 type="button"
                 className="button-link"
                 onClick={() => {
-                  setUnitComposerMode('generate');
-                  setShowUnitComposer(true);
+                  if (showUnitComposer && unitComposerMode === 'generate') {
+                    setShowUnitComposer(false);
+                  } else {
+                    setUnitComposerMode('generate');
+                    setShowUnitComposer(true);
+                  }
                 }}
               >
-                Generate full unit plan
+                {showUnitComposer && unitComposerMode === 'generate'
+                  ? 'Close generator'
+                  : 'Generate full unit plan'}
               </button>
             ) : null}
           </div>
@@ -1179,11 +1190,6 @@ export function CurriculumTimeline({
         <span>
           <strong>{conflicts.length}</strong> conflicts
         </span>
-        {selectedSection ? (
-          <span>{selectedSection.sectionName} rhythm</span>
-        ) : (
-          <span>Course meeting sequence</span>
-        )}
       </div>
 
       {draft && allowAiDrafts ? (
@@ -1221,15 +1227,18 @@ export function CurriculumTimeline({
       {selection ? (
         <div className="curriculum-selection-actions">
           <span>{selection.type === 'unit' ? selectedUnit?.title : selectedLesson?.title}</span>
-          <button
-            className="secondary danger"
-            type="button"
-            disabled={saving}
-            onClick={() => void deleteSelected()}
-          >
-            Delete selected
-          </button>
-          <small>Press Delete to remove the selected {selection.type}.</small>
+          <small>{selection.type === 'unit' ? 'Unit selected' : 'Lesson selected'}</small>
+          <details className="curriculum-selection-menu">
+            <summary aria-label={`Actions for selected ${selection.type}`}>•••</summary>
+            <button
+              className="danger"
+              type="button"
+              disabled={saving}
+              onClick={() => void deleteSelected()}
+            >
+              Delete {selection.type}
+            </button>
+          </details>
         </div>
       ) : null}
 
@@ -1805,7 +1814,8 @@ export function CurriculumTimeline({
                 className={`curriculum-range-preview${rangeOverlapsExistingPlan(rangePreview) ? ' conflict' : ''}`}
                 style={{
                   left: rangePreview.start * slotWidth,
-                  width: rangePreview.meetingCount * slotWidth
+                  width: rangePreview.meetingCount * slotWidth,
+                  top: rangeDrag ? rangeDrag.laneTop : 0
                 }}
               >
                 <span>{planningRangeLabel(rangePreview, rangeMeetings)}</span>
@@ -1825,7 +1835,7 @@ export function CurriculumTimeline({
           <div>
             <p className="eyebrow">Create in selected range</p>
             <strong>{planningRangeLabel(rangeDraft, rangeMeetings)}</strong>
-            <span>Uses {selectedSection?.sectionName}'s effective class meetings.</span>
+            <span>{rangeDraft.meetingCount} course meetings selected.</span>
             {rangeOverlapsExistingPlan(rangeDraft) && rangeKind === 'unit' ? (
               <p className="curriculum-range-conflict" role="status">
                 An existing unit is planned here. It will not be overwritten; choose another range
