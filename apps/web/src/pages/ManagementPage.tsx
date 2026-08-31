@@ -11,17 +11,15 @@ import type {
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import {
+  managementTabPath,
+  rememberManagementTab,
+  type ManagementTabTarget
+} from '../lib/management-tabs.js';
 import { courseNameKey, normalizeImportedCourseVariants } from '../lib/scheduleImport.js';
 import { CurriculumTimeline } from '../components/CurriculumTimeline.js';
 
-type ManagementTab =
-  | 'start'
-  | 'courses'
-  | 'periods'
-  | 'weekly'
-  | 'curriculum'
-  | 'progress'
-  | 'import';
+type ManagementTab = ManagementTabTarget;
 type YearPlanView = 'outline' | 'timeline';
 type CourseDetail = CourseDetailResponse['course'];
 type CourseSummary = CourseListResponse['courses'][number];
@@ -749,12 +747,30 @@ function promptForState(state: ManagementState, selectedCourse: CourseDetail | n
   };
 }
 
-export function ManagementPage() {
+type ManagementPageProps = {
+  initialTab?: Extract<ManagementTab, 'courses' | 'curriculum'>;
+  hideTabNavigation?: boolean;
+};
+
+export function ManagementPage({ initialTab, hideTabNavigation = false }: ManagementPageProps) {
   const api = useApiClient();
   const navigate = useNavigate();
   const [savedNewCourseDraft] = useState(readNewCourseDraft);
   const [savedAddPeriodDraft] = useState(readAddPeriodDraft);
-  const [activeTab, setActiveTab] = useState<ManagementTab>(readManagementActiveTab);
+  const [activeTab, setActiveTabState] = useState<ManagementTab>(
+    () => initialTab ?? readManagementActiveTab()
+  );
+  const setActiveTab = useCallback(
+    (tab: ManagementTab) => {
+      if (initialTab && tab !== initialTab) {
+        rememberManagementTab(tab);
+        navigate(managementTabPath(tab));
+        return;
+      }
+      setActiveTabState(tab);
+    },
+    [initialTab, navigate]
+  );
   const [state, setState] = useState<ManagementState>({
     courses: [],
     courseDetails: [],
@@ -938,8 +954,8 @@ export function ManagementPage() {
   }, [api, loadManagement]);
 
   useEffect(() => {
-    window.localStorage.setItem(activeTabStorageKey, activeTab);
-  }, [activeTab]);
+    if (!initialTab) window.localStorage.setItem(activeTabStorageKey, activeTab);
+  }, [activeTab, initialTab]);
 
   useEffect(() => {
     const hasClasses = Boolean(state.schedule?.sections.length);
@@ -953,8 +969,8 @@ export function ManagementPage() {
         : !hasMeetingTimes
           ? ['import', 'courses', 'periods', 'weekly']
           : tabs.map((tab) => tab.id);
-    if (!allowedTabs.includes(activeTab)) setActiveTab('import');
-  }, [activeTab, state.courses.length, state.schedule?.sections]);
+    if (!initialTab && !allowedTabs.includes(activeTab)) setActiveTab('import');
+  }, [activeTab, initialTab, setActiveTab, state.courses.length, state.schedule?.sections]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -2180,18 +2196,20 @@ export function ManagementPage() {
 
   return (
     <div className="management-page stack">
-      <nav className="management-tabs" aria-label="Management sections">
-        {visibleTabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={activeTab === tab.id ? 'active' : ''}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
+      {!hideTabNavigation ? (
+        <nav className="management-tabs" aria-label="Management sections">
+          {visibleTabs.map((tab) => (
+            <button
+              key={tab.id}
+              className={activeTab === tab.id ? 'active' : ''}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      ) : null}
 
       {state.courses.length ? (
         <section className="management-snapshot" aria-label="Management setup snapshot">

@@ -38,8 +38,17 @@ export default function App() {
         <Route element={<AppShell />}>
           <Route path="/welcome" element={<GuidePage />} />
           <Route path="/guide" element={<Navigate to="/welcome" replace />} />
+          <Route path="/today" element={<DashboardPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/management" element={<ManagementPage />} />
+          <Route
+            path="/year-plan"
+            element={<ManagementPage initialTab="curriculum" hideTabNavigation />}
+          />
+          <Route
+            path="/courses"
+            element={<ManagementPage initialTab="courses" hideTabNavigation />}
+          />
           <Route path="/school" element={<SchoolPage />} />
           <Route path="/classroom" element={<ClassroomPage />} />
           <Route path="/curriculum" element={<CurriculumPage />} />

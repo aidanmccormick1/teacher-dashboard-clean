@@ -11,7 +11,11 @@ import type {
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
-import { rememberManagementTab, type ManagementTabTarget } from '../lib/management-tabs.js';
+import {
+  managementTabPath,
+  rememberManagementTab,
+  type ManagementTabTarget
+} from '../lib/management-tabs.js';
 
 type CourseSummary = CourseListResponse['courses'][number];
 type CourseDetail = CourseDetailResponse['course'];
@@ -519,7 +523,7 @@ export function DashboardPage() {
 
   const openManagementTab = (tab: ManagementTabTarget) => {
     rememberManagementTab(tab);
-    navigate('/management');
+    navigate(managementTabPath(tab));
   };
 
   const isEmptyWorkspace =

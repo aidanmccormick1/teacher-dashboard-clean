@@ -21,7 +21,7 @@ const steps: GuideStep[] = [
     title: 'Course',
     task: 'Create the subject container.',
     result: 'Example: Algebra I, English 10, Biology.',
-    to: '/curriculum',
+    to: '/courses',
     action: 'Create course',
     detail: 'Courses hold units, lessons, and the schedule sections that teach them.'
   },
@@ -30,8 +30,8 @@ const steps: GuideStep[] = [
     title: 'Curriculum',
     task: 'Add one unit and one lesson.',
     result: 'This gives Classroom something real to resume.',
-    to: '/management',
-    action: 'Open management',
+    to: '/year-plan',
+    action: 'Open Year Plan',
     detail: 'A unit can be rough. The lesson should be the next thing you expect to teach.'
   },
   {
@@ -144,7 +144,9 @@ export function GuidePage() {
   };
 
   const copyProgress = async () => {
-    await navigator.clipboard?.writeText(buildWelcomeProgressSummary(completedIds)).catch(() => undefined);
+    await navigator.clipboard
+      ?.writeText(buildWelcomeProgressSummary(completedIds))
+      .catch(() => undefined);
     setCopyStatus('Welcome progress copied.');
     window.setTimeout(() => setCopyStatus(null), 1800);
   };
@@ -159,7 +161,9 @@ export function GuidePage() {
         <div className="guide-progress-card">
           <span>{percentComplete}%</span>
           <progress max={100} value={percentComplete} />
-          <p className="muted">{completedIds.length} of {steps.length} complete</p>
+          <p className="muted">
+            {completedIds.length} of {steps.length} complete
+          </p>
         </div>
       </section>
 
@@ -187,7 +191,12 @@ export function GuidePage() {
             <button hidden className="secondary" type="button" onClick={() => void copyProgress()}>
               Copy progress
             </button>
-            <button className="secondary danger" type="button" disabled={!completedIds.length} onClick={resetProgress}>
+            <button
+              className="secondary danger"
+              type="button"
+              disabled={!completedIds.length}
+              onClick={resetProgress}
+            >
               Reset checklist
             </button>
           </div>
@@ -196,7 +205,10 @@ export function GuidePage() {
             {steps.map((step, index) => {
               const checked = completedIds.includes(step.id);
               return (
-                <article key={step.id} className={checked ? 'walkthrough-step complete' : 'walkthrough-step'}>
+                <article
+                  key={step.id}
+                  className={checked ? 'walkthrough-step complete' : 'walkthrough-step'}
+                >
                   <label className="walkthrough-check">
                     <input
                       type="checkbox"
@@ -239,7 +251,11 @@ export function GuidePage() {
               <li>One section.</li>
               <li>One carry-over note.</li>
             </ol>
-            <Link className="button-link" to="/management" onClick={() => rememberManagementTab('start')}>
+            <Link
+              className="button-link"
+              to="/management"
+              onClick={() => rememberManagementTab('start')}
+            >
               Open Management
             </Link>
           </div>
@@ -261,9 +277,13 @@ export function GuidePage() {
             <p className="eyebrow">Advanced path</p>
             <h2>Go deeper</h2>
             <div className="mini-link-list">
-              <Link to="/management" onClick={() => rememberManagementTab('start')}>Management hub</Link>
-              <Link to="/management" onClick={() => rememberManagementTab('import')}>Import schedule</Link>
-              <Link to="/management" onClick={() => rememberManagementTab('curriculum')}>Year Plan</Link>
+              <Link to="/management" onClick={() => rememberManagementTab('start')}>
+                Management hub
+              </Link>
+              <Link to="/management" onClick={() => rememberManagementTab('import')}>
+                Import schedule
+              </Link>
+              <Link to="/year-plan">Year Plan</Link>
               <Link to="/classroom">Classroom tracker</Link>
             </div>
           </div>
