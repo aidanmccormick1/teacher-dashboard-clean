@@ -19,11 +19,13 @@ export function ClassroomPage() {
   const [checks, setChecks] = useState<string[]>([]);
   const [historicalChecks, setHistoricalChecks] = useState<string[]>([]);
   const [ending, setEnding] = useState(false);
+  const [endedSummary, setEndedSummary] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [state, setState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
-  const latest = useRef<{ checks: string[]; note: string } | null>(null);
+  const latest = useRef<{ checks: string[]; note: string; version: number } | null>(null);
+  const draftVersion = useRef(0);
   const meetingRevision = useRef<number | null>(null);
   const persistRef = useRef<(endClass?: boolean) => void>(() => undefined);
   const chain = useRef<Promise<void>>(Promise.resolve());
@@ -64,6 +66,10 @@ export function ClassroomPage() {
   const prior = historicalChecks;
   const allChecked = [...new Set([...prior, ...checks])];
   const lastStop = lesson?.segments.find((step) => step.id === resume?.state?.stoppedAtSegmentId);
+  const draftStorageKey =
+    context && dashboard && lesson
+      ? `teacheros_classroom_draft_${context.sectionId}_${dashboard.date}_${lesson.id}_${context.meetingTime ?? 'legacy'}`
+      : null;
   useEffect(() => {
     void Promise.all([api.dashboardToday(), api.getSchedule()])
       .then(([today, sections]) => {
@@ -112,7 +118,17 @@ export function ClassroomPage() {
             ? value.meeting.rawNote
             : (resume?.lastNote?.content ?? resume?.state?.carryOverNote ?? '');
         setNote(nextNote);
-        latest.current = { checks: currentChecks, note: nextNote };
+        const localDraft = draftStorageKey ? window.localStorage.getItem(draftStorageKey) : null;
+        const restored = localDraft
+          ? (JSON.parse(localDraft) as { checks: string[]; note: string })
+          : null;
+        setChecks(restored?.checks ?? currentChecks);
+        setNote(restored?.note ?? nextNote);
+        latest.current = {
+          checks: restored?.checks ?? currentChecks,
+          note: restored?.note ?? nextNote,
+          version: draftVersion.current
+        };
       })
       .catch((err) => {
         if (!cancelled)
@@ -128,11 +144,12 @@ export function ClassroomPage() {
     dashboard?.date,
     lesson?.id,
     resume?.lastNote?.content,
-    resume?.state?.carryOverNote
+    resume?.state?.carryOverNote,
+    draftStorageKey
   ]);
   const persist = (endClass = false) => {
     if (!lesson || !context || !dashboard) return;
-    const current = latest.current ?? { checks, note };
+    const current = latest.current ?? { checks, note, version: draftVersion.current };
     setState('saving');
     chain.current = chain.current.then(async () => {
       try {
@@ -149,10 +166,14 @@ export function ClassroomPage() {
           endClass,
           expectedRevision: meetingRevision.current
         });
-        setChecks(response.completedStepIds);
+        const isLatestSnapshot = latest.current?.version === current.version;
+        if (isLatestSnapshot) setChecks(response.completedStepIds);
         meetingRevision.current = response.revision;
-        setState('saved');
-        if (endClass)
+        // A request can finish after a later keystroke was queued. Keep that
+        // newer local draft until its own snapshot has reached the server.
+        if (draftStorageKey && isLatestSnapshot) window.localStorage.removeItem(draftStorageKey);
+        if (isLatestSnapshot) setState('saved');
+        if (endClass) {
           setResume((previous) =>
             previous?.state
               ? {
@@ -168,6 +189,16 @@ export function ClassroomPage() {
                 }
               : previous
           );
+          setEndedSummary(
+            response.lessonCompleted
+              ? 'Class saved. This lesson is complete; the next meeting will continue with the next available lesson.'
+              : `Class saved. Next time, continue at ${
+                  lesson.segments.find((step) => step.id === response.stoppingPointStepId)?.title ??
+                  'the next open step'
+                }.`
+          );
+          setEnding(false);
+        }
       } catch (err) {
         setState('error');
         if (err instanceof ApiError && err.status === 409) {
@@ -189,7 +220,11 @@ export function ClassroomPage() {
             setHistoricalChecks(remote.historicalCompletedStepIds);
             setChecks(remoteChecks);
             setNote(remoteNote);
-            latest.current = { checks: remoteChecks, note: remoteNote };
+            latest.current = {
+              checks: remoteChecks,
+              note: remoteNote,
+              version: draftVersion.current
+            };
             setError(
               'This class changed elsewhere. The saved version was refreshed; your local draft is retained for recovery.'
             );
@@ -206,7 +241,13 @@ export function ClassroomPage() {
   };
   persistRef.current = persist;
   const queue = (nextChecks: string[], nextNote: string) => {
-    latest.current = { checks: nextChecks, note: nextNote };
+    draftVersion.current += 1;
+    latest.current = { checks: nextChecks, note: nextNote, version: draftVersion.current };
+    if (draftStorageKey)
+      window.localStorage.setItem(
+        draftStorageKey,
+        JSON.stringify({ checks: nextChecks, note: nextNote })
+      );
     setChecks(nextChecks);
     setNote(nextNote);
     setState('saving');
@@ -380,6 +421,25 @@ export function ClassroomPage() {
                   {state === 'saving' ? 'Saving…' : state === 'error' ? 'Saved locally' : 'Saved'}
                 </span>
               </section>
+              <div className="profile-actions">
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() =>
+                    queue(
+                      lesson.segments
+                        .filter((step) => !prior.includes(step.id))
+                        .map((step) => step.id),
+                      note
+                    )
+                  }
+                >
+                  Mark lesson complete
+                </button>
+                <button className="secondary" type="button" onClick={() => setEnding(true)}>
+                  Stop here
+                </button>
+              </div>
               {ending ? (
                 <section className="live-end-summary">
                   <p className="eyebrow">End class</p>
@@ -413,6 +473,7 @@ export function ClassroomPage() {
                   End class
                 </button>
               )}
+              {endedSummary ? <p className="notice success">{endedSummary}</p> : null}
             </>
           ) : null}
         </>

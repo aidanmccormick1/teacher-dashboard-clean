@@ -232,6 +232,47 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       });
       expect(updateSegment.statusCode).toBe(200);
 
+      const createSecondSegment = await app.inject({
+        method: 'POST',
+        url: `/v1/lessons/${lessonId}/segments`,
+        headers: teacherHeaders,
+        payload: {
+          title: 'Guided practice',
+          description: null,
+          durationMinutes: 12
+        }
+      });
+      expect(createSecondSegment.statusCode).toBe(200);
+      const reordered = await app.inject({
+        method: 'PATCH',
+        url: `/v1/lessons/${lessonId}/segments/reorder`,
+        headers: teacherHeaders,
+        payload: {
+          segmentIds: createSecondSegment
+            .json<{
+              course: {
+                units: Array<{ lessons: Array<{ id: string; segments: Array<{ id: string }> }> }>;
+              };
+            }>()
+            .course.units.flatMap((unit) => unit.lessons)
+            .find((item) => item.id === lessonId)!
+            .segments.map((item) => item.id)
+            .reverse()
+        }
+      });
+      expect(reordered.statusCode).toBe(200);
+      expect(
+        reordered
+          .json<{
+            course: {
+              units: Array<{ lessons: Array<{ id: string; segments: Array<{ title: string }> }> }>;
+            };
+          }>()
+          .course.units.flatMap((unit) => unit.lessons)
+          .find((item) => item.id === lessonId)!
+          .segments.map((item) => item.title)
+      ).toEqual(['Guided practice', 'Do Now + Attendance']);
+
       const fetchCourse = await app.inject({
         method: 'GET',
         url: `/v1/courses/${createdCourse.course.id}`,
@@ -245,7 +286,7 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           }>;
         };
       }>();
-      expect(fetched.course.units[0]?.lessons[0]?.segments[0]?.title).toBe('Do Now + Attendance');
+      expect(fetched.course.units[0]?.lessons[0]?.segments[0]?.title).toBe('Guided practice');
 
       const forbiddenFetch = await app.inject({
         method: 'GET',
@@ -1032,6 +1073,15 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         expect.arrayContaining([
           expect.objectContaining({ lessonId: data.lessonTwoId, plannedStartMeeting: 3 })
         ])
+      );
+      const sectionPlans = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${data.sectionOneId}/lesson-plans`,
+        headers: teacherHeaders
+      });
+      expect(sectionPlans.statusCode).toBe(200);
+      expect(sectionPlans.json<{ plans: Array<{ lessonId: string }> }>().plans).toEqual(
+        expect.arrayContaining([expect.objectContaining({ lessonId: data.lessonTwoId })])
       );
       const unchangedOtherSection = await app.inject({
         method: 'GET',

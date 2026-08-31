@@ -50,6 +50,7 @@ import {
   ProfileUpdateRequestSchema,
   ProfileUpdateResponseSchema,
   SegmentCreateRequestSchema,
+  SegmentReorderRequestSchema,
   SegmentUpdateRequestSchema,
   ScheduleImportRequestSchema,
   ScheduleImportCorrectionRequestSchema,
@@ -964,6 +965,62 @@ export async function v1Routes(app: FastifyInstance) {
   );
 
   app.patch(
+    '/v1/lessons/:lessonId/segments/reorder',
+    {
+      schema: {
+        params: LessonParamsSchema,
+        body: SegmentReorderRequestSchema,
+        response: { 200: CourseDetailResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = LessonParamsSchema.parse(request.params);
+      const body = SegmentReorderRequestSchema.parse(request.body);
+      const courseId = await findOwnedCourseIdForLesson(user.id, params.lessonId);
+      if (!courseId) {
+        (reply as any).code(404);
+        return { error: 'Lesson not found', requestId: request.id };
+      }
+
+      await db.transaction(async (tx) => {
+        const current = await tx
+          .select({ id: lessonSegments.id })
+          .from(lessonSegments)
+          .where(eq(lessonSegments.lessonId, params.lessonId));
+        const currentIds = current.map((segment) => segment.id).sort();
+        const requestedIds = [...body.segmentIds].sort();
+        if (
+          currentIds.length !== requestedIds.length ||
+          currentIds.some((id, index) => id !== requestedIds[index])
+        ) {
+          throw new Error('Lesson steps changed. Refresh and try reordering again.');
+        }
+
+        // Use a temporary range so this remains safe even if a future schema
+        // adds a uniqueness constraint on (lesson_id, order_index).
+        for (const [index, segmentId] of body.segmentIds.entries()) {
+          await tx
+            .update(lessonSegments)
+            .set({ orderIndex: -1 - index })
+            .where(eq(lessonSegments.id, segmentId));
+        }
+        for (const [index, segmentId] of body.segmentIds.entries()) {
+          await tx
+            .update(lessonSegments)
+            .set({ orderIndex: index })
+            .where(eq(lessonSegments.id, segmentId));
+        }
+      });
+      const detail = await buildCourseDetail(user.id, courseId);
+      if (!detail) throw new Error('Failed to load course detail');
+      return detail;
+    }
+  );
+
+  app.patch(
     '/v1/profile',
     {
       schema: {
@@ -1818,6 +1875,36 @@ export async function v1Routes(app: FastifyInstance) {
         return { operationId: operation?.id ?? null, plans };
       });
       return SectionLessonPlanResponseSchema.parse(result);
+    }
+  );
+
+  app.get(
+    '/v1/sections/:sectionId/lesson-plans',
+    {
+      schema: {
+        params: SectionParamsSchema,
+        response: { 200: SectionLessonPlanResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionParamsSchema.parse(request.params);
+      if (!(await findOwnedSection(user.id, params.sectionId))) {
+        (reply as any).code(404);
+        return { error: 'Section not found', requestId: request.id };
+      }
+      const plans = await db
+        .select({
+          lessonId: sectionLessonPlans.lessonId,
+          plannedStartMeeting: sectionLessonPlans.plannedStartMeeting,
+          plannedMeetingCount: sectionLessonPlans.plannedMeetingCount,
+          revision: sectionLessonPlans.revision
+        })
+        .from(sectionLessonPlans)
+        .where(eq(sectionLessonPlans.sectionId, params.sectionId));
+      return SectionLessonPlanResponseSchema.parse({ operationId: null, plans });
     }
   );
 

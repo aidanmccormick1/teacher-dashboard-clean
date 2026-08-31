@@ -617,6 +617,141 @@ a {
   padding: 36px clamp(24px, 4vw, 54px);
 }
 
+.today-workspace,
+.year-plan-page,
+.year-plan-selection-state {
+  display: grid;
+  gap: 22px;
+  max-width: 1280px;
+}
+
+.today-header,
+.today-focus-heading,
+.year-plan-page-header,
+.year-plan-header-controls,
+.today-schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.today-header,
+.year-plan-page-header,
+.today-focus-heading {
+  justify-content: space-between;
+}
+.today-header h1,
+.year-plan-page-header h1,
+.today-focus h2,
+.today-focus h3 {
+  margin: 0;
+}
+.today-focus,
+.today-empty,
+.today-schedule,
+.year-plan-selection-state {
+  padding: 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.today-focus {
+  display: grid;
+  gap: 22px;
+  background: #f7faf8;
+}
+.today-lesson-focus {
+  display: grid;
+  gap: 10px;
+  max-width: 680px;
+}
+.today-lesson-focus progress {
+  width: min(360px, 100%);
+}
+.today-planned-note,
+.today-row-lesson small {
+  color: var(--muted);
+}
+.today-schedule {
+  display: grid;
+  gap: 4px;
+}
+.today-schedule-row {
+  padding: 14px 4px;
+  border-top: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+}
+.today-schedule-row time {
+  width: 118px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.today-schedule-row > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.today-schedule-row > div:nth-child(2) {
+  min-width: 180px;
+}
+.today-schedule-row .status-pill {
+  margin-left: auto;
+}
+.year-plan-page {
+  max-width: none;
+}
+.year-plan-page-header {
+  align-items: flex-end;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 16px;
+}
+.year-plan-header-controls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.year-plan-header-controls label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.year-plan-summary {
+  display: grid;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.year-plan-choice-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.year-plan-choice-list button {
+  min-height: 80px;
+  text-align: left;
+}
+
+@media (max-width: 780px) {
+  .today-header,
+  .today-focus-heading,
+  .year-plan-page-header,
+  .today-schedule-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .today-schedule-row time {
+    width: auto;
+  }
+  .today-schedule-row .status-pill {
+    margin-left: 0;
+  }
+  .year-plan-header-controls {
+    justify-content: flex-start;
+  }
+}
+
 .card {
   background: var(--panel);
   border: 1px solid var(--line);

@@ -48,6 +48,7 @@ import type {
   ProfileUpdateRequest,
   ProfileUpdateResponse,
   SegmentCreateRequest,
+  SegmentReorderRequest,
   SegmentUpdateRequest,
   ScheduleImportCorrectionRequest,
   ScheduleImportApplyRequest,
@@ -55,6 +56,8 @@ import type {
   SchoolCalendarResponse,
   SchoolYearUpsertRequest,
   SectionMeetingOverrideRequest,
+  SectionPlanningContextResponse,
+  SectionLessonPlanResponse,
   SectionMutationRequest,
   SectionUpdateRequest,
   UnitCreateRequest,
@@ -244,6 +247,35 @@ export function useApiClient() {
           { method: 'GET' },
           auth
         ),
+      getSectionPlanningContext: (sectionId: string, meetingIndex: number) =>
+        request<SectionPlanningContextResponse>(
+          `/v1/sections/${sectionId}/planning-context?${new URLSearchParams({
+            meetingIndex: String(meetingIndex)
+          }).toString()}`,
+          { method: 'GET' },
+          auth
+        ),
+      getSectionLessonPlans: (sectionId: string) =>
+        request<SectionLessonPlanResponse>(
+          `/v1/sections/${sectionId}/lesson-plans`,
+          { method: 'GET' },
+          auth
+        ),
+      shiftSectionLessonPlans: (sectionId: string, lessonId: string, meetingDelta: number) =>
+        request<SectionLessonPlanResponse>(
+          `/v1/sections/${sectionId}/lesson-plans/shift`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ lessonId, meetingDelta })
+          },
+          auth
+        ),
+      undoSectionLessonPlanShift: (sectionId: string, operationId: string) =>
+        request<SectionLessonPlanResponse>(
+          `/v1/sections/${sectionId}/lesson-plans/${operationId}/undo`,
+          { method: 'POST' },
+          auth
+        ),
       getClassMeeting: (
         sectionId: string,
         query: { lessonId: string; meetingDate: string; scheduledStartTime: string | null }
@@ -331,6 +363,12 @@ export function useApiClient() {
       updateSegment: (segmentId: string, body: SegmentUpdateRequest) =>
         request<CourseDetailResponse>(
           `/v1/segments/${segmentId}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      reorderSegments: (lessonId: string, body: SegmentReorderRequest) =>
+        request<CourseDetailResponse>(
+          `/v1/lessons/${lessonId}/segments/reorder`,
           { method: 'PATCH', body: JSON.stringify(body) },
           auth
         ),

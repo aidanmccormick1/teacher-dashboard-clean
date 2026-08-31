@@ -33,6 +33,12 @@ export function saveSidebarCollapsed(
   storage?.setItem(sidebarCollapsedStorageKey, String(collapsed));
 }
 
+export function hasSidebarCollapsePreference(
+  storage: Pick<Storage, 'getItem'> | null = browserStorage()
+): boolean {
+  return storage?.getItem(sidebarCollapsedStorageKey) !== null;
+}
+
 export function primaryNavigationIdForPath(pathname: string): PrimaryNavigationId | null {
   const normalizedPathname = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
 

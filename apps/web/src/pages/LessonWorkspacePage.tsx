@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type { LessonWorkspaceResponse } from '@teacheros/contracts';
 import { ApiError, useApiClient } from '../lib/api.js';
 
@@ -87,6 +87,7 @@ function RichField({
 export function LessonWorkspacePage() {
   const api = useApiClient();
   const { lessonId = '' } = useParams();
+  const [params] = useSearchParams();
   const [data, setData] = useState<Workspace | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<'saved' | 'saving' | 'error'>('saved');
@@ -152,6 +153,10 @@ export function LessonWorkspacePage() {
   );
   if (error) return <p className="notice warning">{error}</p>;
   if (!data) return <p className="muted">Loading lesson…</p>;
+  const returnTo = params.get('returnTo');
+  const yearPlanReturn = returnTo?.startsWith('/year-plan')
+    ? returnTo
+    : `/year-plan?course=${data.course.id}`;
   const updateLesson = (patch: Partial<Workspace['lesson']>) =>
     queue({ ...data, lesson: { ...data.lesson, ...patch } });
   const updateStep = (id: string, patch: Partial<Step>) =>
@@ -223,10 +228,10 @@ export function LessonWorkspacePage() {
                 : 'Saved'}
           </span>
           <button className="secondary" type="button" onClick={() => void share(true)}>
-            {data.share.enabled ? 'Copy share link' : 'Share'}
+            Share
           </button>
-          <Link className="button-link secondary" to={`/courses/${data.course.id}`}>
-            View in Year Plan
+          <Link className="button-link secondary" to={yearPlanReturn}>
+            Back to Year Plan
           </Link>
         </div>
       </header>
@@ -235,9 +240,6 @@ export function LessonWorkspacePage() {
           {data.share.enabled ? (
             <>
               <span>Anyone with link · read-only</span>
-              <button type="button" className="button-link" onClick={() => void share(true)}>
-                Copy link
-              </button>
               <button type="button" className="button-link" onClick={() => void share(false)}>
                 Make private
               </button>
@@ -245,9 +247,6 @@ export function LessonWorkspacePage() {
           ) : (
             <>
               <span>Private · only you</span>
-              <button type="button" className="button-link" onClick={() => void share(true)}>
-                Enable link sharing
-              </button>
             </>
           )}
         </div>

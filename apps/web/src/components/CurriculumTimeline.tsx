@@ -11,7 +11,8 @@ import { useNavigate } from 'react-router-dom';
 import type {
   CourseDetailResponse,
   GetScheduleResponse,
-  MeetingInstancesResponse
+  MeetingInstancesResponse,
+  SectionLessonPlanResponse
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
@@ -116,7 +117,10 @@ export function CurriculumTimeline({
   schoolYearSettings,
   currentLessonId,
   onCourseChange,
-  onOpenSchool
+  onOpenSchool,
+  displayMode = 'timeline',
+  allowAiDrafts = true,
+  onOpenLesson
 }: {
   course: Course;
   selectedSection: Section | null;
@@ -125,6 +129,9 @@ export function CurriculumTimeline({
   currentLessonId: string | null;
   onCourseChange: (detail: CourseDetailResponse) => void;
   onOpenSchool: () => void;
+  displayMode?: 'timeline' | 'outline';
+  allowAiDrafts?: boolean;
+  onOpenLesson?: (lessonId: string) => void;
 }) {
   const api = useApiClient();
   const navigate = useNavigate();
@@ -151,6 +158,9 @@ export function CurriculumTimeline({
   const [newSegmentTitle, setNewSegmentTitle] = useState('');
   const [newSegmentMinutes, setNewSegmentMinutes] = useState('');
   const [newSegmentDescription, setNewSegmentDescription] = useState('');
+  const [sectionPlans, setSectionPlans] = useState<SectionLessonPlanResponse['plans']>([]);
+  const [lastSectionPlanOperation, setLastSectionPlanOperation] = useState<string | null>(null);
+  const [editingSharedPlan, setEditingSharedPlan] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -167,7 +177,32 @@ export function CurriculumTimeline({
     };
   }, [api]);
 
+  useEffect(() => {
+    if (!selectedSection) {
+      setSectionPlans([]);
+      setLastSectionPlanOperation(null);
+      setEditingSharedPlan(false);
+      return;
+    }
+    let active = true;
+    void api
+      .getSectionLessonPlans(selectedSection.sectionId)
+      .then((value) => {
+        if (active) setSectionPlans(value.plans);
+      })
+      .catch(() => {
+        if (active) setSectionPlans([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, selectedSection?.sectionId]);
+
   const positions = useMemo(() => positionUnits(course.units), [course.units]);
+  const sectionPlanByLesson = useMemo(
+    () => new Map(sectionPlans.map((plan) => [plan.lessonId, plan])),
+    [sectionPlans]
+  );
   const selectedUnit = useMemo(
     () => course.units.find((unit) => unit.id === selection?.id) ?? null,
     [course.units, selection]
@@ -178,14 +213,16 @@ export function CurriculumTimeline({
       null,
     [course.units, selection]
   );
-  const meetings = useMemo(
+  const sectionMeetings = useMemo(
     () =>
       meetingData && selectedSection
-        ? meetingData.meetings
-            .filter((meeting) => meeting.sectionId === selectedSection.sectionId)
-            .map((meeting) => new Date(`${meeting.date}T12:00:00`))
+        ? meetingData.meetings.filter((meeting) => meeting.sectionId === selectedSection.sectionId)
         : [],
     [meetingData, selectedSection]
+  );
+  const meetings = useMemo(
+    () => sectionMeetings.map((meeting) => new Date(`${meeting.date}T12:00:00`)),
+    [sectionMeetings]
   );
   const furthestMeeting = Math.max(
     24,
@@ -213,6 +250,63 @@ export function CurriculumTimeline({
     ? Math.min(100, Math.round((plannedMeetings / planningBase) * 100))
     : 0;
   const unplannedMeetings = Math.max(0, planningBase - plannedMeetings);
+  const canEditSharedPlan = !selectedSection || editingSharedPlan;
+
+  const effectiveLessonStart = (lesson: Lesson, fallback: number) =>
+    sectionPlanByLesson.get(lesson.id)?.plannedStartMeeting ??
+    lesson.plannedStartMeeting ??
+    fallback;
+  const effectiveLessonSpan = (lesson: Lesson, fallback: number) =>
+    sectionPlanByLesson.get(lesson.id)?.plannedMeetingCount ??
+    lesson.plannedMeetingCount ??
+    fallback;
+
+  const shiftSelectedSectionLesson = async (meetingDelta: -1 | 1) => {
+    if (!selectedSection || !selectedLesson) return;
+    const fallback = selectedLesson.plannedStartMeeting;
+    const start = sectionPlanByLesson.get(selectedLesson.id)?.plannedStartMeeting ?? fallback;
+    if (start === null || start === undefined) {
+      setStatus('Place this lesson on the course timeline before shifting it for a section.');
+      return;
+    }
+    try {
+      setSaving(true);
+      const response = await api.shiftSectionLessonPlans(
+        selectedSection.sectionId,
+        selectedLesson.id,
+        meetingDelta
+      );
+      setSectionPlans(response.plans);
+      setLastSectionPlanOperation(response.operationId);
+      setStatus(
+        `${selectedLesson.title} and following lessons shifted ${
+          meetingDelta > 0 ? 'later' : 'earlier'
+        } for ${selectedSection.sectionName}.`
+      );
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not shift this section plan');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const undoSectionShift = async () => {
+    if (!selectedSection || !lastSectionPlanOperation) return;
+    try {
+      setSaving(true);
+      const response = await api.undoSectionLessonPlanShift(
+        selectedSection.sectionId,
+        lastSectionPlanOperation
+      );
+      setSectionPlans(response.plans);
+      setLastSectionPlanOperation(null);
+      setStatus(`Restored ${selectedSection.sectionName}'s prior lesson timing.`);
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not undo the section shift');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const toggleExpanded = (unitId: string) => {
     setExpandedUnitIds((previous) =>
@@ -409,6 +503,30 @@ export function CurriculumTimeline({
     }
   };
 
+  const createUnit = async () => {
+    if (!draftPrompt.trim()) return;
+    try {
+      setSaving(true);
+      onCourseChange(
+        await api.createUnit(course.id, {
+          title: draftPrompt.trim(),
+          description: null,
+          orderIndex: nextOrder(course.units),
+          plannedStartMeeting: positions.length
+            ? Math.max(...positions.map((item) => item.start + item.span))
+            : 0,
+          plannedMeetingCount: Math.max(1, Number(draftMeetingCount) || 6)
+        })
+      );
+      setDraftPrompt('');
+      setShowUnitComposer(false);
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not add the unit');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveLessonPlan = async () => {
     if (!selectedLesson || !lessonPlanDraft.title.trim()) return;
     try {
@@ -491,6 +609,29 @@ export function CurriculumTimeline({
     }
   };
 
+  const moveSegment = async (segmentId: string, direction: -1 | 1) => {
+    if (!selectedLesson) return;
+    const ordered = [...selectedLesson.segments].sort((a, b) => a.orderIndex - b.orderIndex);
+    const index = ordered.findIndex((item) => item.id === segmentId);
+    const neighborIndex = index + direction;
+    if (index < 0 || neighborIndex < 0 || neighborIndex >= ordered.length) return;
+    const segment = ordered[index];
+    const neighbor = ordered[neighborIndex];
+    if (!segment || !neighbor) return;
+    ordered[index] = neighbor;
+    ordered[neighborIndex] = segment;
+    try {
+      setSaving(true);
+      onCourseChange(
+        await api.reorderSegments(selectedLesson.id, { segmentIds: ordered.map((item) => item.id) })
+      );
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not reorder the lesson steps');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const createDraft = async () => {
     if (draftPrompt.trim().length < 8) return;
     try {
@@ -564,7 +705,10 @@ export function CurriculumTimeline({
   const selectLesson = (lesson: Lesson) => setSelection({ type: 'lesson', id: lesson.id });
 
   return (
-    <section className="curriculum-workspace" aria-label={`${course.name} curriculum timeline`}>
+    <section
+      className={`curriculum-workspace ${displayMode === 'outline' ? 'curriculum-outline-mode' : ''}`}
+      aria-label={`${course.name} curriculum timeline`}
+    >
       <div className="curriculum-workspace-topbar">
         <div className="curriculum-add-unit-control">
           <button
@@ -580,7 +724,7 @@ export function CurriculumTimeline({
                 className="input"
                 value={draftPrompt}
                 onChange={(event) => setDraftPrompt(event.target.value)}
-                placeholder="What should students learn?"
+                placeholder={allowAiDrafts ? 'What should students learn?' : 'Unit title'}
                 aria-label="Describe the unit you want to plan"
               />
               <input
@@ -594,10 +738,12 @@ export function CurriculumTimeline({
               />
               <button
                 type="button"
-                disabled={saving || draftPrompt.trim().length < 8}
-                onClick={() => void createDraft()}
+                disabled={
+                  saving || (allowAiDrafts ? draftPrompt.trim().length < 8 : !draftPrompt.trim())
+                }
+                onClick={() => void (allowAiDrafts ? createDraft() : createUnit())}
               >
-                Build unit
+                {allowAiDrafts ? 'Build unit' : 'Add unit'}
               </button>
             </div>
           ) : null}
@@ -614,6 +760,22 @@ export function CurriculumTimeline({
             </button>
           ))}
         </div>
+        {selectedSection ? (
+          <div className="curriculum-scope-control">
+            <span>
+              {editingSharedPlan
+                ? 'Editing shared course timing'
+                : `Planning ${selectedSection.sectionName}`}
+            </span>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => setEditingSharedPlan((value) => !value)}
+            >
+              {editingSharedPlan ? 'Return to section planning' : 'Edit shared course plan'}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {!meetings.length ? (
@@ -642,7 +804,7 @@ export function CurriculumTimeline({
         )}
       </div>
 
-      {draft ? (
+      {draft && allowAiDrafts ? (
         <aside className="curriculum-draft-card" aria-label="Draft unit">
           <div>
             <span className="curriculum-draft-label">Draft</span>
@@ -691,7 +853,7 @@ export function CurriculumTimeline({
 
       {selectedLesson ? (
         <section
-          className="lesson-plan-workspace"
+          className="lesson-plan-workspace lesson-plan-side-panel"
           aria-label={`Lesson plan for ${selectedLesson.title}`}
         >
           <div className="lesson-plan-heading">
@@ -706,6 +868,70 @@ export function CurriculumTimeline({
             <button className="secondary" type="button" onClick={() => setSelection(null)}>
               Close
             </button>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() =>
+                onOpenLesson?.(selectedLesson.id) ?? navigate(`/lessons/${selectedLesson.id}`)
+              }
+            >
+              Open Lesson
+            </button>
+          </div>
+          <div className="lesson-plan-context">
+            <strong>{selectedSection ? selectedSection.sectionName : 'Course curriculum'}</strong>
+            <span>
+              {selectedSection
+                ? (() => {
+                    const unit = course.units.find((item) =>
+                      item.lessons.some((lesson) => lesson.id === selectedLesson.id)
+                    );
+                    const index =
+                      unit?.lessons.findIndex((lesson) => lesson.id === selectedLesson.id) ?? 0;
+                    const fallback =
+                      (positions.find((item) => item.unit.id === unit?.id)?.start ?? 0) + index;
+                    const start = effectiveLessonStart(selectedLesson, fallback);
+                    const date = sectionMeetings[start]?.date;
+                    return date
+                      ? `Planned for ${new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric'
+                        })} · meeting ${start + 1}`
+                      : `Planned at meeting ${start + 1}`;
+                  })()
+                : 'Shared lesson content'}
+            </span>
+            {selectedSection ? (
+              <div className="lesson-plan-context-actions">
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void shiftSelectedSectionLesson(-1)}
+                >
+                  Shift earlier
+                </button>
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void shiftSelectedSectionLesson(1)}
+                >
+                  Shift later
+                </button>
+                {lastSectionPlanOperation ? (
+                  <button
+                    className="button-link"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void undoSectionShift()}
+                  >
+                    Undo section shift
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="lesson-plan-fields">
             <label>
@@ -904,6 +1130,35 @@ export function CurriculumTimeline({
                   >
                     Delete
                   </button>
+                  <span className="segment-actions">
+                    <button
+                      className="secondary"
+                      type="button"
+                      disabled={
+                        saving ||
+                        [...selectedLesson.segments]
+                          .sort((a, b) => a.orderIndex - b.orderIndex)
+                          .findIndex((item) => item.id === segment.id) === 0
+                      }
+                      onClick={() => void moveSegment(segment.id, -1)}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="secondary"
+                      type="button"
+                      disabled={
+                        saving ||
+                        [...selectedLesson.segments]
+                          .sort((a, b) => a.orderIndex - b.orderIndex)
+                          .findIndex((item) => item.id === segment.id) ===
+                          selectedLesson.segments.length - 1
+                      }
+                      onClick={() => void moveSegment(segment.id, 1)}
+                    >
+                      ↓
+                    </button>
+                  </span>
                 </article>
               ))}
             </div>
@@ -959,7 +1214,7 @@ export function CurriculumTimeline({
                               selected ? 'curriculum-lesson-row selected' : 'curriculum-lesson-row'
                             }
                           >
-                            <button type="button" onClick={() => navigate(`/lessons/${lesson.id}`)}>
+                            <button type="button" onClick={() => selectLesson(lesson)}>
                               {lesson.title}
                             </button>
                             <span>
@@ -1075,6 +1330,7 @@ export function CurriculumTimeline({
                       className="curriculum-unit-grab"
                       type="button"
                       aria-label={`Move ${position.unit.title}`}
+                      disabled={!canEditSharedPlan}
                       onPointerDown={(event) => beginUnitDrag(event, position, 'move')}
                       onPointerMove={updateUnitDrag}
                       onPointerUp={finishUnitDrag}
@@ -1102,6 +1358,7 @@ export function CurriculumTimeline({
                       className="curriculum-unit-resize"
                       type="button"
                       aria-label={`Resize ${position.unit.title}`}
+                      disabled={!canEditSharedPlan}
                       onPointerDown={(event) => beginUnitDrag(event, position, 'resize')}
                       onPointerMove={updateUnitDrag}
                       onPointerUp={finishUnitDrag}
@@ -1117,10 +1374,10 @@ export function CurriculumTimeline({
                           1,
                           Math.floor(span / Math.max(1, position.unit.lessons.length))
                         );
-                        const lessonSpan = lesson.plannedMeetingCount ?? defaultLessonSpan;
-                        const lessonStart =
-                          lesson.plannedStartMeeting ??
+                        const defaultLessonStart =
                           start + Math.min(span - 1, index * defaultLessonSpan);
+                        const lessonSpan = effectiveLessonSpan(lesson, defaultLessonSpan);
+                        const lessonStart = effectiveLessonStart(lesson, defaultLessonStart);
                         const active = currentLessonId === lesson.id;
                         const selectedLesson =
                           selection?.type === 'lesson' && selection.id === lesson.id;
@@ -1138,7 +1395,7 @@ export function CurriculumTimeline({
                               gridColumn: `${lessonStart + 1} / span ${Math.max(1, Math.min(lessonSpan, visibleMeetings - lessonStart))}`
                             }}
                             type="button"
-                            onClick={() => navigate(`/lessons/${lesson.id}`)}
+                            onClick={() => selectLesson(lesson)}
                           >
                             {lesson.title}
                           </button>

@@ -1,0 +1,36 @@
+import { describe, expect, it } from 'vitest';
+import { resolveYearPlanContext, yearPlanSearch } from './year-plan-context.js';
+
+const courses = [{ id: 'spanish' }, { id: 'history' }];
+const sections = [
+  { id: '5b', courseId: 'spanish' },
+  { id: '5c', courseId: 'spanish' }
+];
+
+describe('Year Plan URL context', () => {
+  it('uses a valid direct URL exactly', () => {
+    expect(
+      resolveYearPlanContext(
+        new URLSearchParams('course=spanish&section=5c&view=outline'),
+        courses,
+        sections,
+        null
+      )
+    ).toEqual({ courseId: 'spanish', sectionId: '5c', view: 'outline' });
+  });
+  it('does not arbitrarily choose among multiple valid courses or sections', () => {
+    expect(resolveYearPlanContext(new URLSearchParams(), courses, sections, null)).toEqual({
+      courseId: null,
+      sectionId: null,
+      view: 'timeline'
+    });
+  });
+  it('restores a remembered valid context and serializes it durably', () => {
+    const context = resolveYearPlanContext(new URLSearchParams(), courses, sections, {
+      courseId: 'spanish',
+      sectionId: '5b',
+      view: 'timeline'
+    });
+    expect(yearPlanSearch(context)).toBe('view=timeline&course=spanish&section=5b');
+  });
+});

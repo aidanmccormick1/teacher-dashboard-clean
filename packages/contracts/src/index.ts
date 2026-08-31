@@ -744,6 +744,13 @@ export const SegmentUpdateRequestSchema = z.object({
   orderIndex: z.number().int().nonnegative().optional()
 });
 
+// Reordering is deliberately an all-or-nothing operation. A pair of independent
+// order-index updates can leave a lesson in an ambiguous order if the second
+// request fails.
+export const SegmentReorderRequestSchema = z.object({
+  segmentIds: z.array(UuidSchema).min(1)
+});
+
 export const LessonShareUpdateRequestSchema = z.object({ enabled: z.boolean() });
 export const LessonShareResponseSchema = z.object({
   enabled: z.boolean(),
@@ -880,6 +887,7 @@ export type LessonShareResponse = z.infer<typeof LessonShareResponseSchema>;
 export type PublicLessonResponse = z.infer<typeof PublicLessonResponseSchema>;
 export type SegmentCreateRequest = z.infer<typeof SegmentCreateRequestSchema>;
 export type SegmentUpdateRequest = z.infer<typeof SegmentUpdateRequestSchema>;
+export type SegmentReorderRequest = z.infer<typeof SegmentReorderRequestSchema>;
 export type ClassroomResumeResponse = z.infer<typeof ClassroomResumeResponseSchema>;
 export type ClassMeetingUpsertRequest = z.infer<typeof ClassMeetingUpsertRequestSchema>;
 export type ClassMeetingResponse = z.infer<typeof ClassMeetingResponseSchema>;

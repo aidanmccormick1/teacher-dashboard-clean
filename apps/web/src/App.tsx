@@ -6,6 +6,8 @@ import { ClassroomPage } from './pages/ClassroomPage.js';
 import { CoursePage } from './pages/CoursePage.js';
 import { CurriculumPage } from './pages/CurriculumPage.js';
 import { DashboardPage } from './pages/DashboardPage.js';
+import { TodayPage } from './pages/TodayPage.js';
+import { YearPlanPage } from './pages/YearPlanPage.js';
 import { GuidePage } from './pages/GuidePage.js';
 import { LandingPage } from './pages/LandingPage.js';
 import { LessonTrackerPage } from './pages/LessonTrackerPage.js';
@@ -38,13 +40,10 @@ export default function App() {
         <Route element={<AppShell />}>
           <Route path="/welcome" element={<GuidePage />} />
           <Route path="/guide" element={<Navigate to="/welcome" replace />} />
-          <Route path="/today" element={<DashboardPage />} />
+          <Route path="/today" element={<TodayPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/management" element={<ManagementPage />} />
-          <Route
-            path="/year-plan"
-            element={<ManagementPage initialTab="curriculum" hideTabNavigation />}
-          />
+          <Route path="/year-plan" element={<YearPlanPage />} />
           <Route
             path="/courses"
             element={<ManagementPage initialTab="courses" hideTabNavigation />}
