@@ -29,9 +29,15 @@ function RichField({
   placeholder: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const focused = useRef(false);
   const [active, setActive] = useState(false);
   useEffect(() => {
-    if (ref.current && ref.current.innerHTML !== value) ref.current.innerHTML = value;
+    // Parent autosave state updates on every edit. Never replace the DOM while
+    // the teacher is typing or the browser loses the caret and the first click
+    // appears to do nothing.
+    if (!focused.current && ref.current && ref.current.innerHTML !== value) {
+      ref.current.innerHTML = value;
+    }
   }, [value]);
   return (
     <div className="rich-field-wrap">
@@ -101,8 +107,16 @@ function RichField({
         contentEditable
         suppressContentEditableWarning
         data-placeholder={placeholder}
-        onFocus={() => setActive(true)}
-        onBlur={() => setActive(false)}
+        onPointerDown={(event) => event.stopPropagation()}
+        onFocus={() => {
+          focused.current = true;
+          setActive(true);
+        }}
+        onBlur={(event) => {
+          focused.current = false;
+          setActive(false);
+          onChange(event.currentTarget.innerHTML);
+        }}
         onInput={(e) => onChange(e.currentTarget.innerHTML)}
       />
     </div>
@@ -123,12 +137,14 @@ export function LessonWorkspacePage() {
   const [dragged, setDragged] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [generationOpen, setGenerationOpen] = useState(false);
+  const [isGeneratingSteps, setIsGeneratingSteps] = useState(false);
   const [generatedSteps, setGeneratedSteps] = useState<Array<{
     title: string;
     description: string;
     durationMinutes: number;
   }> | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
   const draftVersion = useRef(0);
   const retryTimer = useRef<number | null>(null);
   useEffect(() => {
@@ -324,6 +340,7 @@ export function LessonWorkspacePage() {
   const generateStepDraft = async () => {
     try {
       setGenerationError(null);
+      setIsGeneratingSteps(true);
       const draft = await api.generateSegments({
         lessonTitle: data.lesson.title,
         objective: data.lesson.lessonPlan.objective,
@@ -334,6 +351,8 @@ export function LessonWorkspacePage() {
       setGenerationError(
         err instanceof ApiError ? err.message : 'Could not generate a lesson draft.'
       );
+    } finally {
+      setIsGeneratingSteps(false);
     }
   };
   const acceptGeneratedSteps = async () => {
@@ -405,13 +424,9 @@ export function LessonWorkspacePage() {
           />
         </div>
         <div className="profile-actions">
-          <span className={`autosave ${status}`}>
-            {status === 'saving'
-              ? 'Saving…'
-              : status === 'error'
-                ? 'Saved locally — retrying'
-                : 'Saved'}
-          </span>
+          {status === 'error' ? (
+            <span className="autosave error">Saved locally — retrying</span>
+          ) : null}
           <button className="secondary" type="button" onClick={() => setShareOpen((open) => !open)}>
             Share
           </button>
@@ -475,34 +490,40 @@ export function LessonWorkspacePage() {
           />{' '}
           min <span>Lesson {data.lesson.orderIndex + 1}</span>
         </div>
-        <label className="workspace-label">
-          Objective
-          <RichField
-            value={rich(data.lesson.lessonPlan.objective)}
-            onChange={(objective) =>
-              updateLesson({ lessonPlan: { ...data.lesson.lessonPlan, objective } })
-            }
-            placeholder="What will students be able to do?"
-          />
-        </label>
-        <label className="workspace-label">
-          Materials
-          <RichField
-            value={rich(data.lesson.lessonPlan.materials)}
-            onChange={(materials) =>
-              updateLesson({ lessonPlan: { ...data.lesson.lessonPlan, materials } })
-            }
-            placeholder="Worksheets, slides, resources…"
-          />
-        </label>
-        <label className="workspace-label">
-          Lesson notes
-          <RichField
-            value={rich(data.lesson.description)}
-            onChange={(description) => updateLesson({ description })}
-            placeholder="Add an overview or teacher notes…"
-          />
-        </label>
+        <div className="lesson-writing-grid">
+          <div className="lesson-primary-fields">
+            <label className="workspace-label">
+              Objective
+              <RichField
+                value={rich(data.lesson.lessonPlan.objective)}
+                onChange={(objective) =>
+                  updateLesson({ lessonPlan: { ...data.lesson.lessonPlan, objective } })
+                }
+                placeholder="What will students be able to do?"
+              />
+            </label>
+            <label className="workspace-label">
+              Materials
+              <RichField
+                value={rich(data.lesson.lessonPlan.materials)}
+                onChange={(materials) =>
+                  updateLesson({ lessonPlan: { ...data.lesson.lessonPlan, materials } })
+                }
+                placeholder="Worksheets, slides, resources…"
+              />
+            </label>
+          </div>
+          <aside className="lesson-notes-panel">
+            <label className="workspace-label">
+              Lesson notes
+              <RichField
+                value={rich(data.lesson.description)}
+                onChange={(description) => updateLesson({ description })}
+                placeholder="Add an overview or teacher notes…"
+              />
+            </label>
+          </aside>
+        </div>
         <div className="lesson-steps-heading">
           <h2>Lesson steps</h2>
           <div className="profile-actions">
@@ -523,8 +544,13 @@ export function LessonWorkspacePage() {
             <strong>Review-first lesson draft</strong>
             <p>Nothing changes until you explicitly add the proposed steps.</p>
             {!generatedSteps ? (
-              <button type="button" onClick={() => void generateStepDraft()}>
-                Generate steps
+              <button
+                type="button"
+                disabled={isGeneratingSteps}
+                aria-busy={isGeneratingSteps}
+                onClick={() => void generateStepDraft()}
+              >
+                {isGeneratingSteps ? 'Generating…' : 'Generate steps'}
               </button>
             ) : (
               <>
@@ -550,26 +576,57 @@ export function LessonWorkspacePage() {
                 </div>
               </>
             )}
+            {isGeneratingSteps ? (
+              <p className="lesson-generation-status" role="status">
+                Generating a lesson-step draft…
+              </p>
+            ) : null}
             {generationError ? <p className="notice warning">{generationError}</p> : null}
           </aside>
         ) : null}
         {data.lesson.segments.map((step, index) => (
           <article
-            className="lesson-step"
+            className={`lesson-step ${dragged === step.id ? 'is-dragging' : ''} ${
+              dragOver === step.id && dragged !== step.id ? 'is-drag-target' : ''
+            }`}
             key={step.id}
-            draggable
-            onDragStart={() => setDragged(step.id)}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              if (dragged && dragged !== step.id) setDragOver(step.id);
+            }}
+            onDragLeave={() => {
+              if (dragOver === step.id) setDragOver(null);
+            }}
             onDrop={() => {
               if (!dragged || dragged === step.id) return;
               const items = [...data.lesson.segments];
               const from = items.findIndex((s) => s.id === dragged);
-              items.splice(index, 0, items.splice(from, 1)[0]!);
+              const [moving] = items.splice(from, 1);
+              const targetIndex = items.findIndex((s) => s.id === step.id);
+              if (!moving || targetIndex < 0) return;
+              items.splice(targetIndex, 0, moving);
               updateLesson({ segments: items });
               setDragged(null);
+              setDragOver(null);
             }}
           >
-            <span className="drag-handle">⠿</span>
+            <span
+              className="drag-handle"
+              draggable
+              role="img"
+              aria-label={`Drag to reorder ${step.title}`}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move';
+                setDragged(step.id);
+              }}
+              onDragEnd={() => {
+                setDragged(null);
+                setDragOver(null);
+              }}
+            >
+              ⠿
+            </span>
             <input
               className="step-minutes"
               type="number"

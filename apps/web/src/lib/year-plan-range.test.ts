@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizePlanningRange, planningRangeIntersects } from './year-plan-range.js';
+import {
+  normalizePlanningRange,
+  planningRangeIntersects,
+  planningRangeLabel
+} from './year-plan-range.js';
 
 const meetings = [
   { date: '2026-09-07' },
@@ -28,6 +32,14 @@ describe('normalizePlanningRange', () => {
 
   it('does not create a range without effective meetings', () => {
     expect(normalizePlanningRange(0, 1, [])).toBeNull();
+  });
+
+  it('supports course-level planning when no section date preview is selected', () => {
+    const courseMeetings = Array.from({ length: 8 }, () => ({}));
+    const range = normalizePlanningRange(5, 2, courseMeetings);
+
+    expect(range).toEqual({ start: 2, end: 5, meetingCount: 4 });
+    expect(planningRangeLabel(range!, courseMeetings)).toBe('Meetings 3–6 · 4 meetings');
   });
 
   it('detects conflicts without treating adjacent planned ranges as overlaps', () => {

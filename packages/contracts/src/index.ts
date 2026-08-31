@@ -551,7 +551,19 @@ export const GenerateUnitDraftResponseSchema = z.object({
       z.object({
         title: z.string(),
         description: z.string(),
-        estimatedDurationMinutes: z.number().int().positive()
+        estimatedDurationMinutes: z.number().int().positive(),
+        objective: z.string().nullable().optional(),
+        materials: z.string().nullable().optional(),
+        steps: z
+          .array(
+            z.object({
+              title: z.string(),
+              description: z.string(),
+              durationMinutes: z.number().int().positive(),
+              stepType: z.string().nullable().optional()
+            })
+          )
+          .default([])
       })
     )
   })

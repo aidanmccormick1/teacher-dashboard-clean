@@ -81,7 +81,7 @@ function clamp(value: number, min: number, max: number) {
 
 function unitMeetingCount(unit: Unit) {
   if (unit.plannedMeetingCount) return unit.plannedMeetingCount;
-  if (!unit.lessons.length) return 2;
+  if (!unit.lessons.length) return 1;
   return Math.max(
     2,
     unit.lessons.reduce(
@@ -155,13 +155,15 @@ export function CurriculumTimeline({
   const [unitComposerMode, setUnitComposerMode] = useState<'manual' | 'generate'>('manual');
   const [quickLessonUnitId, setQuickLessonUnitId] = useState<string | null>(null);
   const [quickLessonTitle, setQuickLessonTitle] = useState('');
+  const [manualUnitTitle, setManualUnitTitle] = useState('');
   const [draftPrompt, setDraftPrompt] = useState('');
-  const [draftMeetingCount, setDraftMeetingCount] = useState('6');
+  const [draftMeetingCount, setDraftMeetingCount] = useState('');
   const [draft, setDraft] = useState<Awaited<ReturnType<typeof api.generateUnitDraft>> | null>(
     null
   );
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [isGeneratingUnit, setIsGeneratingUnit] = useState(false);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dragPreview, setDragPreview] = useState<number | null>(null);
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
@@ -184,6 +186,11 @@ export function CurriculumTimeline({
   const [rangeUnitId, setRangeUnitId] = useState('');
   const [todayDate, setTodayDate] = useState<string | null>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const lessonPlanSaveTimer = useRef<number | null>(null);
+  const lessonPlanSaveChain = useRef<Promise<void>>(Promise.resolve());
+  const lessonPlanDraftRef = useRef<LessonPlanDraft>(emptyLessonPlan());
+  const hydratedLessonId = useRef<string | null>(null);
+  const selectedLessonIdRef = useRef<string | null>(null);
   const scrollStorageKey = `teacheros_year_plan_scroll_${course.id}_${selectedSection?.sectionId ?? 'none'}_${displayMode}`;
 
   useEffect(() => {
@@ -299,6 +306,17 @@ export function CurriculumTimeline({
           ? Math.max(18, Math.min(furthestMeeting, 32))
           : Math.max(8, Math.min(furthestMeeting, 16));
   const slotWidth = zoom === 'year' ? 34 : zoom === 'quarter' ? 48 : zoom === 'month' ? 78 : 108;
+  const courseMeetingSlots = useMemo(
+    () =>
+      Array.from(
+        { length: Math.max(80, visibleMeetings, furthestMeeting) },
+        () =>
+          ({}) as {
+            date?: string;
+          }
+      ),
+    [furthestMeeting, visibleMeetings]
+  );
   const conflicts = positions.flatMap((position, index) =>
     positions
       .slice(index + 1)
@@ -328,7 +346,9 @@ export function CurriculumTimeline({
     lesson.plannedMeetingCount ??
     fallback;
 
-  const rangeMeetings = sectionMeetings;
+  // Course planning is expressed as a shared sequence of meeting numbers.
+  // A selected section contributes real dates, but is never required to plan.
+  const rangeMeetings = selectedSection ? sectionMeetings : courseMeetingSlots;
   const rangeFromPointer = (clientX: number) => {
     const canvas = canvasWrapRef.current;
     if (!canvas || !rangeMeetings.length) return null;
@@ -337,7 +357,7 @@ export function CurriculumTimeline({
     return clamp(index, 0, Math.min(visibleMeetings, rangeMeetings.length) - 1);
   };
   const beginRangeDrag = (event: ReactPointerEvent<HTMLDivElement>, unitId: string | null) => {
-    if (!selectedSection || !rangeMeetings.length || saving) return;
+    if (!rangeMeetings.length || saving) return;
     const index = rangeFromPointer(event.clientX);
     if (index === null) return;
     event.preventDefault();
@@ -376,7 +396,9 @@ export function CurriculumTimeline({
   const scrollToToday = () => {
     const canvas = canvasWrapRef.current;
     if (!canvas || !todayDate || !rangeMeetings.length) return;
-    const targetIndex = rangeMeetings.findIndex((meeting) => meeting.date >= todayDate);
+    const targetIndex = rangeMeetings.findIndex(
+      (meeting) => Boolean(meeting.date) && meeting.date! >= todayDate
+    );
     const index = targetIndex === -1 ? rangeMeetings.length - 1 : targetIndex;
     canvas.scrollTo({
       left: Math.max(0, index * slotWidth - Math.max(slotWidth, canvas.clientWidth * 0.28)),
@@ -480,7 +502,14 @@ export function CurriculumTimeline({
   };
 
   useEffect(() => {
-    if (!selectedLesson) return;
+    if (!selectedLesson) {
+      hydratedLessonId.current = null;
+      selectedLessonIdRef.current = null;
+      return;
+    }
+    selectedLessonIdRef.current = selectedLesson.id;
+    if (hydratedLessonId.current === selectedLesson.id) return;
+    hydratedLessonId.current = selectedLesson.id;
     const plan = selectedLesson.lessonPlan;
     setLessonPlanDraft({
       title: selectedLesson.title,
@@ -497,7 +526,11 @@ export function CurriculumTimeline({
     setNewSegmentTitle('');
     setNewSegmentMinutes('');
     setNewSegmentDescription('');
-  }, [selectedLesson]);
+  }, [selectedLesson?.id]);
+
+  useEffect(() => {
+    lessonPlanDraftRef.current = lessonPlanDraft;
+  }, [lessonPlanDraft]);
 
   const deleteSelected = useCallback(async () => {
     if (!selection || saving) return;
@@ -681,21 +714,24 @@ export function CurriculumTimeline({
   };
 
   const createUnit = async () => {
-    if (!draftPrompt.trim()) return;
+    if (!manualUnitTitle.trim()) return;
     try {
       setSaving(true);
       onCourseChange(
         await api.createUnit(course.id, {
-          title: draftPrompt.trim(),
+          title: manualUnitTitle.trim(),
           description: null,
           orderIndex: nextOrder(course.units),
           plannedStartMeeting: positions.length
             ? Math.max(...positions.map((item) => item.start + item.span))
             : 0,
-          plannedMeetingCount: Math.max(1, Number(draftMeetingCount) || 6)
+          // A manually added unit starts as one visible meeting slot. Its
+          // actual span grows from its lessons or the teacher's timeline drag;
+          // it must never inherit an unexplained generator default.
+          plannedMeetingCount: 1
         })
       );
-      setDraftPrompt('');
+      setManualUnitTitle('');
       setShowUnitComposer(false);
     } catch (err) {
       setStatus(err instanceof ApiError ? err.message : 'Could not add the unit');
@@ -704,33 +740,79 @@ export function CurriculumTimeline({
     }
   };
 
-  const saveLessonPlan = async () => {
-    if (!selectedLesson || !lessonPlanDraft.title.trim()) return;
+  const saveLessonPlan = async (
+    draftToSave = lessonPlanDraftRef.current,
+    lessonId = selectedLessonIdRef.current
+  ) => {
+    if (!lessonId || !draftToSave.title.trim()) return;
     try {
       setSaving(true);
       onCourseChange(
-        await api.updateLesson(selectedLesson.id, {
-          title: lessonPlanDraft.title.trim(),
-          description: nullable(lessonPlanDraft.overview),
-          estimatedDurationMinutes: lessonPlanDraft.duration.trim()
-            ? Math.max(1, Number(lessonPlanDraft.duration) || 1)
+        await api.updateLesson(lessonId, {
+          title: draftToSave.title.trim(),
+          description: nullable(draftToSave.overview),
+          estimatedDurationMinutes: draftToSave.duration.trim()
+            ? Math.max(1, Number(draftToSave.duration) || 1)
             : null,
           lessonPlan: {
-            objective: nullable(lessonPlanDraft.objective),
-            teacherNotes: nullable(lessonPlanDraft.teacherNotes),
-            studentDirections: nullable(lessonPlanDraft.studentDirections),
-            materials: nullable(lessonPlanDraft.materials),
-            links: lessonPlanDraft.links
+            objective: nullable(draftToSave.objective),
+            teacherNotes: nullable(draftToSave.teacherNotes),
+            studentDirections: nullable(draftToSave.studentDirections),
+            materials: nullable(draftToSave.materials),
+            links: draftToSave.links
           }
         })
       );
-      setStatus('Lesson plan saved');
     } catch (err) {
       setStatus(err instanceof ApiError ? err.message : 'Could not save the lesson plan');
     } finally {
       setSaving(false);
     }
   };
+
+  const queueLessonPlanSave = (next: LessonPlanDraft, delay = 550) => {
+    lessonPlanDraftRef.current = next;
+    setLessonPlanDraft(next);
+    if (lessonPlanSaveTimer.current) clearTimeout(lessonPlanSaveTimer.current);
+    lessonPlanSaveTimer.current = window.setTimeout(() => {
+      lessonPlanSaveTimer.current = null;
+      lessonPlanSaveChain.current = lessonPlanSaveChain.current.then(() => saveLessonPlan(next));
+    }, delay);
+  };
+
+  const updateLessonPlanDraft = (patch: Partial<LessonPlanDraft>) =>
+    queueLessonPlanSave({ ...lessonPlanDraftRef.current, ...patch });
+
+  const flushLessonPlanSave = () => {
+    if (lessonPlanSaveTimer.current) {
+      clearTimeout(lessonPlanSaveTimer.current);
+      lessonPlanSaveTimer.current = null;
+    }
+    const snapshot = lessonPlanDraftRef.current;
+    lessonPlanSaveChain.current = lessonPlanSaveChain.current.then(() => saveLessonPlan(snapshot));
+  };
+
+  const closeLessonPanel = () => {
+    flushLessonPlanSave();
+    setSelection(null);
+    onLessonSelectionChange?.(null);
+  };
+
+  useEffect(
+    () => () => {
+      if (!lessonPlanSaveTimer.current) return;
+      clearTimeout(lessonPlanSaveTimer.current);
+      lessonPlanSaveTimer.current = null;
+      const snapshot = lessonPlanDraftRef.current;
+      const lessonId = selectedLessonIdRef.current;
+      if (lessonId) {
+        lessonPlanSaveChain.current = lessonPlanSaveChain.current.then(() =>
+          saveLessonPlan(snapshot, lessonId)
+        );
+      }
+    },
+    []
+  );
 
   const addLessonLink = () => {
     const title = linkTitle.trim();
@@ -742,7 +824,9 @@ export function CurriculumTimeline({
       setStatus('Enter a complete resource URL, including https://');
       return;
     }
-    setLessonPlanDraft((previous) => ({ ...previous, links: [...previous.links, { title, url }] }));
+    updateLessonPlanDraft({
+      links: [...lessonPlanDraftRef.current.links, { title, url }]
+    });
     setLinkTitle('');
     setLinkUrl('');
   };
@@ -810,21 +894,24 @@ export function CurriculumTimeline({
   };
 
   const createDraft = async () => {
-    if (draftPrompt.trim().length < 8) return;
+    const meetingCount = Number(draftMeetingCount);
+    if (draftPrompt.trim().length < 8 || !Number.isInteger(meetingCount)) return;
     try {
       setSaving(true);
+      setIsGeneratingUnit(true);
       setDraft(
         await api.generateUnitDraft({
           courseName: course.name,
           gradeLevel: course.gradeLevel,
           prompt: draftPrompt.trim(),
-          meetingCount: clamp(Number(draftMeetingCount) || 6, 2, 30)
+          meetingCount: clamp(meetingCount, 2, 30)
         })
       );
       setStatus(null);
     } catch (err) {
       setStatus(err instanceof ApiError ? err.message : 'Could not make a draft right now');
     } finally {
+      setIsGeneratingUnit(false);
       setSaving(false);
     }
   };
@@ -849,8 +936,27 @@ export function CurriculumTimeline({
           title: lesson.title,
           description: lesson.description,
           estimatedDurationMinutes: lesson.estimatedDurationMinutes,
-          orderIndex: index
+          orderIndex: index,
+          lessonPlan: {
+            objective: lesson.objective ?? null,
+            teacherNotes: null,
+            studentDirections: null,
+            materials: lesson.materials ?? null,
+            links: []
+          }
         });
+        const createdUnit = detail.course.units.find((item) => item.id === unit.id);
+        const createdLesson = createdUnit?.lessons.find((item) => item.orderIndex === index);
+        if (!createdLesson) throw new Error(`Draft lesson \"${lesson.title}\" was not created`);
+        for (const [stepIndex, step] of lesson.steps.entries()) {
+          detail = await api.createSegment(createdLesson.id, {
+            title: step.title,
+            description: step.description,
+            durationMinutes: step.durationMinutes,
+            stepType: step.stepType ?? null,
+            orderIndex: stepIndex
+          });
+        }
       }
       onCourseChange(detail);
       setDraft(null);
@@ -898,63 +1004,98 @@ export function CurriculumTimeline({
     >
       <div className="curriculum-workspace-topbar">
         <div className="curriculum-add-unit-control">
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
-              setUnitComposerMode('manual');
-              setShowUnitComposer((open) => !open);
-            }}
-          >
-            {showUnitComposer && unitComposerMode === 'manual' ? 'Close add unit' : '+ Unit'}
-          </button>
-          {allowAiDrafts ? (
+          <div className="curriculum-unit-actions">
             <button
               type="button"
-              className="button-link"
+              className="secondary"
               onClick={() => {
-                setUnitComposerMode('generate');
-                setShowUnitComposer(true);
+                setUnitComposerMode('manual');
+                setShowUnitComposer((open) => !open);
               }}
             >
-              Generate unit
+              {showUnitComposer && unitComposerMode === 'manual' ? 'Close' : '+ Add unit'}
             </button>
-          ) : null}
-          {showUnitComposer ? (
-            <div className="curriculum-unit-composer">
-              <input
-                className="input"
-                value={draftPrompt}
-                onChange={(event) => setDraftPrompt(event.target.value)}
-                placeholder={
-                  unitComposerMode === 'generate' ? 'What should students learn?' : 'Unit title'
-                }
-                aria-label="Describe the unit you want to plan"
-              />
-              <input
-                className="curriculum-meeting-input"
-                type="number"
-                min="2"
-                max="30"
-                value={draftMeetingCount}
-                onChange={(event) => setDraftMeetingCount(event.target.value)}
-                aria-label="Estimated instructional meetings"
-              />
+            {allowAiDrafts ? (
               <button
                 type="button"
-                disabled={
-                  saving ||
-                  (unitComposerMode === 'generate'
-                    ? draftPrompt.trim().length < 8
-                    : !draftPrompt.trim())
-                }
-                onClick={() =>
-                  void (unitComposerMode === 'generate' ? createDraft() : createUnit())
-                }
+                className="button-link"
+                onClick={() => {
+                  setUnitComposerMode('generate');
+                  setShowUnitComposer(true);
+                }}
               >
-                {unitComposerMode === 'generate' ? 'Generate draft' : 'Add unit'}
+                Generate full unit plan
               </button>
-            </div>
+            ) : null}
+          </div>
+          {showUnitComposer ? (
+            unitComposerMode === 'manual' ? (
+              <div className="curriculum-unit-composer" aria-label="Manually add a unit">
+                <input
+                  className="input"
+                  autoFocus
+                  value={manualUnitTitle}
+                  onChange={(event) => setManualUnitTitle(event.target.value)}
+                  placeholder="Unit title"
+                  aria-label="Unit title"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void createUnit();
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={saving || !manualUnitTitle.trim()}
+                  onClick={() => void createUnit()}
+                >
+                  Add unit
+                </button>
+              </div>
+            ) : (
+              <div className="curriculum-unit-generator" aria-label="Generate a full unit plan">
+                <div>
+                  <strong>Generate a full unit plan</strong>
+                  <span>Drafts a unit, lesson sequence, and lesson steps for your review.</span>
+                </div>
+                <div className="curriculum-unit-composer">
+                  <input
+                    className="input"
+                    autoFocus
+                    value={draftPrompt}
+                    onChange={(event) => setDraftPrompt(event.target.value)}
+                    placeholder="What should students learn?"
+                    aria-label="What students should learn"
+                  />
+                  <label className="curriculum-meeting-count">
+                    <span>Class meetings</span>
+                    <input
+                      className="curriculum-meeting-input"
+                      type="number"
+                      min="2"
+                      max="30"
+                      value={draftMeetingCount}
+                      onChange={(event) => setDraftMeetingCount(event.target.value)}
+                      placeholder="e.g. 6"
+                      aria-label="How many class meetings this unit should cover"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={
+                      saving ||
+                      isGeneratingUnit ||
+                      draftPrompt.trim().length < 8 ||
+                      !Number.isInteger(Number(draftMeetingCount)) ||
+                      Number(draftMeetingCount) < 2 ||
+                      Number(draftMeetingCount) > 30
+                    }
+                    onClick={() => void createDraft()}
+                  >
+                    {isGeneratingUnit ? 'Generating plan…' : 'Generate plan'}
+                  </button>
+                </div>
+                <small>Choose the number of times this course will meet for the unit.</small>
+              </div>
+            )
           ) : null}
         </div>
         <div className="curriculum-zoom" aria-label="Timeline zoom">
@@ -981,7 +1122,7 @@ export function CurriculumTimeline({
           <button
             className="secondary"
             type="button"
-            disabled={!todayDate || !rangeMeetings.length}
+            disabled={!todayDate || !selectedSection || !rangeMeetings.length}
             onClick={scrollToToday}
           >
             Today
@@ -1093,325 +1234,305 @@ export function CurriculumTimeline({
       ) : null}
 
       {selectedLesson ? (
-        <section
-          className="lesson-plan-workspace lesson-plan-side-panel"
-          aria-label={`Lesson plan for ${selectedLesson.title}`}
-        >
-          <div className="lesson-plan-heading">
-            <div>
-              <p className="eyebrow">Lesson plan</p>
-              <h3>{selectedLesson.title}</h3>
-              <p className="muted">
-                Build the teacher-facing plan and the student-facing directions here. Everything
-                saves to this lesson.
-              </p>
-            </div>
-            <button
-              className="secondary"
-              type="button"
-              onClick={() => {
-                setSelection(null);
-                onLessonSelectionChange?.(null);
-              }}
-            >
-              Close
-            </button>
-            <button
-              className="secondary"
-              type="button"
-              onClick={() =>
-                onOpenLesson?.(selectedLesson.id) ?? navigate(`/lessons/${selectedLesson.id}`)
-              }
-            >
-              Open Lesson
-            </button>
-          </div>
-          <div className="lesson-plan-context">
-            <strong>{selectedSection ? selectedSection.sectionName : 'Course curriculum'}</strong>
-            <span>
-              {selectedSection
-                ? (() => {
-                    const unit = course.units.find((item) =>
-                      item.lessons.some((lesson) => lesson.id === selectedLesson.id)
-                    );
-                    const index =
-                      unit?.lessons.findIndex((lesson) => lesson.id === selectedLesson.id) ?? 0;
-                    const fallback =
-                      (positions.find((item) => item.unit.id === unit?.id)?.start ?? 0) + index;
-                    const start = effectiveLessonStart(selectedLesson, fallback);
-                    const date = sectionMeetings[start]?.date;
-                    return date
-                      ? `Planned for ${new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric'
-                        })} · meeting ${start + 1}`
-                      : `Planned at meeting ${start + 1}`;
-                  })()
-                : 'Shared lesson content'}
-            </span>
-            {selectedSection ? (
-              <div className="lesson-plan-context-actions">
-                <button
-                  className="secondary"
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void shiftSelectedSectionLesson(-1)}
-                >
-                  Shift earlier
-                </button>
-                <button
-                  className="secondary"
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void shiftSelectedSectionLesson(1)}
-                >
-                  Shift later
-                </button>
-                {lastSectionPlanOperation ? (
-                  <button
-                    className="button-link"
-                    type="button"
-                    disabled={saving}
-                    onClick={() => void undoSectionShift()}
-                  >
-                    Undo section shift
-                  </button>
-                ) : null}
+        <>
+          <button
+            className="lesson-panel-backdrop"
+            type="button"
+            aria-label="Close lesson plan"
+            onClick={closeLessonPanel}
+          />
+          <section
+            className="lesson-plan-workspace lesson-plan-side-panel"
+            aria-label={`Lesson plan for ${selectedLesson.title}`}
+          >
+            <div className="lesson-plan-heading">
+              <div>
+                <p className="eyebrow">Lesson plan</p>
+                <h3>{selectedLesson.title}</h3>
+                <p className="muted">
+                  Build the teacher-facing plan and the student-facing directions here. Everything
+                  saves to this lesson.
+                </p>
               </div>
-            ) : null}
-          </div>
-          <div className="lesson-plan-fields">
-            <label>
-              Lesson title
-              <input
-                className="input"
-                value={lessonPlanDraft.title}
-                onChange={(event) =>
-                  setLessonPlanDraft((previous) => ({ ...previous, title: event.target.value }))
+              <button className="secondary" type="button" onClick={closeLessonPanel}>
+                Done
+              </button>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() =>
+                  onOpenLesson?.(selectedLesson.id) ?? navigate(`/lessons/${selectedLesson.id}`)
                 }
-              />
-            </label>
-            <label>
-              Minutes
-              <input
-                className="input"
-                type="number"
-                min="1"
-                value={lessonPlanDraft.duration}
-                onChange={(event) =>
-                  setLessonPlanDraft((previous) => ({ ...previous, duration: event.target.value }))
-                }
-              />
-            </label>
-            <label className="lesson-plan-wide">
-              Overview
-              <textarea
-                className="input"
-                value={lessonPlanDraft.overview}
-                onChange={(event) =>
-                  setLessonPlanDraft((previous) => ({ ...previous, overview: event.target.value }))
-                }
-                placeholder="A short description of this lesson."
-              />
-            </label>
-            <label className="lesson-plan-wide">
-              Learning objective
-              <textarea
-                className="input"
-                value={lessonPlanDraft.objective}
-                onChange={(event) =>
-                  setLessonPlanDraft((previous) => ({ ...previous, objective: event.target.value }))
-                }
-                placeholder="Students will be able to…"
-              />
-            </label>
-            <label>
-              Materials
-              <textarea
-                className="input"
-                value={lessonPlanDraft.materials}
-                onChange={(event) =>
-                  setLessonPlanDraft((previous) => ({ ...previous, materials: event.target.value }))
-                }
-                placeholder="Handouts, supplies, technology…"
-              />
-            </label>
-            <label>
-              Student directions
-              <textarea
-                className="input"
-                value={lessonPlanDraft.studentDirections}
-                onChange={(event) =>
-                  setLessonPlanDraft((previous) => ({
-                    ...previous,
-                    studentDirections: event.target.value
-                  }))
-                }
-                placeholder="What students should do, see, or submit."
-              />
-            </label>
-            <label className="lesson-plan-wide">
-              Teacher notes
-              <textarea
-                className="input"
-                value={lessonPlanDraft.teacherNotes}
-                onChange={(event) =>
-                  setLessonPlanDraft((previous) => ({
-                    ...previous,
-                    teacherNotes: event.target.value
-                  }))
-                }
-                placeholder="Prompts, differentiation, checks for understanding, and reminders."
-              />
-            </label>
-          </div>
-          <div className="lesson-plan-resources">
-            <div>
-              <strong>Resources</strong>
-              <span>Links are saved with this lesson.</span>
-            </div>
-            <div className="lesson-plan-link-form">
-              <input
-                className="input"
-                value={linkTitle}
-                onChange={(event) => setLinkTitle(event.target.value)}
-                placeholder="Link label"
-              />
-              <input
-                className="input"
-                type="url"
-                value={linkUrl}
-                onChange={(event) => setLinkUrl(event.target.value)}
-                placeholder="https://…"
-              />
-              <button className="secondary" type="button" onClick={addLessonLink}>
-                Add link
+              >
+                Open Lesson
               </button>
             </div>
-            {lessonPlanDraft.links.length ? (
-              <ul>
-                {lessonPlanDraft.links.map((link, index) => (
-                  <li key={`${link.url}-${index}`}>
-                    <a href={link.url} target="_blank" rel="noreferrer">
-                      {link.title}
-                    </a>
+            <div className="lesson-plan-context">
+              <strong>{selectedSection ? selectedSection.sectionName : 'Course curriculum'}</strong>
+              <span>
+                {selectedSection
+                  ? (() => {
+                      const unit = course.units.find((item) =>
+                        item.lessons.some((lesson) => lesson.id === selectedLesson.id)
+                      );
+                      const index =
+                        unit?.lessons.findIndex((lesson) => lesson.id === selectedLesson.id) ?? 0;
+                      const fallback =
+                        (positions.find((item) => item.unit.id === unit?.id)?.start ?? 0) + index;
+                      const start = effectiveLessonStart(selectedLesson, fallback);
+                      const date = sectionMeetings[start]?.date;
+                      return date
+                        ? `Planned for ${new Date(`${date}T12:00:00`).toLocaleDateString(
+                            undefined,
+                            {
+                              weekday: 'short',
+                              month: 'short',
+                              day: 'numeric'
+                            }
+                          )} · meeting ${start + 1}`
+                        : `Planned at meeting ${start + 1}`;
+                    })()
+                  : 'Shared lesson content'}
+              </span>
+              {selectedSection ? (
+                <div className="lesson-plan-context-actions">
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void shiftSelectedSectionLesson(-1)}
+                  >
+                    Shift earlier
+                  </button>
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void shiftSelectedSectionLesson(1)}
+                  >
+                    Shift later
+                  </button>
+                  {lastSectionPlanOperation ? (
                     <button
                       className="button-link"
                       type="button"
-                      onClick={() =>
-                        setLessonPlanDraft((previous) => ({
-                          ...previous,
-                          links: previous.links.filter((_, linkIndex) => linkIndex !== index)
-                        }))
-                      }
+                      disabled={saving}
+                      onClick={() => void undoSectionShift()}
                     >
-                      Remove
+                      Undo section shift
                     </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted">No resources yet.</p>
-            )}
-          </div>
-          <div className="lesson-plan-save">
-            <button
-              type="button"
-              disabled={saving || !lessonPlanDraft.title.trim()}
-              onClick={() => void saveLessonPlan()}
-            >
-              Save lesson plan
-            </button>
-          </div>
-          <div className="lesson-plan-steps">
-            <div>
-              <strong>Lesson steps</strong>
-              <span>
-                Use steps for mini-lessons, practice, discussion, or checks for understanding.
-              </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-            <div className="lesson-step-form">
-              <input
-                className="input"
-                value={newSegmentTitle}
-                onChange={(event) => setNewSegmentTitle(event.target.value)}
-                placeholder="Step title"
-              />
-              <input
-                className="input"
-                type="number"
-                min="1"
-                value={newSegmentMinutes}
-                onChange={(event) => setNewSegmentMinutes(event.target.value)}
-                placeholder="Minutes"
-              />
-              <textarea
-                className="input"
-                value={newSegmentDescription}
-                onChange={(event) => setNewSegmentDescription(event.target.value)}
-                placeholder="What happens in this step?"
-              />
-              <button
-                type="button"
-                disabled={saving || !newSegmentTitle.trim()}
-                onClick={() => void addSegment()}
-              >
-                Add step
-              </button>
+            <div className="lesson-plan-fields">
+              <label>
+                Lesson title
+                <input
+                  className="input"
+                  value={lessonPlanDraft.title}
+                  onChange={(event) => updateLessonPlanDraft({ title: event.target.value })}
+                />
+              </label>
+              <label>
+                Minutes
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  value={lessonPlanDraft.duration}
+                  onChange={(event) => updateLessonPlanDraft({ duration: event.target.value })}
+                />
+              </label>
+              <label className="lesson-plan-wide">
+                Overview
+                <textarea
+                  className="input"
+                  value={lessonPlanDraft.overview}
+                  onChange={(event) => updateLessonPlanDraft({ overview: event.target.value })}
+                  placeholder="A short description of this lesson."
+                />
+              </label>
+              <label className="lesson-plan-wide">
+                Learning objective
+                <textarea
+                  className="input"
+                  value={lessonPlanDraft.objective}
+                  onChange={(event) => updateLessonPlanDraft({ objective: event.target.value })}
+                  placeholder="Students will be able to…"
+                />
+              </label>
+              <label>
+                Materials
+                <textarea
+                  className="input"
+                  value={lessonPlanDraft.materials}
+                  onChange={(event) => updateLessonPlanDraft({ materials: event.target.value })}
+                  placeholder="Handouts, supplies, technology…"
+                />
+              </label>
+              <label>
+                Student directions
+                <textarea
+                  className="input"
+                  value={lessonPlanDraft.studentDirections}
+                  onChange={(event) =>
+                    updateLessonPlanDraft({ studentDirections: event.target.value })
+                  }
+                  placeholder="What students should do, see, or submit."
+                />
+              </label>
+              <label className="lesson-plan-wide">
+                Teacher notes
+                <textarea
+                  className="input"
+                  value={lessonPlanDraft.teacherNotes}
+                  onChange={(event) => updateLessonPlanDraft({ teacherNotes: event.target.value })}
+                  placeholder="Prompts, differentiation, checks for understanding, and reminders."
+                />
+              </label>
             </div>
-            <div className="lesson-step-list">
-              {selectedLesson.segments.map((segment) => (
-                <article key={segment.id}>
-                  <div>
-                    <strong>{segment.title}</strong>
-                    <span>
-                      {segment.durationMinutes ? `${segment.durationMinutes} min` : 'Time not set'}
+            <div className="lesson-plan-resources">
+              <div>
+                <strong>Resources</strong>
+                <span>Links are saved with this lesson.</span>
+              </div>
+              <div className="lesson-plan-link-form">
+                <input
+                  className="input"
+                  value={linkTitle}
+                  onChange={(event) => setLinkTitle(event.target.value)}
+                  placeholder="Link label"
+                />
+                <input
+                  className="input"
+                  type="url"
+                  value={linkUrl}
+                  onChange={(event) => setLinkUrl(event.target.value)}
+                  placeholder="https://…"
+                />
+                <button className="secondary" type="button" onClick={addLessonLink}>
+                  Add link
+                </button>
+              </div>
+              {lessonPlanDraft.links.length ? (
+                <ul>
+                  {lessonPlanDraft.links.map((link, index) => (
+                    <li key={`${link.url}-${index}`}>
+                      <a href={link.url} target="_blank" rel="noreferrer">
+                        {link.title}
+                      </a>
+                      <button
+                        className="button-link"
+                        type="button"
+                        onClick={() =>
+                          updateLessonPlanDraft({
+                            links: lessonPlanDraftRef.current.links.filter(
+                              (_, linkIndex) => linkIndex !== index
+                            )
+                          })
+                        }
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">No resources yet.</p>
+              )}
+            </div>
+            <div className="lesson-plan-steps">
+              <div>
+                <strong>Lesson steps</strong>
+                <span>
+                  Use steps for mini-lessons, practice, discussion, or checks for understanding.
+                </span>
+              </div>
+              <div className="lesson-step-form">
+                <input
+                  className="input"
+                  value={newSegmentTitle}
+                  onChange={(event) => setNewSegmentTitle(event.target.value)}
+                  placeholder="Step title"
+                />
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  value={newSegmentMinutes}
+                  onChange={(event) => setNewSegmentMinutes(event.target.value)}
+                  placeholder="Minutes"
+                />
+                <textarea
+                  className="input"
+                  value={newSegmentDescription}
+                  onChange={(event) => setNewSegmentDescription(event.target.value)}
+                  placeholder="What happens in this step?"
+                />
+                <button
+                  type="button"
+                  disabled={saving || !newSegmentTitle.trim()}
+                  onClick={() => void addSegment()}
+                >
+                  Add step
+                </button>
+              </div>
+              <div className="lesson-step-list">
+                {selectedLesson.segments.map((segment) => (
+                  <article key={segment.id}>
+                    <div>
+                      <strong>{segment.title}</strong>
+                      <span>
+                        {segment.durationMinutes
+                          ? `${segment.durationMinutes} min`
+                          : 'Time not set'}
+                      </span>
+                      {segment.description ? <p>{segment.description}</p> : null}
+                    </div>
+                    <button
+                      className="secondary danger"
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void deleteSegment(segment.id, segment.title)}
+                    >
+                      Delete
+                    </button>
+                    <span className="segment-actions">
+                      <button
+                        className="secondary"
+                        type="button"
+                        disabled={
+                          saving ||
+                          [...selectedLesson.segments]
+                            .sort((a, b) => a.orderIndex - b.orderIndex)
+                            .findIndex((item) => item.id === segment.id) === 0
+                        }
+                        onClick={() => void moveSegment(segment.id, -1)}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        className="secondary"
+                        type="button"
+                        disabled={
+                          saving ||
+                          [...selectedLesson.segments]
+                            .sort((a, b) => a.orderIndex - b.orderIndex)
+                            .findIndex((item) => item.id === segment.id) ===
+                            selectedLesson.segments.length - 1
+                        }
+                        onClick={() => void moveSegment(segment.id, 1)}
+                      >
+                        ↓
+                      </button>
                     </span>
-                    {segment.description ? <p>{segment.description}</p> : null}
-                  </div>
-                  <button
-                    className="secondary danger"
-                    type="button"
-                    disabled={saving}
-                    onClick={() => void deleteSegment(segment.id, segment.title)}
-                  >
-                    Delete
-                  </button>
-                  <span className="segment-actions">
-                    <button
-                      className="secondary"
-                      type="button"
-                      disabled={
-                        saving ||
-                        [...selectedLesson.segments]
-                          .sort((a, b) => a.orderIndex - b.orderIndex)
-                          .findIndex((item) => item.id === segment.id) === 0
-                      }
-                      onClick={() => void moveSegment(segment.id, -1)}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      className="secondary"
-                      type="button"
-                      disabled={
-                        saving ||
-                        [...selectedLesson.segments]
-                          .sort((a, b) => a.orderIndex - b.orderIndex)
-                          .findIndex((item) => item.id === segment.id) ===
-                          selectedLesson.segments.length - 1
-                      }
-                      onClick={() => void moveSegment(segment.id, 1)}
-                    >
-                      ↓
-                    </button>
-                  </span>
-                </article>
-              ))}
+                  </article>
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </>
       ) : null}
 
       <div className="curriculum-split-view">

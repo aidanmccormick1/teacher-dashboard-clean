@@ -6696,7 +6696,7 @@ button,
 }
 
 .lesson-document-page {
-  width: min(100%, 1240px);
+  width: 100%;
   max-width: none;
   min-height: calc(100svh - 64px);
   margin: 0 auto;
@@ -6709,10 +6709,34 @@ button,
 }
 
 .lesson-document-page .lesson-document {
-  width: min(100%, 900px);
+  width: min(100%, 1440px);
   max-width: none;
-  margin: 0;
+  margin: 0 auto;
   gap: 28px;
+}
+
+.lesson-writing-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+  gap: 32px;
+  align-items: stretch;
+}
+
+.lesson-primary-fields {
+  display: grid;
+  gap: 28px;
+}
+
+.lesson-notes-panel {
+  min-height: 100%;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fbfcfb;
+}
+
+.lesson-notes-panel .rich-field {
+  min-height: 150px;
 }
 
 .lesson-meta {
@@ -6738,6 +6762,7 @@ button,
 .drag-handle {
   color: #93a09a;
   cursor: grab;
+  user-select: none;
 }
 .drag-handle:active {
   cursor: grabbing;
@@ -6762,6 +6787,32 @@ button,
 .step-actions button,
 .rich-toolbar button {
   border-radius: 5px;
+}
+.lesson-document-page .lesson-step {
+  position: relative;
+  transition:
+    opacity 150ms ease,
+    background-color 150ms ease,
+    transform 150ms ease;
+}
+.lesson-document-page .lesson-step.is-dragging {
+  opacity: 0.45;
+  transform: scale(0.995);
+}
+.lesson-document-page .lesson-step.is-drag-target::before {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  left: 34px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--green);
+  content: '';
+}
+.lesson-generation-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 .add-step {
   padding: 9px 0;
@@ -6953,5 +7004,9 @@ button:disabled,
     grid-column: 3;
     flex-direction: row;
     justify-content: flex-end;
+  }
+  .lesson-writing-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
   }
 }

@@ -24,19 +24,56 @@
   flex: 1;
 }
 
-.curriculum-add-unit-control > button {
-  justify-self: start;
+.curriculum-unit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .curriculum-unit-composer {
   display: flex;
   gap: 8px;
-  max-width: 680px;
+  max-width: 760px;
 }
 
 .curriculum-unit-composer .input {
   min-width: 0;
   flex: 1;
+}
+
+.curriculum-unit-generator {
+  display: grid;
+  gap: 8px;
+  max-width: 860px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fbfcfb;
+}
+
+.curriculum-unit-generator > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.curriculum-unit-generator span,
+.curriculum-unit-generator small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.curriculum-meeting-count {
+  display: grid;
+  flex: 0 0 118px;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.curriculum-meeting-input {
+  width: 100%;
+  min-width: 0;
 }
 
 .curriculum-pacing {
@@ -88,11 +125,23 @@
   top: 18px;
   right: 18px;
   z-index: 25;
-  width: min(460px, calc(100vw - 96px));
+  width: min(620px, calc(100vw - 48px));
   max-height: calc(100vh - 36px);
   overflow: auto;
   box-shadow: -18px 0 36px rgba(38, 56, 77, 0.16);
   animation: lessonPanelIn 160ms ease-out;
+}
+
+.lesson-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 24;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: default;
 }
 
 .curriculum-outline-mode .curriculum-split-view {
@@ -234,6 +283,17 @@
 
   .curriculum-unit-composer {
     display: grid;
+  }
+
+  .curriculum-meeting-count {
+    max-width: none;
+  }
+
+  .lesson-plan-side-panel {
+    top: 8px;
+    right: 8px;
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
   }
 
   .curriculum-selection-actions,

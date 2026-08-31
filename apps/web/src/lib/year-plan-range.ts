@@ -1,5 +1,3 @@
-import type { MeetingInstancesResponse } from '@teacheros/contracts';
-
 export type PlanningRange = {
   start: number;
   end: number;
@@ -7,6 +5,7 @@ export type PlanningRange = {
 };
 
 type PlannedSpan = Pick<PlanningRange, 'start' | 'meetingCount'>;
+type RangeMeeting = { date?: string };
 
 /**
  * A drag-create range is additive: it may never silently write over an
@@ -29,7 +28,7 @@ export function planningRangeIntersects(range: PlannedSpan, planned: PlannedSpan
 export function normalizePlanningRange(
   firstIndex: number,
   lastIndex: number,
-  meetings: MeetingInstancesResponse['meetings']
+  meetings: RangeMeeting[]
 ): PlanningRange | null {
   if (!meetings.length || !Number.isFinite(firstIndex) || !Number.isFinite(lastIndex)) {
     return null;
@@ -44,12 +43,17 @@ export function normalizePlanningRange(
 
 export function planningRangeLabel(
   range: PlanningRange,
-  meetings: MeetingInstancesResponse['meetings'],
+  meetings: RangeMeeting[],
   locale?: string
 ): string {
   const first = meetings[range.start];
   const last = meetings[range.end];
   if (!first || !last) return `${range.meetingCount} meetings`;
+  if (!first.date || !last.date) {
+    return `Meetings ${range.start + 1}–${range.end + 1} · ${range.meetingCount} ${
+      range.meetingCount === 1 ? 'meeting' : 'meetings'
+    }`;
+  }
   const format = (date: string) =>
     new Date(`${date}T12:00:00`).toLocaleDateString(locale, {
       month: 'short',

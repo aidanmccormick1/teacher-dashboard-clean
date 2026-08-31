@@ -4487,7 +4487,7 @@ export async function v1Routes(app: FastifyInstance) {
           schemaName: 'generate_unit_draft',
           schema: GenerateUnitDraftResponseSchema,
           systemPrompt:
-            'Create one concise, classroom-ready curriculum unit. Return a practical sequence of lessons. This is a draft for a teacher to review, never an instruction to alter stored curriculum.',
+            'Create one concise, classroom-ready curriculum unit. Return a practical sequence of lessons, each with a clear objective, materials, and three to six ordered lesson steps. This is a draft for a teacher to review, never an instruction to alter stored curriculum.',
           userPrompt: `Course: ${body.courseName}\nGrade: ${body.gradeLevel ?? 'Not specified'}\nInstructional meetings: ${body.meetingCount}\nTeacher request: ${body.prompt}`
         });
         await db
