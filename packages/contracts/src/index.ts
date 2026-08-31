@@ -728,6 +728,27 @@ export const LessonUpdateRequestSchema = z.object({
   plannedMeetingCount: z.number().int().positive().nullable().optional()
 });
 
+// A confirmed Year Plan range is always expressed in effective meeting
+// indices, never in calendar days. This keeps course curriculum shared while
+// letting the selected section supply the date mapping in the UI.
+export const CurriculumRangeCreateRequestSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('unit'),
+    title: z.string().min(1),
+    description: z.string().nullable().optional(),
+    plannedStartMeeting: z.number().int().nonnegative(),
+    plannedMeetingCount: z.number().int().positive(),
+    lessonTitles: z.array(z.string().min(1)).max(30).default([])
+  }),
+  z.object({
+    kind: z.literal('lessons'),
+    unitId: UuidSchema,
+    plannedStartMeeting: z.number().int().nonnegative(),
+    plannedMeetingCount: z.number().int().positive(),
+    lessonTitles: z.array(z.string().min(1)).min(1).max(30)
+  })
+]);
+
 export const SegmentCreateRequestSchema = z.object({
   title: z.string().min(1),
   description: z.string().nullable(),
@@ -773,7 +794,21 @@ export const LessonWorkspaceResponseSchema = z.object({
 export const PublicLessonResponseSchema = z.object({
   courseName: z.string(),
   unitTitle: z.string(),
-  lesson: LessonSchema
+  lesson: z.object({
+    title: z.string(),
+    description: z.string().nullable(),
+    objective: z.string().nullable(),
+    materials: z.string().nullable(),
+    estimatedDurationMinutes: z.number().int().positive().nullable(),
+    steps: z.array(
+      z.object({
+        title: z.string(),
+        description: z.string().nullable(),
+        durationMinutes: z.number().int().positive().nullable(),
+        stepType: z.string().nullable()
+      })
+    )
+  })
 });
 
 export const ClassroomResumeResponseSchema = z.object({
@@ -882,6 +917,7 @@ export type UnitCreateRequest = z.infer<typeof UnitCreateRequestSchema>;
 export type UnitUpdateRequest = z.infer<typeof UnitUpdateRequestSchema>;
 export type LessonCreateRequest = z.infer<typeof LessonCreateRequestSchema>;
 export type LessonUpdateRequest = z.infer<typeof LessonUpdateRequestSchema>;
+export type CurriculumRangeCreateRequest = z.infer<typeof CurriculumRangeCreateRequestSchema>;
 export type LessonWorkspaceResponse = z.infer<typeof LessonWorkspaceResponseSchema>;
 export type LessonShareResponse = z.infer<typeof LessonShareResponseSchema>;
 export type PublicLessonResponse = z.infer<typeof PublicLessonResponseSchema>;

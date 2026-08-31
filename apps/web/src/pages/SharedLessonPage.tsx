@@ -36,7 +36,6 @@ export function SharedLessonPage() {
       </main>
     );
   if (!data) return <p className="muted">Loading lesson…</p>;
-  const plan = data.lesson.lessonPlan;
   return (
     <main className="shared-lesson">
       <p className="eyebrow">
@@ -47,12 +46,12 @@ export function SharedLessonPage() {
         <p>{data.lesson.estimatedDurationMinutes} minutes</p>
       ) : null}
       <h2>Objective</h2>
-      <div dangerouslySetInnerHTML={{ __html: safeHtml(plan.objective) }} />
+      <div dangerouslySetInnerHTML={{ __html: safeHtml(data.lesson.objective) }} />
       <h2>Materials</h2>
-      <div dangerouslySetInnerHTML={{ __html: safeHtml(plan.materials) }} />
+      <div dangerouslySetInnerHTML={{ __html: safeHtml(data.lesson.materials) }} />
       <h2>Lesson</h2>
-      {data.lesson.segments.map((step) => (
-        <section key={step.id}>
+      {data.lesson.steps.map((step, index) => (
+        <section key={`${step.title}-${index}`}>
           <p className="eyebrow">
             {step.durationMinutes ? `${step.durationMinutes} min` : ''} {step.stepType ?? ''}
           </p>

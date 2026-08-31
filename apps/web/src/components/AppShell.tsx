@@ -320,7 +320,7 @@ export function AppShell() {
               {isImportOpen ? (
                 <div className="sidebar-import-menu">
                   <Link
-                    to="/management"
+                    to="/courses?import=schedule"
                     onClick={() => {
                       setIsImportOpen(false);
                       closeMobileNavigation();

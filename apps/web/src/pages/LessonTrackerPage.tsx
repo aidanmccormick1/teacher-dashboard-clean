@@ -4,7 +4,6 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type { ClassroomResumeResponse, DashboardTodayResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
-import { rememberManagementTab } from '../lib/management-tabs.js';
 
 type LessonTrackerDraft = {
   note: string;
@@ -266,12 +265,8 @@ export function LessonTrackerPage() {
           <Link className="button-link secondary" to="/classroom">
             Back to Classroom
           </Link>
-          <Link
-            className="button-link secondary"
-            to="/management"
-            onClick={() => rememberManagementTab('progress')}
-          >
-            Progress
+          <Link className="button-link secondary" to="/today">
+            Today
           </Link>
           <div className="progress-stack compact">
             <span>{progressPercent}%</span>

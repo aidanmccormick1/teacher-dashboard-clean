@@ -1021,7 +1021,6 @@ button.button-link {
 
 .dashboard-page,
 .profile-page,
-.management-page,
 .onboarding-page {
   display: grid;
   gap: 22px;
@@ -1046,11 +1045,6 @@ button.button-link {
 .guide-page {
   max-width: 1440px;
   margin: 0 auto;
-}
-
-.management-page {
-  max-width: 1280px;
-  gap: 26px;
 }
 
 .dashboard-hero {
@@ -1335,7 +1329,7 @@ button.button-link {
   align-items: start;
 }
 
-.management-tabs {
+.year-plan-view-toggle {
   position: sticky;
   top: 18px;
   z-index: 8;
@@ -1353,11 +1347,11 @@ button.button-link {
   scrollbar-width: none;
 }
 
-.management-tabs::-webkit-scrollbar {
+.year-plan-view-toggle::-webkit-scrollbar {
   display: none;
 }
 
-.management-tabs button {
+.year-plan-view-toggle button {
   border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;
@@ -1376,23 +1370,23 @@ button.button-link {
     transform 180ms ease;
 }
 
-.management-tabs button:hover {
+.year-plan-view-toggle button:hover {
   color: var(--ink);
   background: #f2f5f4;
 }
 
-.management-tabs button:disabled {
+.year-plan-view-toggle button:disabled {
   cursor: not-allowed;
   opacity: 0.46;
   transform: none;
 }
 
-.management-tabs button:disabled:hover {
+.year-plan-view-toggle button:disabled:hover {
   background: transparent;
   color: var(--muted);
 }
 
-.management-tabs button.active {
+.year-plan-view-toggle button.active {
   border-color: rgba(70, 114, 93, 0.28);
   background: #e8f0eb;
   color: #244433;
@@ -1400,12 +1394,7 @@ button.button-link {
   transform: none;
 }
 
-.management-panel {
-  gap: 22px;
-}
-
 .walkthrough-step-grid,
-.management-menu-grid,
 .weekly-schedule-grid,
 .progress-course-grid {
   display: grid;
@@ -1440,10 +1429,6 @@ button.button-link {
 .walkthrough-step-card h3,
 .walkthrough-step-card p {
   margin: 0;
-}
-
-.management-menu-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .weekly-day-card {
@@ -1525,39 +1510,6 @@ button.button-link {
   color: #7a4b13;
 }
 
-.management-snapshot {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  max-width: 760px;
-  width: 100%;
-  margin: -8px auto 0;
-}
-
-.management-snapshot > div {
-  display: grid;
-  gap: 2px;
-  justify-items: center;
-  border: 1px solid rgba(216, 200, 170, 0.78);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-  background: #ffffff;
-}
-
-.management-snapshot strong {
-  color: var(--navy);
-  font-size: 1.45rem;
-  letter-spacing: -0.05em;
-}
-
-.management-snapshot span {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: 0.01em;
-}
-
 .smart-prompt {
   display: flex;
   align-items: center;
@@ -1582,16 +1534,6 @@ button.button-link {
 .smart-prompt p:not(.eyebrow) {
   margin-top: 6px;
   color: var(--muted);
-}
-
-.management-metrics,
-.management-overview-grid,
-.management-course-grid,
-.management-setup-grid,
-.management-editor-grid,
-.management-ai-grid {
-  display: grid;
-  gap: 16px;
 }
 
 .course-card-grid {
@@ -3067,37 +3009,6 @@ body.course-editor-open {
   grid-column: 1 / -1;
 }
 
-.management-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.management-metrics div {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  padding: 20px;
-  background: #ffffff;
-  box-shadow: none;
-}
-
-.management-metrics span {
-  display: block;
-  color: var(--navy);
-  font-size: 2.4rem;
-  font-weight: 650;
-  letter-spacing: -0.08em;
-}
-
-.management-metrics p {
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.management-overview-grid {
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  align-items: start;
-}
-
 .setup-strip,
 .connection-list,
 .course-outline,
@@ -3171,57 +3082,10 @@ body.course-editor-open {
   color: var(--muted);
 }
 
-.management-course-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.management-editor-grid {
-  grid-template-columns: minmax(260px, 0.82fr) minmax(0, 1.18fr);
-  align-items: start;
-}
-
-/* Meeting setup is a focused editor, not a dashboard. Keep the cards readable
-   on wide displays and prevent one class group from stretching into a giant
-   form beside another. */
-.management-editor-grid.meeting-times-editor {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  width: min(100%, 1120px);
-  margin: 0 auto;
-  align-items: stretch;
-}
-
-.meeting-times-editor > .card {
-  min-height: 100%;
-  padding: 24px;
-}
-
-.meeting-time-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  min-width: 0;
-}
-
-.meeting-time-fields label {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.management-editor-grid > *,
-.management-ai-grid > *,
 .course-outline-list,
 .unit-editor-card,
 .lesson-editor-card {
   min-width: 0;
-}
-
-.management-ai-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: start;
 }
 
 .course-map-card h3 {
@@ -3251,10 +3115,6 @@ body.course-editor-open {
 
 .section-roster-card p {
   margin: 0;
-}
-
-.management-setup-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .setup-card {
@@ -5505,18 +5365,10 @@ button,
   .paper-hero,
   .walkthrough-callout,
   .guide-grid,
-  .management-metrics,
-  .management-overview-grid,
-  .management-course-grid,
-  .management-editor-grid,
-  .management-ai-grid,
-  .management-setup-grid,
   .walkthrough-step-grid,
-  .management-menu-grid,
   .weekly-schedule-grid,
   .progress-course-grid,
   .progress-section-row,
-  .management-snapshot,
   .parsed-class-fields,
   .template-picker,
   .template-preview-list,
@@ -5697,6 +5549,238 @@ button,
   margin: 0 auto;
   padding: 2rem 1.25rem 5rem;
 }
+
+/* Planning is intentionally the one canvas-first workspace. It uses the rail
+ * without the generic page frame so actual class-meeting dates get the screen. */
+.app-shell:has(.year-plan-canvas-page) .main {
+  padding: 0;
+}
+
+.year-plan-canvas-page {
+  display: grid;
+  min-height: calc(100vh - 1px);
+  max-width: none;
+  margin: 0;
+  padding: 18px clamp(14px, 2vw, 30px) 0;
+}
+
+.year-plan-canvas-page .year-plan-page-header {
+  display: flex;
+  min-height: auto;
+  margin: 0;
+  padding: 0 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.year-plan-canvas-page .year-plan-header-controls {
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.year-plan-canvas-page .year-plan-header-controls label {
+  min-width: min(210px, 29vw);
+}
+
+.year-plan-canvas-page .curriculum-workspace {
+  min-width: 0;
+  padding: 12px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.year-plan-canvas-page .curriculum-split-view {
+  min-height: calc(100vh - 165px);
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.year-plan-canvas-page .curriculum-canvas-wrap {
+  border-left: 1px solid var(--line);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.courses-page {
+  display: grid;
+  max-width: 1120px;
+  gap: 22px;
+  margin: 0 auto;
+  padding: clamp(20px, 4vw, 46px);
+}
+
+.courses-page-header,
+.course-hub-row,
+.courses-create-row,
+.courses-import-panel,
+.section-meeting-editor {
+  display: flex;
+  gap: 14px;
+}
+
+.courses-page-header,
+.course-hub-row {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.courses-page-header h1,
+.course-hub-row h2,
+.course-hub-row p {
+  margin: 0;
+}
+
+.courses-page-header > div,
+.course-hub-row > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.course-hub-row {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.course-hub-row span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.course-hub-list {
+  display: grid;
+}
+
+.courses-create-row {
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.courses-create-row .input {
+  min-width: 0;
+}
+
+.courses-create-row .input:first-child {
+  flex: 1.6;
+}
+
+.courses-create-row .input:not(:first-child) {
+  flex: 0.8;
+}
+
+.courses-import-panel,
+.section-meeting-editor {
+  flex-direction: column;
+  padding: 18px;
+  border: 1px solid rgba(57, 104, 140, 0.24);
+  border-radius: var(--radius-md);
+  background: #f9fcfb;
+}
+
+.courses-import-panel h2,
+.courses-import-panel p {
+  margin: 0;
+}
+
+.courses-import-panel textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.file-input-label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.schedule-import-review,
+.schedule-import-review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.schedule-import-review-list {
+  max-height: 280px;
+  overflow: auto;
+}
+
+.schedule-import-review-list article {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(90px, 0.6fr) minmax(170px, 1fr);
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.schedule-import-review-list small,
+.schedule-import-review-list span {
+  color: var(--muted);
+}
+
+.courses-import-correction,
+.section-meeting-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.section-meeting-fields {
+  grid-template-columns: minmax(110px, 1fr) 105px 105px minmax(100px, 1fr) auto;
+}
+
+.course-edit-meeting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.course-edit-meeting-row > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.course-edit-meeting-row span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+@media (max-width: 760px) {
+  .courses-page-header,
+  .course-hub-row,
+  .courses-create-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .courses-create-row .input {
+    flex: auto !important;
+  }
+
+  .schedule-import-review-list article,
+  .section-meeting-fields,
+  .courses-import-correction {
+    grid-template-columns: 1fr;
+  }
+}
 .lesson-workspace-header {
   display: flex;
   justify-content: space-between;
@@ -5704,6 +5788,199 @@ button,
   align-items: center;
   border-bottom: 1px solid var(--border, #e5e7eb);
   padding-bottom: 1rem;
+}
+
+.lesson-document-page {
+  max-width: 1080px;
+  padding-top: 1rem;
+}
+
+.lesson-document-page .lesson-workspace-header {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  margin: 0 -1.25rem 22px;
+  padding: 14px 1.25rem;
+  background: color-mix(in srgb, #fff 93%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.lesson-return {
+  display: inline-block;
+  margin-bottom: 5px;
+  color: var(--green-dark);
+  font-size: 0.83rem;
+  font-weight: 800;
+}
+
+.lesson-document-page .lesson-document {
+  display: grid;
+  gap: 24px;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.lesson-document-page .workspace-label {
+  display: grid;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rich-field-wrap {
+  position: relative;
+}
+
+.rich-field-wrap:focus-within {
+  border-radius: var(--radius-sm);
+  background: #fbfcfb;
+}
+
+.rich-toolbar {
+  position: sticky;
+  top: 68px;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: fit-content;
+  margin: 0 0 6px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 5px 15px rgba(43, 57, 66, 0.1);
+}
+
+.rich-toolbar button {
+  min-height: 28px;
+  padding: 3px 7px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  font-size: 0.78rem;
+}
+
+.rich-field {
+  min-height: 54px;
+  padding: 3px 0 8px;
+  border-bottom: 1px solid transparent;
+  outline: 0;
+  color: var(--ink);
+  font-weight: 500;
+  line-height: 1.65;
+}
+
+.rich-field:focus {
+  border-bottom-color: var(--green);
+}
+
+.rich-field:empty::before {
+  content: attr(data-placeholder);
+  color: #98a29d;
+}
+
+.lesson-share-popover,
+.lesson-generation-draft {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(57, 104, 140, 0.28);
+  border-radius: var(--radius-md);
+  background: #f9fcfb;
+}
+
+.lesson-share-popover {
+  position: fixed;
+  top: 70px;
+  right: max(18px, 4vw);
+  z-index: 20;
+  width: min(300px, calc(100vw - 36px));
+  box-shadow: 0 14px 30px rgba(43, 57, 66, 0.16);
+}
+
+.lesson-share-popover label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.lesson-steps-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.lesson-steps-heading h2 {
+  margin: 0;
+}
+
+.lesson-generation-draft ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.lesson-generation-draft li span {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.lesson-document-page .lesson-step {
+  display: grid;
+  grid-template-columns: 22px 74px minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.lesson-document-page .step-main {
+  display: grid;
+  gap: 8px;
+}
+
+.lesson-document-page .step-title {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.lesson-document-page .step-title:focus {
+  border-bottom-color: var(--green);
+  outline: 0;
+}
+
+@media (max-width: 760px) {
+  .lesson-document-page .lesson-workspace-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .lesson-document-page .lesson-step {
+    grid-template-columns: 18px 60px minmax(0, 1fr);
+  }
+
+  .lesson-document-page .step-actions {
+    grid-column: 3;
+  }
 }
 .lesson-title-input {
   border: 0;

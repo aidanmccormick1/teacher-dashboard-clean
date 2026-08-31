@@ -43,16 +43,20 @@ export class ErrorBoundary extends Component<PropsWithChildren, ErrorBoundarySta
           <p className="eyebrow">Something broke</p>
           <h1>The app hit a snag.</h1>
           <p>
-            Your work should still be saved if it already reached the server. Try reloading, or copy the report so we
-            can fix the exact screen.
+            Your work should still be saved if it already reached the server. Try reloading, or copy
+            the report so we can fix the exact screen.
           </p>
           <pre>{this.state.error.message}</pre>
           <div className="profile-actions">
             <button type="button" onClick={() => window.location.reload()}>
               Reload app
             </button>
-            <button className="secondary" type="button" onClick={() => window.location.assign('/dashboard')}>
-              Go to dashboard
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => window.location.assign('/today')}
+            >
+              Go to Today
             </button>
             <button className="secondary" type="button" onClick={() => void this.copyReport()}>
               Copy report

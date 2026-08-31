@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import type {
   ClassroomResumeResponse,
   DashboardTodayResponse,
@@ -29,9 +29,29 @@ function occurrenceKey(sectionId: string, meetingTime: string | null) {
   return `${sectionId}:${meetingTime ?? 'legacy'}`;
 }
 
+function TodayLoading() {
+  return (
+    <main className="today-workspace today-loading" aria-busy="true" aria-label="Loading Today">
+      <header className="today-header">
+        <div className="workspace-skeleton workspace-skeleton-title" />
+        <div className="workspace-skeleton workspace-skeleton-action" />
+      </header>
+      <section className="today-focus today-loading-focus">
+        <div className="workspace-skeleton workspace-skeleton-eyebrow" />
+        <div className="workspace-skeleton workspace-skeleton-heading" />
+        <div className="workspace-skeleton workspace-skeleton-copy" />
+      </section>
+      <section className="today-schedule">
+        <div className="workspace-skeleton workspace-skeleton-heading" />
+        <div className="workspace-skeleton workspace-skeleton-row" />
+        <div className="workspace-skeleton workspace-skeleton-row" />
+      </section>
+    </main>
+  );
+}
+
 export function TodayPage() {
   const api = useApiClient();
-  const navigate = useNavigate();
   const [data, setData] = useState<TodayData>({
     today: null,
     schedule: null,
@@ -124,8 +144,17 @@ export function TodayPage() {
     [data.today?.date]
   );
 
-  if (loading) return <p className="muted">Loading Today…</p>;
-  if (error) return <p className="notice warning">{error}</p>;
+  if (loading) return <TodayLoading />;
+  if (error)
+    return (
+      <main className="today-workspace">
+        <section className="today-empty" role="alert">
+          <p className="eyebrow">Today is unavailable</p>
+          <h2>We could not load your teaching day.</h2>
+          <p>{error}</p>
+        </section>
+      </main>
+    );
 
   return (
     <main className="today-workspace">
@@ -245,9 +274,6 @@ export function TodayPage() {
           <p className="muted">No classes are scheduled today.</p>
         )}
       </section>
-      <button className="button-link" type="button" onClick={() => navigate('/dashboard')}>
-        Open legacy Dashboard
-      </button>
     </main>
   );
 }

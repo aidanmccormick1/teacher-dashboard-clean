@@ -5,7 +5,6 @@ import type { ProfileResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
-import { rememberManagementTab } from '../lib/management-tabs.js';
 
 type ProfileForm = {
   fullName: string;
@@ -299,9 +298,7 @@ export function ProfilePage() {
               <h2>What you teach</h2>
               <p>Use commas to add more than one subject or grade.</p>
             </div>
-            <Link to="/management" onClick={() => rememberManagementTab('courses')}>
-              Courses
-            </Link>
+            <Link to="/courses">Courses</Link>
           </div>
           <div className="profile-form-grid">
             <label>
@@ -333,7 +330,13 @@ export function ProfilePage() {
         </article>
         <footer className="profile-save-bar">
           <div>
-            <strong>{saving ? 'Saving changes…' : saved ? 'All changes saved' : 'Changes save automatically'}</strong>
+            <strong>
+              {saving
+                ? 'Saving changes…'
+                : saved
+                  ? 'All changes saved'
+                  : 'Changes save automatically'}
+            </strong>
             <span>Your school and teaching details are saved after you pause typing.</span>
           </div>
           <button type="button" disabled={!canSave || saving} onClick={() => void save()}>
@@ -346,8 +349,8 @@ export function ProfilePage() {
               <p className="eyebrow">Danger zone</p>
               <h2>Start over</h2>
               <p>
-                Permanently erase your classes, curriculum, schedule, school calendar, notes,
-                AI history, and settings. Your sign-in account stays active.
+                Permanently erase your classes, curriculum, schedule, school calendar, notes, AI
+                history, and settings. Your sign-in account stays active.
               </p>
             </div>
             <button type="button" disabled={resetting} onClick={() => void resetAccount()}>

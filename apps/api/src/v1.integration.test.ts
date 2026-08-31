@@ -128,6 +128,149 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
   });
 
   describe('v1 curriculum CRUD', () => {
+    it('updates reviewed imports in place without duplicating a class group or its history identity', async () => {
+      await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: onboardingBody
+      });
+      const firstImport = await app.inject({
+        method: 'POST',
+        url: '/v1/schedule/import/apply',
+        headers: teacherHeaders,
+        payload: {
+          classes: [
+            {
+              name: 'Spanish 5',
+              period: '5B',
+              days: ['Monday', 'Friday'],
+              time: '09:00',
+              endTime: '09:50',
+              room: '12',
+              subject: 'World language'
+            }
+          ]
+        }
+      });
+      expect(firstImport.statusCode).toBe(200);
+      const firstSection = firstImport
+        .json<{
+          sections: Array<{
+            sectionId: string;
+            sectionName: string;
+            meetings: Array<{ day: string }>;
+          }>;
+        }>()
+        .sections.find((section) => section.sectionName === '5B')!;
+      expect(firstSection.meetings.map((meeting) => meeting.day)).toEqual(['Monday', 'Friday']);
+
+      const correctedImport = await app.inject({
+        method: 'POST',
+        url: '/v1/schedule/import/apply',
+        headers: teacherHeaders,
+        payload: {
+          classes: [
+            {
+              name: 'Spanish 5',
+              period: '5B',
+              days: ['Wednesday', 'Thursday'],
+              time: '13:00',
+              endTime: '13:50',
+              room: '12',
+              subject: 'World language'
+            }
+          ]
+        }
+      });
+      expect(correctedImport.statusCode).toBe(200);
+      const matchingSections = correctedImport
+        .json<{
+          sections: Array<{
+            sectionId: string;
+            sectionName: string;
+            meetings: Array<{ day: string; time: string | null }>;
+          }>;
+        }>()
+        .sections.filter((section) => section.sectionName === '5B');
+      expect(matchingSections).toHaveLength(1);
+      expect(matchingSections[0]?.sectionId).toBe(firstSection.sectionId);
+      expect(matchingSections[0]?.meetings).toEqual([
+        expect.objectContaining({ day: 'Wednesday', time: '13:00' }),
+        expect.objectContaining({ day: 'Thursday', time: '13:00' })
+      ]);
+    });
+
+    it('creates a confirmed Year Plan range transactionally at effective meeting indices', async () => {
+      await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: onboardingBody
+      });
+      const courseResponse = await app.inject({
+        method: 'POST',
+        url: '/v1/courses',
+        headers: teacherHeaders,
+        payload: { name: 'Spanish 5', subject: 'World language', gradeLevel: '5' }
+      });
+      const courseId = courseResponse.json<{ course: { id: string } }>().course.id;
+
+      const createUnitRange = await app.inject({
+        method: 'PATCH',
+        url: `/v1/courses/${courseId}/planning-range`,
+        headers: teacherHeaders,
+        payload: {
+          kind: 'unit',
+          title: 'Introducing yourself',
+          plannedStartMeeting: 3,
+          plannedMeetingCount: 4,
+          lessonTitles: ['Model', 'Partner practice']
+        }
+      });
+      expect(createUnitRange.statusCode).toBe(200);
+      const created = createUnitRange.json<{
+        course: {
+          units: Array<{
+            id: string;
+            plannedStartMeeting: number | null;
+            plannedMeetingCount: number | null;
+            lessons: Array<{ title: string; plannedStartMeeting: number | null }>;
+          }>;
+        };
+      }>();
+      const unit = created.course.units[0]!;
+      expect(unit.plannedStartMeeting).toBe(3);
+      expect(unit.plannedMeetingCount).toBe(4);
+      expect(unit.lessons.map((lesson) => lesson.title)).toEqual(['Model', 'Partner practice']);
+      expect(unit.lessons.map((lesson) => lesson.plannedStartMeeting)).toEqual([3, 5]);
+
+      const createLessonRange = await app.inject({
+        method: 'PATCH',
+        url: `/v1/courses/${courseId}/planning-range`,
+        headers: teacherHeaders,
+        payload: {
+          kind: 'lessons',
+          unitId: unit.id,
+          plannedStartMeeting: 8,
+          plannedMeetingCount: 2,
+          lessonTitles: ['Exit ticket']
+        }
+      });
+      expect(createLessonRange.statusCode).toBe(200);
+      expect(
+        createLessonRange
+          .json<{
+            course: {
+              units: Array<{
+                lessons: Array<{ title: string; plannedStartMeeting: number | null }>;
+              }>;
+            };
+          }>()
+          .course.units[0]!.lessons.map((lesson) => [lesson.title, lesson.plannedStartMeeting])
+      ).toContainEqual(['Exit ticket', 8]);
+    });
+
     it('supports full nested curriculum CRUD for an onboarded teacher', async () => {
       const onboarding = await app.inject({
         method: 'POST',
@@ -272,6 +415,33 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           .find((item) => item.id === lessonId)!
           .segments.map((item) => item.title)
       ).toEqual(['Guided practice', 'Do Now + Attendance']);
+
+      const enableShare = await app.inject({
+        method: 'PATCH',
+        url: `/v1/lessons/${lessonId}/share`,
+        headers: teacherHeaders,
+        payload: { enabled: true }
+      });
+      expect(enableShare.statusCode).toBe(200);
+      const publicLesson = await app.inject({
+        method: 'GET',
+        url: `/v1/public/lessons/${enableShare.json<{ token: string }>().token}`
+      });
+      expect(publicLesson.statusCode).toBe(200);
+      const sharePayload = publicLesson.json<{
+        courseName: string;
+        lesson: { title: string; steps: Array<{ title: string }> };
+      }>();
+      expect(sharePayload).toEqual({
+        courseName: 'Algebra I',
+        unitTitle: 'Linear Equations',
+        lesson: expect.objectContaining({
+          title: 'Solving for X',
+          steps: expect.arrayContaining([expect.objectContaining({ title: 'Guided practice' })])
+        })
+      });
+      expect(sharePayload.lesson).not.toHaveProperty('id');
+      expect(sharePayload).not.toHaveProperty('courseId');
 
       const fetchCourse = await app.inject({
         method: 'GET',

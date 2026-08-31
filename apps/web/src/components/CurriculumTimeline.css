@@ -232,3 +232,84 @@
     flex-direction: column;
   }
 }
+
+/* Calendar-style range selection overlays the protected meeting-index canvas. */
+.curriculum-canvas {
+  position: relative;
+}
+
+.curriculum-create-lane {
+  min-height: 44px;
+  border: 1px dashed rgba(84, 119, 101, 0.35);
+  color: var(--muted);
+  cursor: crosshair;
+  user-select: none;
+}
+
+.curriculum-create-lane span {
+  grid-column: 1 / -1;
+  align-self: center;
+  padding: 0 12px;
+  font-size: 0.8rem;
+}
+
+.curriculum-range-preview {
+  position: absolute;
+  top: 8px;
+  bottom: 24px;
+  z-index: 2;
+  display: grid;
+  place-items: start center;
+  min-width: 1px;
+  border: 1px solid rgba(57, 104, 140, 0.7);
+  background: rgba(108, 169, 206, 0.18);
+  color: #28506a;
+  pointer-events: none;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.curriculum-range-popover {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 30;
+  display: grid;
+  width: min(390px, calc(100vw - 40px));
+  gap: 11px;
+  padding: 16px;
+  border: 1px solid rgba(57, 104, 140, 0.32);
+  border-radius: var(--radius-md);
+  background: #fff;
+  box-shadow: 0 18px 38px rgba(38, 56, 77, 0.2);
+}
+
+.curriculum-range-popover > div:first-child,
+.curriculum-range-popover label {
+  display: grid;
+  gap: 4px;
+}
+
+.curriculum-range-popover span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.curriculum-range-kind {
+  display: flex;
+  gap: 4px;
+}
+
+.curriculum-range-kind button {
+  flex: 1;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+}
+
+.curriculum-range-kind button.active {
+  border-color: var(--green);
+  background: #edf5ef;
+  color: var(--green-dark);
+}

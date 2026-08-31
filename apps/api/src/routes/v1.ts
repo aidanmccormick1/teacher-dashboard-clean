@@ -28,6 +28,7 @@ import {
   CourseListResponseSchema,
   CourseOrderUpdateRequestSchema,
   CourseUpdateRequestSchema,
+  CurriculumRangeCreateRequestSchema,
   DashboardTodayResponseSchema,
   DeleteEntityResponseSchema,
   FeedbackSubmitRequestSchema,
@@ -961,6 +962,91 @@ export async function v1Routes(app: FastifyInstance) {
               }
             : null
       });
+    }
+  );
+
+  app.patch(
+    '/v1/courses/:courseId/planning-range',
+    {
+      schema: {
+        params: CourseParamsSchema,
+        body: CurriculumRangeCreateRequestSchema,
+        response: { 200: CourseDetailResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = CourseParamsSchema.parse(request.params);
+      const body = CurriculumRangeCreateRequestSchema.parse(request.body);
+      if (!(await findOwnedCourse(user.id, params.courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+
+      await db.transaction(async (tx) => {
+        let unitId: string;
+        let lessonTitles: string[];
+        if (body.kind === 'unit') {
+          const [lastUnit] = await tx
+            .select({ orderIndex: units.orderIndex })
+            .from(units)
+            .where(eq(units.courseId, params.courseId))
+            .orderBy(desc(units.orderIndex))
+            .limit(1);
+          const [unit] = await tx
+            .insert(units)
+            .values({
+              courseId: params.courseId,
+              title: body.title,
+              description: body.description ?? null,
+              orderIndex: (lastUnit?.orderIndex ?? -1) + 1,
+              plannedStartMeeting: body.plannedStartMeeting,
+              plannedMeetingCount: body.plannedMeetingCount
+            })
+            .returning({ id: units.id });
+          if (!unit) throw new Error('Could not create unit');
+          unitId = unit.id;
+          lessonTitles = body.lessonTitles;
+        } else {
+          const [unit] = await tx
+            .select({ id: units.id })
+            .from(units)
+            .where(and(eq(units.id, body.unitId), eq(units.courseId, params.courseId)))
+            .limit(1);
+          if (!unit) throw new Error('Unit not found in this course');
+          unitId = unit.id;
+          lessonTitles = body.lessonTitles;
+        }
+
+        if (!lessonTitles.length) return;
+        const [lastLesson] = await tx
+          .select({ orderIndex: lessons.orderIndex })
+          .from(lessons)
+          .where(eq(lessons.unitId, unitId))
+          .orderBy(desc(lessons.orderIndex))
+          .limit(1);
+        const span = Math.max(1, Math.floor(body.plannedMeetingCount / lessonTitles.length));
+        await tx.insert(lessons).values(
+          lessonTitles.map((title, index) => ({
+            unitId,
+            title,
+            description: null,
+            estimatedDurationMinutes: 45,
+            orderIndex: (lastLesson?.orderIndex ?? -1) + 1 + index,
+            plannedStartMeeting:
+              body.plannedStartMeeting + Math.min(body.plannedMeetingCount - 1, index * span),
+            plannedMeetingCount:
+              index === lessonTitles.length - 1
+                ? Math.max(1, body.plannedMeetingCount - span * index)
+                : span
+          }))
+        );
+      });
+      const detail = await buildCourseDetail(user.id, params.courseId);
+      if (!detail) throw new Error('Failed to load course detail');
+      return detail;
     }
   );
 
@@ -2860,15 +2946,17 @@ export async function v1Routes(app: FastifyInstance) {
         courseName: row.courseName,
         unitTitle: row.unitTitle,
         lesson: {
-          id: row.lessonId,
           title: row.title,
           description: row.description,
-          lessonPlan: row.lessonPlan,
-          orderIndex: row.orderIndex,
+          objective: row.lessonPlan.objective,
+          materials: row.lessonPlan.materials,
           estimatedDurationMinutes: row.estimatedDurationMinutes,
-          plannedStartMeeting: row.plannedStartMeeting,
-          plannedMeetingCount: row.plannedMeetingCount,
-          segments
+          steps: segments.map((segment) => ({
+            title: segment.title,
+            description: segment.description,
+            durationMinutes: segment.durationMinutes,
+            stepType: segment.stepType
+          }))
         }
       });
     }
@@ -3161,14 +3249,15 @@ export async function v1Routes(app: FastifyInstance) {
           existingCourses.map((course) => [importNameKey(course.name), course.id])
         );
         const existingSections = await tx
-          .select({ courseId: sections.courseId, sectionName: sections.name })
+          .select({ id: sections.id, courseId: sections.courseId, sectionName: sections.name })
           .from(sections)
           .innerJoin(courses, eq(sections.courseId, courses.id))
           .where(eq(courses.teacherId, user.id));
-        const sectionKeys = new Set(
-          existingSections.map(
-            (section) => `${section.courseId}|${importNameKey(section.sectionName)}`
-          )
+        const sectionsByKey = new Map(
+          existingSections.map((section) => [
+            `${section.courseId}|${importNameKey(section.sectionName)}`,
+            section.id
+          ])
         );
 
         for (const classGroup of classGroups) {
@@ -3193,13 +3282,6 @@ export async function v1Routes(app: FastifyInstance) {
           }
 
           const sectionKey = `${courseId}|${importNameKey(firstClass.period)}`;
-          if (sectionKeys.has(sectionKey)) continue;
-          const [section] = await tx
-            .insert(sections)
-            .values({ courseId, name: firstClass.period })
-            .returning({ id: sections.id });
-          if (!section) throw new Error('Failed to create class group');
-
           const meetings = classGroup.classes
             .flatMap((parsedClass) =>
               parsedClass.days.map((day) => ({
@@ -3219,6 +3301,32 @@ export async function v1Routes(app: FastifyInstance) {
                     candidate.room === meeting.room
                 ) === index
             );
+          const existingSectionId = sectionsByKey.get(sectionKey);
+          if (existingSectionId) {
+            // Re-applying a teacher-reviewed import updates the recurring
+            // meeting pattern in place. The section identifier (and therefore
+            // its progress/history) remains stable.
+            if (meetings.length) {
+              await tx
+                .delete(sectionMeetings)
+                .where(eq(sectionMeetings.sectionId, existingSectionId));
+              await tx.insert(sectionMeetings).values(
+                meetings.map((meeting) => ({
+                  sectionId: existingSectionId,
+                  day: meeting.day,
+                  meetingTime: meeting.time,
+                  endTime: meeting.endTime,
+                  room: meeting.room
+                }))
+              );
+            }
+            continue;
+          }
+          const [section] = await tx
+            .insert(sections)
+            .values({ courseId, name: firstClass.period })
+            .returning({ id: sections.id });
+          if (!section) throw new Error('Failed to create class group');
           if (meetings.length) {
             await tx.insert(sectionMeetings).values(
               meetings.map((meeting) => ({
@@ -3230,7 +3338,7 @@ export async function v1Routes(app: FastifyInstance) {
               }))
             );
           }
-          sectionKeys.add(sectionKey);
+          sectionsByKey.set(sectionKey, section.id);
         }
       });
 

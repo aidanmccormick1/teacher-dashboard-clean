@@ -31,7 +31,7 @@ export function LoginPage() {
   const [testLoading, setTestLoading] = useState(false);
 
   useEffect(() => {
-    if (auth.isSignedIn) navigate('/dashboard');
+    if (auth.isSignedIn) navigate('/today');
   }, [auth.isSignedIn, navigate]);
 
   useEffect(() => {
@@ -48,7 +48,7 @@ export function LoginPage() {
     }
 
     auth.signInPilot();
-    navigate('/dashboard');
+    navigate('/today');
   };
 
   const submitTestAccount = async () => {
@@ -61,9 +61,11 @@ export function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: testUsername, password: testPassword })
       });
-      const payload = (await response.json().catch(() => null)) as
-        | { token?: string; user?: { username?: string; email?: string }; error?: string }
-        | null;
+      const payload = (await response.json().catch(() => null)) as {
+        token?: string;
+        user?: { username?: string; email?: string };
+        error?: string;
+      } | null;
 
       if (!response.ok || !payload?.token || !payload.user?.username) {
         setTestError(payload?.error ?? 'Could not sign in with that test account.');
@@ -71,7 +73,7 @@ export function LoginPage() {
       }
 
       auth.signInWithTestToken(payload.token, payload.user.username, payload.user.email ?? null);
-      navigate('/dashboard');
+      navigate('/today');
     } catch {
       setTestError('Could not reach the backend. Try again in a moment.');
     } finally {
@@ -88,8 +90,12 @@ export function LoginPage() {
       }}
     >
       <div>
-        <strong>{testAuthMode === 'signup' ? 'Create your account' : 'Sign in to your account'}</strong>
-        <p className="muted">Your username and password keep your courses and plans in a separate workspace.</p>
+        <strong>
+          {testAuthMode === 'signup' ? 'Create your account' : 'Sign in to your account'}
+        </strong>
+        <p className="muted">
+          Your username and password keep your courses and plans in a separate workspace.
+        </p>
       </div>
       <div className="login-mode-tabs" role="tablist" aria-label="Account mode">
         <button
@@ -151,7 +157,9 @@ export function LoginPage() {
           <div className="login-intro">
             <p className="eyebrow">TeacherDesk · Calico EDU</p>
             <h1>Sign in or create an account.</h1>
-            <p className="muted">Use your secure TeacherDesk account to keep courses and plans private.</p>
+            <p className="muted">
+              Use your secure TeacherDesk account to keep courses and plans private.
+            </p>
             <div className="login-proof-list">
               <span>Courses</span>
               <span>Periods</span>
@@ -185,8 +193,8 @@ export function LoginPage() {
             {loginMode === 'signin' ? (
               <div className="login-card">
                 <SignIn
-                  fallbackRedirectUrl="/dashboard"
-                  signUpFallbackRedirectUrl="/dashboard"
+                  fallbackRedirectUrl="/today"
+                  signUpFallbackRedirectUrl="/today"
                   signUpUrl="/login"
                 />
               </div>
@@ -194,13 +202,15 @@ export function LoginPage() {
 
             {loginMode === 'signup' ? (
               <div className="login-card">
-                <SignUp fallbackRedirectUrl="/dashboard" signInUrl="/login" />
+                <SignUp fallbackRedirectUrl="/today" signInUrl="/login" />
               </div>
             ) : null}
 
             <div className="login-account-note">
               <strong>Secure sign-in</strong>
-              <p>Authentication is handled by Clerk and the API only accepts signed session tokens.</p>
+              <p>
+                Authentication is handled by Clerk and the API only accepts signed session tokens.
+              </p>
             </div>
           </div>
         </section>
@@ -274,24 +284,35 @@ export function LoginPage() {
           {allowLocalDevLogin && (loginMode === 'signin' || loginMode === 'signup') ? (
             <div className="card stack login-dev-card">
               <div>
-                <strong>{loginMode === 'signup' ? 'Create local account' : 'Existing local user'}</strong>
+                <strong>
+                  {loginMode === 'signup' ? 'Create local account' : 'Existing local user'}
+                </strong>
                 <p className="muted">
-                  This creates a local browser session for development. Live account creation uses Clerk.
+                  This creates a local browser session for development. Live account creation uses
+                  Clerk.
                 </p>
               </div>
               <label>
                 User ID
-                <input className="input" value={devUserId} onChange={(e) => setDevUserId(e.target.value)} />
+                <input
+                  className="input"
+                  value={devUserId}
+                  onChange={(e) => setDevUserId(e.target.value)}
+                />
               </label>
               <label>
                 Email
-                <input className="input" value={devEmail} onChange={(e) => setDevEmail(e.target.value)} />
+                <input
+                  className="input"
+                  value={devEmail}
+                  onChange={(e) => setDevEmail(e.target.value)}
+                />
               </label>
               <button
                 type="button"
                 onClick={() => {
                   auth.signInDev(devUserId, devEmail || null);
-                  navigate('/dashboard');
+                  navigate('/today');
                 }}
               >
                 {loginMode === 'signup' ? 'Create local account' : 'Sign in'}
@@ -327,7 +348,11 @@ export function LoginPage() {
               </button>
               <label>
                 Email
-                <input className="input" value={pilotEmail} onChange={(event) => setPilotEmail(event.target.value)} />
+                <input
+                  className="input"
+                  value={pilotEmail}
+                  onChange={(event) => setPilotEmail(event.target.value)}
+                />
               </label>
               <label>
                 Password
@@ -340,9 +365,7 @@ export function LoginPage() {
               </label>
               {pilotError ? <p className="notice warning">{pilotError}</p> : null}
               {pilotStatus ? <p className="notice success">{pilotStatus}</p> : null}
-              <button type="submit">
-                Sign in with pilot account
-              </button>
+              <button type="submit">Sign in with pilot account</button>
             </form>
           ) : null}
         </div>

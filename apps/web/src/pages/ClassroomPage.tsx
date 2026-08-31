@@ -359,7 +359,10 @@ export function ClassroomPage() {
             ) : (
               <>
                 <strong>No lesson planned</strong>
-                <Link className="button-link" to={`/courses/${selected?.courseId ?? ''}`}>
+                <Link
+                  className="button-link"
+                  to={`/year-plan?course=${encodeURIComponent(selected?.courseId ?? '')}&section=${encodeURIComponent(context.sectionId)}`}
+                >
                   Open Year Plan
                 </Link>
               </>
@@ -410,14 +413,15 @@ export function ClassroomPage() {
               <section className="live-note">
                 <label>
                   Quick note
-                  <input
+                  <textarea
                     className="input"
+                    rows={3}
                     value={note}
                     placeholder="What happened today?"
                     onChange={(e) => queue(checks, e.target.value)}
                   />
                 </label>
-                <span className="autosave">
+                <span className="autosave" aria-live="polite">
                   {state === 'saving' ? 'Saving…' : state === 'error' ? 'Saved locally' : 'Saved'}
                 </span>
               </section>

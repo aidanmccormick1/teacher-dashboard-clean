@@ -87,19 +87,36 @@ export function OnboardingPage() {
         <div className="profile-form-grid">
           <label>
             Full name
-            <input className="input" value={form.fullName} onChange={(event) => update('fullName', event.target.value)} />
+            <input
+              className="input"
+              value={form.fullName}
+              onChange={(event) => update('fullName', event.target.value)}
+            />
           </label>
           <label>
             Work email
-            <input className="input" type="email" value={form.workEmail} onChange={(event) => update('workEmail', event.target.value)} />
+            <input
+              className="input"
+              type="email"
+              value={form.workEmail}
+              onChange={(event) => update('workEmail', event.target.value)}
+            />
           </label>
           <label>
             Phone
-            <input className="input" value={form.phone} onChange={(event) => update('phone', event.target.value)} />
+            <input
+              className="input"
+              value={form.phone}
+              onChange={(event) => update('phone', event.target.value)}
+            />
           </label>
           <label>
             Role
-            <select className="input" value={form.role} onChange={(event) => update('role', event.target.value as OnboardingForm['role'])}>
+            <select
+              className="input"
+              value={form.role}
+              onChange={(event) => update('role', event.target.value as OnboardingForm['role'])}
+            >
               <option value="teacher">Teacher</option>
               <option value="department_head">Department head</option>
               <option value="admin">Admin</option>
@@ -118,15 +135,27 @@ export function OnboardingPage() {
         <div className="profile-form-grid">
           <label>
             School name
-            <input className="input" value={form.schoolName} onChange={(event) => update('schoolName', event.target.value)} />
+            <input
+              className="input"
+              value={form.schoolName}
+              onChange={(event) => update('schoolName', event.target.value)}
+            />
           </label>
           <label>
             District
-            <input className="input" value={form.district} onChange={(event) => update('district', event.target.value)} />
+            <input
+              className="input"
+              value={form.district}
+              onChange={(event) => update('district', event.target.value)}
+            />
           </label>
           <label>
             State
-            <input className="input" value={form.state} onChange={(event) => update('state', event.target.value)} />
+            <input
+              className="input"
+              value={form.state}
+              onChange={(event) => update('state', event.target.value)}
+            />
           </label>
         </div>
       </section>
@@ -141,11 +170,21 @@ export function OnboardingPage() {
         <div className="profile-form-grid">
           <label>
             Subjects
-            <input className="input" value={form.subjects} onChange={(event) => update('subjects', event.target.value)} placeholder="Math, Algebra, Advisory" />
+            <input
+              className="input"
+              value={form.subjects}
+              onChange={(event) => update('subjects', event.target.value)}
+              placeholder="Math, Algebra, Advisory"
+            />
           </label>
           <label>
             Grades
-            <input className="input" value={form.grades} onChange={(event) => update('grades', event.target.value)} placeholder="8, 9, 10" />
+            <input
+              className="input"
+              value={form.grades}
+              onChange={(event) => update('grades', event.target.value)}
+              placeholder="8, 9, 10"
+            />
           </label>
         </div>
       </section>
@@ -171,7 +210,7 @@ export function OnboardingPage() {
                   grades: splitList(form.grades)
                 });
                 window.localStorage.removeItem(ONBOARDING_DRAFT_KEY);
-                navigate('/management');
+                navigate('/courses');
               } catch (err) {
                 setError(err instanceof ApiError ? err.message : 'Failed to save onboarding data');
               } finally {
@@ -182,7 +221,9 @@ export function OnboardingPage() {
             {saving ? 'Saving...' : 'Complete profile'}
           </button>
         </div>
-        {!canSubmit ? <p className="muted">Add at least your full name and school name to finish setup.</p> : null}
+        {!canSubmit ? (
+          <p className="muted">Add at least your full name and school name to finish setup.</p>
+        ) : null}
       </section>
     </div>
   );

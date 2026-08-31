@@ -12,7 +12,9 @@ beforeAll(async () => {
     REQUEST_ID_HEADER: 'x-request-id',
     ENABLE_API_DOCS: false,
     CLERK_AUTHORIZED_PARTIES: 'http://localhost:5173',
-    DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/teacheros_test',
+    DATABASE_URL:
+      process.env.TEST_DATABASE_URL ??
+      'postgresql://postgres:postgres@localhost:5432/teacheros_test',
     OPENAI_MODEL_CONTINUITY: 'gpt-4o',
     OPENAI_MODEL_GENERATE_SEGMENTS: 'gpt-4o',
     OPENAI_MODEL_PARSE_SCHEDULE: 'gpt-4o-mini',

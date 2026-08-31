@@ -29,55 +29,80 @@ function RichField({
   placeholder: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(false);
   useEffect(() => {
     if (ref.current && ref.current.innerHTML !== value) ref.current.innerHTML = value;
   }, [value]);
   return (
     <div className="rich-field-wrap">
-      <div className="rich-toolbar">
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            document.execCommand('bold');
-          }}
-        >
-          B
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            document.execCommand('italic');
-          }}
-        >
-          <em>I</em>
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            document.execCommand('insertUnorderedList');
-          }}
-        >
-          • List
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            document.execCommand('insertOrderedList');
-          }}
-        >
-          1. List
-        </button>
-      </div>
+      {active ? (
+        <div className="rich-toolbar" aria-label="Formatting">
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              document.execCommand('bold');
+            }}
+          >
+            B
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              document.execCommand('italic');
+            }}
+          >
+            <em>I</em>
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              document.execCommand('insertUnorderedList');
+            }}
+          >
+            • List
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              document.execCommand('insertOrderedList');
+            }}
+          >
+            1. List
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              document.execCommand('formatBlock', false, 'h3');
+            }}
+          >
+            Heading
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const href = window.prompt('Link URL (https://)');
+              if (href && /^https?:\/\//i.test(href))
+                document.execCommand('createLink', false, href);
+            }}
+          >
+            Link
+          </button>
+        </div>
+      ) : null}
       <div
         ref={ref}
         className="rich-field"
         contentEditable
         suppressContentEditableWarning
         data-placeholder={placeholder}
+        onFocus={() => setActive(true)}
+        onBlur={() => setActive(false)}
         onInput={(e) => onChange(e.currentTarget.innerHTML)}
       />
     </div>
@@ -96,28 +121,44 @@ export function LessonWorkspacePage() {
   const latest = useRef<Workspace | null>(null);
   const saveChain = useRef<Promise<void>>(Promise.resolve());
   const [dragged, setDragged] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [generationOpen, setGenerationOpen] = useState(false);
+  const [generatedSteps, setGeneratedSteps] = useState<Array<{
+    title: string;
+    description: string;
+    durationMinutes: number;
+  }> | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const draftVersion = useRef(0);
+  const retryTimer = useRef<number | null>(null);
   useEffect(() => {
     void api
       .getLessonWorkspace(lessonId)
       .then((loaded) => {
         const draft = localStorage.getItem(draftKey(lessonId));
-        const restored = draft ? (JSON.parse(draft) as Workspace) : loaded;
+        let restored = loaded;
+        try {
+          restored = draft ? (JSON.parse(draft) as Workspace) : loaded;
+        } catch {
+          localStorage.removeItem(draftKey(lessonId));
+        }
         latest.current = restored;
         setData(restored);
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load this lesson.'));
   }, [api, lessonId]);
   const queue = (next: Workspace, delay = 650) => {
+    const version = ++draftVersion.current;
     latest.current = next;
     setData(next);
     localStorage.setItem(draftKey(lessonId), JSON.stringify(next));
     setStatus('saving');
     if (timer.current) clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
-      saveChain.current = saveChain.current.then(() => save(next));
+      saveChain.current = saveChain.current.then(() => save(next, version));
     }, delay);
   };
-  const save = async (next: Workspace) => {
+  const save = async (next: Workspace, version = draftVersion.current) => {
     const revision = ++pending.current;
     try {
       await api.updateLesson(next.lesson.id, {
@@ -126,28 +167,46 @@ export function LessonWorkspacePage() {
         lessonPlan: next.lesson.lessonPlan,
         estimatedDurationMinutes: next.lesson.estimatedDurationMinutes
       });
-      for (const [index, step] of next.lesson.segments.entries())
+      for (const step of next.lesson.segments)
         await api.updateSegment(step.id, {
           title: step.title,
           description: step.description,
           durationMinutes: step.durationMinutes,
           stepType: step.stepType ?? null,
-          orderIndex: index
+          orderIndex: step.orderIndex
         });
-      if (revision === pending.current) {
+      await api.reorderSegments(next.lesson.id, {
+        segmentIds: next.lesson.segments.map((step) => step.id)
+      });
+      if (revision === pending.current && version === draftVersion.current) {
         localStorage.removeItem(draftKey(lessonId));
         setStatus('saved');
       }
     } catch {
-      if (revision === pending.current) setStatus('error');
+      if (revision === pending.current && version === draftVersion.current) {
+        setStatus('error');
+        // Keep the local draft and retry the exact latest revision once the
+        // connection recovers. New typing supersedes this retry naturally.
+        if (retryTimer.current) clearTimeout(retryTimer.current);
+        retryTimer.current = window.setTimeout(() => {
+          retryTimer.current = null;
+          if (latest.current && version === draftVersion.current) {
+            saveChain.current = saveChain.current.then(() => save(latest.current!, version));
+          }
+        }, 1_500);
+      }
     }
   };
   useEffect(
     () => () => {
       if (timer.current) {
         clearTimeout(timer.current);
-        if (latest.current) saveChain.current = saveChain.current.then(() => save(latest.current!));
+        if (latest.current)
+          saveChain.current = saveChain.current.then(() =>
+            save(latest.current!, draftVersion.current)
+          );
       }
+      if (retryTimer.current) clearTimeout(retryTimer.current);
     },
     []
   );
@@ -163,30 +222,65 @@ export function LessonWorkspacePage() {
     updateLesson({
       segments: data.lesson.segments.map((s) => (s.id === id ? { ...s, ...patch } : s))
     });
+  const queueServerMutation = <T,>(mutation: () => Promise<T>) => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+      const snapshot = latest.current;
+      const version = draftVersion.current;
+      if (snapshot) saveChain.current = saveChain.current.then(() => save(snapshot, version));
+    }
+    const request = saveChain.current.then(mutation);
+    // Keep the queue usable after a failed create/delete while still returning
+    // the original rejection to the button action.
+    saveChain.current = request.then(
+      () => undefined,
+      () => undefined
+    );
+    return request;
+  };
+  const replaceSegmentsFromDetail = (detail: Awaited<ReturnType<typeof api.createSegment>>) => {
+    const unit = detail.course.units.find((item) => item.id === data.unit.id);
+    const lesson = unit?.lessons.find((item) => item.id === data.lesson.id);
+    if (!lesson || !latest.current) return;
+    const locallyEdited = new Map(latest.current.lesson.segments.map((step) => [step.id, step]));
+    queue(
+      {
+        ...latest.current,
+        lesson: {
+          ...latest.current.lesson,
+          segments: lesson.segments.map((step) => ({ ...step, ...locallyEdited.get(step.id) }))
+        }
+      },
+      0
+    );
+  };
   const addStep = async () => {
     try {
-      const detail = await api.createSegment(data.lesson.id, {
-        title: 'New step',
-        description: null,
-        durationMinutes: null,
-        stepType: null
-      });
-      const unit = detail.course.units.find((u) => u.id === data.unit.id)!;
-      updateLesson({ segments: unit.lessons.find((l) => l.id === data.lesson.id)!.segments });
+      const detail = await queueServerMutation(() =>
+        api.createSegment(data.lesson.id, {
+          title: 'New step',
+          description: null,
+          durationMinutes: null,
+          stepType: null
+        })
+      );
+      replaceSegmentsFromDetail(detail);
     } catch {
       setStatus('error');
     }
   };
   const duplicate = async (step: Step) => {
     try {
-      const detail = await api.createSegment(data.lesson.id, {
-        title: `${step.title} copy`,
-        description: step.description,
-        durationMinutes: step.durationMinutes,
-        stepType: step.stepType ?? null
-      });
-      const unit = detail.course.units.find((u) => u.id === data.unit.id)!;
-      updateLesson({ segments: unit.lessons.find((l) => l.id === data.lesson.id)!.segments });
+      const detail = await queueServerMutation(() =>
+        api.createSegment(data.lesson.id, {
+          title: `${step.title} copy`,
+          description: step.description,
+          durationMinutes: step.durationMinutes,
+          stepType: step.stepType ?? null
+        })
+      );
+      replaceSegmentsFromDetail(detail);
     } catch {
       setStatus('error');
     }
@@ -194,22 +288,113 @@ export function LessonWorkspacePage() {
   const remove = async (id: string) => {
     if (!window.confirm('Delete this step?')) return;
     try {
-      await api.deleteSegment(id);
-      updateLesson({ segments: data.lesson.segments.filter((s) => s.id !== id) });
+      await queueServerMutation(() => api.deleteSegment(id));
+      if (latest.current) {
+        queue(
+          {
+            ...latest.current,
+            lesson: {
+              ...latest.current.lesson,
+              segments: latest.current.lesson.segments.filter((step) => step.id !== id)
+            }
+          },
+          0
+        );
+      }
     } catch {
       setStatus('error');
     }
   };
   const share = async (enabled: boolean) => {
-    const response = await api.updateLessonShare(data.lesson.id, enabled);
-    setData({ ...data, share: response });
-    if (response.enabled && response.token)
-      await navigator.clipboard?.writeText(`${location.origin}/shared/lessons/${response.token}`);
+    try {
+      const response = await api.updateLessonShare(
+        latest.current?.lesson.id ?? data.lesson.id,
+        enabled
+      );
+      if (latest.current) {
+        const next = { ...latest.current, share: response };
+        latest.current = next;
+        setData(next);
+        localStorage.setItem(draftKey(lessonId), JSON.stringify(next));
+      }
+    } catch {
+      setStatus('error');
+    }
+  };
+  const generateStepDraft = async () => {
+    try {
+      setGenerationError(null);
+      const draft = await api.generateSegments({
+        lessonTitle: data.lesson.title,
+        objective: data.lesson.lessonPlan.objective,
+        durationMinutes: data.lesson.estimatedDurationMinutes ?? 45
+      });
+      setGeneratedSteps(draft.segments);
+    } catch (err) {
+      setGenerationError(
+        err instanceof ApiError ? err.message : 'Could not generate a lesson draft.'
+      );
+    }
+  };
+  const acceptGeneratedSteps = async () => {
+    if (!generatedSteps?.length) return;
+    try {
+      setStatus('saving');
+      await queueServerMutation(async () => {
+        for (const step of generatedSteps) {
+          await api.createSegment(data.lesson.id, {
+            title: step.title,
+            description: step.description,
+            durationMinutes: step.durationMinutes,
+            stepType: null
+          });
+        }
+      });
+      const refreshed = await queueServerMutation(() => api.getLessonWorkspace(data.lesson.id));
+      const local = latest.current;
+      if (local) {
+        const serverById = new Map(refreshed.lesson.segments.map((step) => [step.id, step]));
+        const retained = local.lesson.segments
+          .filter((step) => serverById.has(step.id))
+          .map((step) => ({ ...serverById.get(step.id)!, ...step }));
+        const retainedIds = new Set(retained.map((step) => step.id));
+        queue(
+          {
+            ...refreshed,
+            lesson: {
+              ...refreshed.lesson,
+              title: local.lesson.title,
+              description: local.lesson.description,
+              lessonPlan: local.lesson.lessonPlan,
+              estimatedDurationMinutes: local.lesson.estimatedDurationMinutes,
+              segments: [
+                ...retained,
+                ...refreshed.lesson.segments.filter((step) => !retainedIds.has(step.id))
+              ]
+            }
+          },
+          0
+        );
+      } else {
+        latest.current = refreshed;
+        setData(refreshed);
+        setStatus('saved');
+      }
+      setGeneratedSteps(null);
+      setGenerationOpen(false);
+    } catch (err) {
+      setGenerationError(
+        err instanceof ApiError ? err.message : 'Could not add the approved steps.'
+      );
+    }
   };
   return (
-    <main className="lesson-workspace">
+    <main className="lesson-workspace lesson-document-page">
       <header className="lesson-workspace-header">
         <div>
+          <Link className="lesson-return" to={yearPlanReturn}>
+            ← Year Plan
+          </Link>
           <p className="eyebrow">
             {data.course.name} / {data.unit.title}
           </p>
@@ -227,29 +412,55 @@ export function LessonWorkspacePage() {
                 ? 'Saved locally — retrying'
                 : 'Saved'}
           </span>
-          <button className="secondary" type="button" onClick={() => void share(true)}>
+          <button className="secondary" type="button" onClick={() => setShareOpen((open) => !open)}>
             Share
           </button>
-          <Link className="button-link secondary" to={yearPlanReturn}>
-            Back to Year Plan
-          </Link>
+          {data.share.enabled && data.share.token ? (
+            <a
+              className="button-link secondary"
+              href={`/shared/lessons/${data.share.token}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Preview
+            </a>
+          ) : null}
         </div>
       </header>
       <section className="lesson-document">
-        <div className="share-state">
-          {data.share.enabled ? (
-            <>
-              <span>Anyone with link · read-only</span>
-              <button type="button" className="button-link" onClick={() => void share(false)}>
-                Make private
+        {shareOpen ? (
+          <aside className="lesson-share-popover" aria-label="Share lesson">
+            <strong>Share lesson</strong>
+            <label>
+              <input
+                type="radio"
+                checked={!data.share.enabled}
+                onChange={() => void share(false)}
+              />
+              Private · only me
+            </label>
+            <label>
+              <input type="radio" checked={data.share.enabled} onChange={() => void share(true)} />
+              Anyone with link · read-only
+            </label>
+            {data.share.enabled && data.share.token ? (
+              <button
+                className="secondary"
+                type="button"
+                onClick={() =>
+                  void navigator.clipboard?.writeText(
+                    `${location.origin}/shared/lessons/${data.share.token}`
+                  )
+                }
+              >
+                Copy link
               </button>
-            </>
-          ) : (
-            <>
-              <span>Private · only you</span>
-            </>
-          )}
-        </div>
+            ) : null}
+            <button className="button-link" type="button" onClick={() => setShareOpen(false)}>
+              Done
+            </button>
+          </aside>
+        ) : null}
         <div className="lesson-meta">
           <input
             type="number"
@@ -292,7 +503,56 @@ export function LessonWorkspacePage() {
             placeholder="Add an overview or teacher notes…"
           />
         </label>
-        <h2>Lesson</h2>
+        <div className="lesson-steps-heading">
+          <h2>Lesson steps</h2>
+          <div className="profile-actions">
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => setGenerationOpen((open) => !open)}
+            >
+              Generate draft
+            </button>
+            <button className="add-step" type="button" onClick={() => void addStep()}>
+              + Add step
+            </button>
+          </div>
+        </div>
+        {generationOpen ? (
+          <aside className="lesson-generation-draft">
+            <strong>Review-first lesson draft</strong>
+            <p>Nothing changes until you explicitly add the proposed steps.</p>
+            {!generatedSteps ? (
+              <button type="button" onClick={() => void generateStepDraft()}>
+                Generate steps
+              </button>
+            ) : (
+              <>
+                <ol>
+                  {generatedSteps.map((step) => (
+                    <li key={`${step.title}-${step.durationMinutes}`}>
+                      <strong>{step.title}</strong> · {step.durationMinutes} min
+                      <span>{step.description}</span>
+                    </li>
+                  ))}
+                </ol>
+                <div className="profile-actions">
+                  <button type="button" onClick={() => void acceptGeneratedSteps()}>
+                    Add approved steps
+                  </button>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => setGeneratedSteps(null)}
+                  >
+                    Discard draft
+                  </button>
+                </div>
+              </>
+            )}
+            {generationError ? <p className="notice warning">{generationError}</p> : null}
+          </aside>
+        ) : null}
         {data.lesson.segments.map((step, index) => (
           <article
             className="lesson-step"
@@ -353,9 +613,6 @@ export function LessonWorkspacePage() {
             </div>
           </article>
         ))}
-        <button className="add-step" type="button" onClick={() => void addStep()}>
-          + Add step
-        </button>
         <aside className="section-context">
           <strong>Sections using this lesson</strong>
           {data.sections.map((section) => (

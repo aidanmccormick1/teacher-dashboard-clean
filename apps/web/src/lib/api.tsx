@@ -20,6 +20,7 @@ import type {
   CourseListResponse,
   CourseOrderUpdateRequest,
   CourseUpdateRequest,
+  CurriculumRangeCreateRequest,
   DashboardTodayResponse,
   DeleteEntityResponse,
   FeedbackSubmitRequest,
@@ -303,6 +304,12 @@ export function useApiClient() {
       updateCourse: (courseId: string, body: CourseUpdateRequest) =>
         request<CourseDetailResponse>(
           `/v1/courses/${courseId}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      createCurriculumRange: (courseId: string, body: CurriculumRangeCreateRequest) =>
+        request<CourseDetailResponse>(
+          `/v1/courses/${courseId}/planning-range`,
           { method: 'PATCH', body: JSON.stringify(body) },
           auth
         ),

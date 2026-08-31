@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent
@@ -16,6 +17,11 @@ import type {
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import {
+  normalizePlanningRange,
+  planningRangeLabel,
+  type PlanningRange
+} from '../lib/year-plan-range.js';
 import './CurriculumTimeline.css';
 
 type Course = CourseDetailResponse['course'];
@@ -35,6 +41,8 @@ type PendingChange =
   | { kind: 'move'; unit: PositionedUnit; start: number; delta: number }
   | { kind: 'resize'; unit: PositionedUnit; span: number; delta: number };
 type Drag = { unit: PositionedUnit; mode: 'move' | 'resize'; originX: number };
+type RangeDrag = { originIndex: number; originX: number; unitId: string | null };
+type RangeDraft = PlanningRange & { unitId: string | null };
 type LessonPlanDraft = {
   title: string;
   duration: string;
@@ -120,7 +128,9 @@ export function CurriculumTimeline({
   onOpenSchool,
   displayMode = 'timeline',
   allowAiDrafts = true,
-  onOpenLesson
+  onOpenLesson,
+  initialLessonId,
+  onLessonSelectionChange
 }: {
   course: Course;
   selectedSection: Section | null;
@@ -132,6 +142,8 @@ export function CurriculumTimeline({
   displayMode?: 'timeline' | 'outline';
   allowAiDrafts?: boolean;
   onOpenLesson?: (lessonId: string) => void;
+  initialLessonId?: string | null;
+  onLessonSelectionChange?: (lessonId: string | null) => void;
 }) {
   const api = useApiClient();
   const navigate = useNavigate();
@@ -139,6 +151,7 @@ export function CurriculumTimeline({
   const [selection, setSelection] = useState<Selection>(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState<string[]>([]);
   const [showUnitComposer, setShowUnitComposer] = useState(false);
+  const [unitComposerMode, setUnitComposerMode] = useState<'manual' | 'generate'>('manual');
   const [quickLessonUnitId, setQuickLessonUnitId] = useState<string | null>(null);
   const [quickLessonTitle, setQuickLessonTitle] = useState('');
   const [draftPrompt, setDraftPrompt] = useState('');
@@ -161,6 +174,15 @@ export function CurriculumTimeline({
   const [sectionPlans, setSectionPlans] = useState<SectionLessonPlanResponse['plans']>([]);
   const [lastSectionPlanOperation, setLastSectionPlanOperation] = useState<string | null>(null);
   const [editingSharedPlan, setEditingSharedPlan] = useState(false);
+  const [rangeDrag, setRangeDrag] = useState<RangeDrag | null>(null);
+  const [rangePreview, setRangePreview] = useState<RangeDraft | null>(null);
+  const [rangeDraft, setRangeDraft] = useState<RangeDraft | null>(null);
+  const [rangeKind, setRangeKind] = useState<'unit' | 'lessons'>('unit');
+  const [rangeTitle, setRangeTitle] = useState('');
+  const [rangeLessonCount, setRangeLessonCount] = useState('');
+  const [rangeUnitId, setRangeUnitId] = useState('');
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const scrollStorageKey = `teacheros_year_plan_scroll_${course.id}_${selectedSection?.sectionId ?? 'none'}_${displayMode}`;
 
   useEffect(() => {
     let active = true;
@@ -184,6 +206,10 @@ export function CurriculumTimeline({
       setEditingSharedPlan(false);
       return;
     }
+    // Section-specific timing is the safe default whenever the planning
+    // context changes. Shared curriculum edits require an explicit choice.
+    setEditingSharedPlan(false);
+    setLastSectionPlanOperation(null);
     let active = true;
     void api
       .getSectionLessonPlans(selectedSection.sectionId)
@@ -197,6 +223,22 @@ export function CurriculumTimeline({
       active = false;
     };
   }, [api, selectedSection?.sectionId]);
+
+  useEffect(() => {
+    if (!initialLessonId) return;
+    setSelection({ type: 'lesson', id: initialLessonId });
+  }, [initialLessonId]);
+
+  useEffect(() => {
+    const canvas = canvasWrapRef.current;
+    if (!canvas) return;
+    const stored = window.sessionStorage.getItem(scrollStorageKey);
+    if (stored) canvas.scrollLeft = Number(stored) || 0;
+    const persistScroll = () =>
+      window.sessionStorage.setItem(scrollStorageKey, String(canvas.scrollLeft));
+    canvas.addEventListener('scroll', persistScroll, { passive: true });
+    return () => canvas.removeEventListener('scroll', persistScroll);
+  }, [scrollStorageKey]);
 
   const positions = useMemo(() => positionUnits(course.units), [course.units]);
   const sectionPlanByLesson = useMemo(
@@ -260,6 +302,84 @@ export function CurriculumTimeline({
     sectionPlanByLesson.get(lesson.id)?.plannedMeetingCount ??
     lesson.plannedMeetingCount ??
     fallback;
+
+  const rangeMeetings = sectionMeetings;
+  const rangeFromPointer = (clientX: number) => {
+    const canvas = canvasWrapRef.current;
+    if (!canvas || !rangeMeetings.length) return null;
+    const bounds = canvas.getBoundingClientRect();
+    const index = Math.floor((clientX - bounds.left + canvas.scrollLeft) / slotWidth);
+    return clamp(index, 0, Math.min(visibleMeetings, rangeMeetings.length) - 1);
+  };
+  const beginRangeDrag = (event: ReactPointerEvent<HTMLDivElement>, unitId: string | null) => {
+    if (!selectedSection || !rangeMeetings.length || saving) return;
+    const index = rangeFromPointer(event.clientX);
+    if (index === null) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setRangeDrag({ originIndex: index, originX: event.clientX, unitId });
+    setRangePreview(null);
+  };
+  const updateRangeDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!rangeDrag) return;
+    const index = rangeFromPointer(event.clientX);
+    if (index === null || Math.abs(event.clientX - rangeDrag.originX) < 6) return;
+    const range = normalizePlanningRange(rangeDrag.originIndex, index, rangeMeetings);
+    if (range) setRangePreview({ ...range, unitId: rangeDrag.unitId });
+  };
+  const finishRangeDrag = () => {
+    if (rangePreview) {
+      setRangeDraft(rangePreview);
+      setRangeKind(rangePreview.unitId ? 'lessons' : 'unit');
+      setRangeUnitId(rangePreview.unitId ?? course.units[0]?.id ?? '');
+      setRangeLessonCount(String(Math.max(1, Math.min(8, rangePreview.meetingCount))));
+      setRangeTitle('');
+    }
+    setRangeDrag(null);
+    setRangePreview(null);
+  };
+
+  const confirmRangeCreation = async () => {
+    if (!rangeDraft) return;
+    const count = clamp(Number(rangeLessonCount) || 1, 1, Math.min(30, rangeDraft.meetingCount));
+    const lessonTitles = Array.from(
+      { length: count },
+      (_, index) => `${rangeTitle.trim() || 'Lesson'} ${index + 1}`
+    );
+    try {
+      setSaving(true);
+      const detail =
+        rangeKind === 'unit'
+          ? await api.createCurriculumRange(course.id, {
+              kind: 'unit',
+              title: rangeTitle.trim() || 'New unit',
+              description: null,
+              plannedStartMeeting: rangeDraft.start,
+              plannedMeetingCount: rangeDraft.meetingCount,
+              lessonTitles: rangeTitle.trim() ? lessonTitles : []
+            })
+          : await api.createCurriculumRange(course.id, {
+              kind: 'lessons',
+              unitId: rangeUnitId,
+              plannedStartMeeting: rangeDraft.start,
+              plannedMeetingCount: rangeDraft.meetingCount,
+              lessonTitles
+            });
+      onCourseChange(detail);
+      setRangeDraft(null);
+      setStatus(
+        rangeKind === 'unit'
+          ? 'Unit added to the selected range'
+          : 'Lessons added to the selected range'
+      );
+    } catch (err) {
+      setStatus(
+        err instanceof ApiError ? err.message : 'Could not create curriculum in this range'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const shiftSelectedSectionLesson = async (meetingDelta: -1 | 1) => {
     if (!selectedSection || !selectedLesson) return;
@@ -366,6 +486,18 @@ export function CurriculumTimeline({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [deleteSelected, selection]);
+
+  useEffect(() => {
+    const cancelRange = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setRangeDrag(null);
+        setRangePreview(null);
+        setRangeDraft(null);
+      }
+    };
+    window.addEventListener('keydown', cancelRange);
+    return () => window.removeEventListener('keydown', cancelRange);
+  }, []);
 
   const applyPendingChange = async (
     mode: 'only' | 'shift' | 'fixed',
@@ -687,6 +819,10 @@ export function CurriculumTimeline({
   };
 
   const moveLesson = async (lesson: Lesson, unit: Unit, direction: -1 | 1) => {
+    if (!canEditSharedPlan) {
+      setStatus('Switch to shared course planning before reordering curriculum lessons.');
+      return;
+    }
     const next = unit.lessons.find((item) => item.orderIndex === lesson.orderIndex + direction);
     if (!next) return;
     try {
@@ -701,8 +837,14 @@ export function CurriculumTimeline({
     }
   };
 
-  const selectUnit = (unit: Unit) => setSelection({ type: 'unit', id: unit.id });
-  const selectLesson = (lesson: Lesson) => setSelection({ type: 'lesson', id: lesson.id });
+  const selectUnit = (unit: Unit) => {
+    setSelection({ type: 'unit', id: unit.id });
+    onLessonSelectionChange?.(null);
+  };
+  const selectLesson = (lesson: Lesson) => {
+    setSelection({ type: 'lesson', id: lesson.id });
+    onLessonSelectionChange?.(lesson.id);
+  };
 
   return (
     <section
@@ -714,17 +856,34 @@ export function CurriculumTimeline({
           <button
             type="button"
             className="secondary"
-            onClick={() => setShowUnitComposer((open) => !open)}
+            onClick={() => {
+              setUnitComposerMode('manual');
+              setShowUnitComposer((open) => !open);
+            }}
           >
-            {showUnitComposer ? 'Close add unit' : '+ Add unit'}
+            {showUnitComposer && unitComposerMode === 'manual' ? 'Close add unit' : '+ Unit'}
           </button>
+          {allowAiDrafts ? (
+            <button
+              type="button"
+              className="button-link"
+              onClick={() => {
+                setUnitComposerMode('generate');
+                setShowUnitComposer(true);
+              }}
+            >
+              Generate unit
+            </button>
+          ) : null}
           {showUnitComposer ? (
             <div className="curriculum-unit-composer">
               <input
                 className="input"
                 value={draftPrompt}
                 onChange={(event) => setDraftPrompt(event.target.value)}
-                placeholder={allowAiDrafts ? 'What should students learn?' : 'Unit title'}
+                placeholder={
+                  unitComposerMode === 'generate' ? 'What should students learn?' : 'Unit title'
+                }
                 aria-label="Describe the unit you want to plan"
               />
               <input
@@ -739,11 +898,16 @@ export function CurriculumTimeline({
               <button
                 type="button"
                 disabled={
-                  saving || (allowAiDrafts ? draftPrompt.trim().length < 8 : !draftPrompt.trim())
+                  saving ||
+                  (unitComposerMode === 'generate'
+                    ? draftPrompt.trim().length < 8
+                    : !draftPrompt.trim())
                 }
-                onClick={() => void (allowAiDrafts ? createDraft() : createUnit())}
+                onClick={() =>
+                  void (unitComposerMode === 'generate' ? createDraft() : createUnit())
+                }
               >
-                {allowAiDrafts ? 'Build unit' : 'Add unit'}
+                {unitComposerMode === 'generate' ? 'Generate draft' : 'Add unit'}
               </button>
             </div>
           ) : null}
@@ -865,7 +1029,14 @@ export function CurriculumTimeline({
                 saves to this lesson.
               </p>
             </div>
-            <button className="secondary" type="button" onClick={() => setSelection(null)}>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => {
+                setSelection(null);
+                onLessonSelectionChange?.(null);
+              }}
+            >
               Close
             </button>
             <button
@@ -1220,7 +1391,7 @@ export function CurriculumTimeline({
                             <span>
                               <button
                                 aria-label={`Move ${lesson.title} earlier`}
-                                disabled={saving}
+                                disabled={saving || !canEditSharedPlan}
                                 type="button"
                                 onClick={() => void moveLesson(lesson, position.unit, -1)}
                               >
@@ -1228,7 +1399,7 @@ export function CurriculumTimeline({
                               </button>
                               <button
                                 aria-label={`Move ${lesson.title} later`}
-                                disabled={saving}
+                                disabled={saving || !canEditSharedPlan}
                                 type="button"
                                 onClick={() => void moveLesson(lesson, position.unit, 1)}
                               >
@@ -1273,7 +1444,7 @@ export function CurriculumTimeline({
           </div>
         </aside>
 
-        <div className="curriculum-canvas-wrap">
+        <div className="curriculum-canvas-wrap" ref={canvasWrapRef}>
           <div className="curriculum-scale" style={{ minWidth: visibleMeetings * slotWidth }}>
             {Array.from({ length: visibleMeetings }, (_, index) => (
               <span key={index} style={{ width: slotWidth }}>
@@ -1311,7 +1482,20 @@ export function CurriculumTimeline({
               );
               const expanded = expandedUnitIds.includes(position.unit.id);
               return (
-                <div key={position.unit.id} className="curriculum-track-row">
+                <div
+                  key={position.unit.id}
+                  className="curriculum-track-row"
+                  onPointerDown={(event) => {
+                    if ((event.target as HTMLElement).closest('button, article')) return;
+                    beginRangeDrag(event, position.unit.id);
+                  }}
+                  onPointerMove={updateRangeDrag}
+                  onPointerUp={finishRangeDrag}
+                  onPointerCancel={() => {
+                    setRangeDrag(null);
+                    setRangePreview(null);
+                  }}
+                >
                   <article
                     className={[
                       'curriculum-unit-bar',
@@ -1405,9 +1589,111 @@ export function CurriculumTimeline({
                 </div>
               );
             })}
+            <div
+              className="curriculum-track-row curriculum-create-lane"
+              aria-label="Create curriculum in an empty planning range"
+              onPointerDown={(event) => beginRangeDrag(event, null)}
+              onPointerMove={updateRangeDrag}
+              onPointerUp={finishRangeDrag}
+              onPointerCancel={() => {
+                setRangeDrag(null);
+                setRangePreview(null);
+              }}
+            >
+              <span>Drag across class meetings to plan a new unit</span>
+            </div>
+            {rangePreview ? (
+              <div
+                className="curriculum-range-preview"
+                style={{
+                  left: rangePreview.start * slotWidth,
+                  width: rangePreview.meetingCount * slotWidth
+                }}
+              >
+                {rangePreview.meetingCount} meetings
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
+
+      {rangeDraft ? (
+        <div
+          className="curriculum-range-popover"
+          role="dialog"
+          aria-label="Create curriculum range"
+        >
+          <div>
+            <p className="eyebrow">Create in selected range</p>
+            <strong>{planningRangeLabel(rangeDraft, rangeMeetings)}</strong>
+            <span>Uses {selectedSection?.sectionName}'s effective class meetings.</span>
+          </div>
+          <div className="curriculum-range-kind" role="group" aria-label="What to create">
+            <button
+              type="button"
+              className={rangeKind === 'unit' ? 'active' : ''}
+              onClick={() => setRangeKind('unit')}
+            >
+              New unit
+            </button>
+            <button
+              type="button"
+              className={rangeKind === 'lessons' ? 'active' : ''}
+              onClick={() => setRangeKind('lessons')}
+            >
+              Create lessons
+            </button>
+          </div>
+          {rangeKind === 'lessons' ? (
+            <label>
+              Unit
+              <select
+                className="input"
+                value={rangeUnitId}
+                onChange={(event) => setRangeUnitId(event.target.value)}
+              >
+                {course.units.map((unit) => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label>
+            {rangeKind === 'unit' ? 'Unit title' : 'Lesson title prefix'}
+            <input
+              className="input"
+              value={rangeTitle}
+              onChange={(event) => setRangeTitle(event.target.value)}
+              placeholder={rangeKind === 'unit' ? 'Ancient Civilizations' : 'Lesson'}
+            />
+          </label>
+          <label>
+            {rangeKind === 'unit' ? 'Optional starter lessons' : 'Lessons'}
+            <input
+              className="input"
+              type="number"
+              min="1"
+              max={Math.min(30, rangeDraft.meetingCount)}
+              value={rangeLessonCount}
+              onChange={(event) => setRangeLessonCount(event.target.value)}
+            />
+          </label>
+          <div className="profile-actions">
+            <button
+              type="button"
+              disabled={saving || (rangeKind === 'lessons' && !rangeUnitId)}
+              onClick={() => void confirmRangeCreation()}
+            >
+              Create
+            </button>
+            <button className="secondary" type="button" onClick={() => setRangeDraft(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {pendingChange ? (
         <div

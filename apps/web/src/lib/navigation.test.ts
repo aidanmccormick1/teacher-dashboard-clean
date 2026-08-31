@@ -6,7 +6,6 @@ import {
   saveSidebarCollapsed,
   sidebarCollapsedStorageKey
 } from './navigation.js';
-import { managementTabPath } from './management-tabs.js';
 
 function createStorage() {
   const values = new Map<string, string>();
@@ -35,8 +34,7 @@ describe('primary navigation matching', () => {
     expect(primaryNavigationIdForPath(pathname)).toBe(expected);
   });
 
-  it('does not make a legacy or secondary route a primary destination', () => {
-    expect(primaryNavigationIdForPath('/management')).toBeNull();
+  it('does not make a secondary route a primary destination', () => {
     expect(primaryNavigationIdForPath('/profile')).toBeNull();
   });
 });
@@ -50,14 +48,5 @@ describe('sidebar collapse preference', () => {
 
     expect(storage.getItem(sidebarCollapsedStorageKey)).toBe('true');
     expect(readSidebarCollapsed(storage)).toBe(true);
-  });
-});
-
-describe('temporary Management route ownership', () => {
-  it('uses the new top-level routes only for the reused Courses and Year Plan tabs', () => {
-    expect(managementTabPath('courses')).toBe('/courses');
-    expect(managementTabPath('curriculum')).toBe('/year-plan');
-    expect(managementTabPath('import')).toBe('/management');
-    expect(managementTabPath('progress')).toBe('/management');
   });
 });

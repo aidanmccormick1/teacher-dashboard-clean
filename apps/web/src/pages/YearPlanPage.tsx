@@ -94,7 +94,10 @@ export function YearPlanPage() {
 
   useEffect(() => {
     if (loading) return;
-    const next = yearPlanSearch(context);
+    const nextParams = new URLSearchParams(yearPlanSearch(context));
+    const selectedLesson = params.get('lesson');
+    if (selectedLesson) nextParams.set('lesson', selectedLesson);
+    const next = nextParams.toString();
     if (params.toString() !== next) setParams(next, { replace: true });
     if (context.courseId)
       window.localStorage.setItem(yearPlanContextStorageKey, JSON.stringify(context));
@@ -110,7 +113,12 @@ export function YearPlanPage() {
       previous.map((course) => (course.id === detail.course.id ? detail.course : course))
     );
   };
-  const returnTo = `/year-plan?${yearPlanSearch(context)}`;
+  const selectedLessonId = params.get('lesson');
+  const yearPlanReturnTo = (lessonId: string | null) => {
+    const search = new URLSearchParams(yearPlanSearch(context));
+    if (lessonId) search.set('lesson', lessonId);
+    return `/year-plan?${search.toString()}`;
+  };
 
   if (loading) return <p className="muted">Loading Year Plan…</p>;
   if (error) return <p className="notice warning">{error}</p>;
@@ -164,15 +172,15 @@ export function YearPlanPage() {
     0
   );
   return (
-    <main className="year-plan-page">
+    <main className="year-plan-page year-plan-canvas-page">
       <header className="year-plan-page-header">
         <div>
           <p className="eyebrow">Year Plan</p>
-          <h1>{selectedCourse.name}</h1>
+          <h1 className="visually-hidden">{selectedCourse.name} Year Plan</h1>
         </div>
         <div className="year-plan-header-controls">
           <label>
-            <span>Course</span>
+            <span className="visually-hidden">Course</span>
             <select
               className="input"
               value={selectedCourse.id}
@@ -186,7 +194,7 @@ export function YearPlanPage() {
             </select>
           </label>
           <label>
-            <span>Planning against</span>
+            <span className="visually-hidden">Planning against section</span>
             <select
               className="input"
               value={selectedSection?.sectionId ?? ''}
@@ -200,15 +208,11 @@ export function YearPlanPage() {
               ))}
             </select>
           </label>
-          <div className="year-plan-summary">
+          <div className="year-plan-summary" aria-label="Planning status">
             <span>{plannedMeetingCount} planned</span>
-            <span>
-              {selectedSection
-                ? `${selectedSection.sectionName} meeting dates`
-                : 'Choose section for dates'}
-            </span>
+            <span>{selectedSection ? `${selectedSection.sectionName}` : 'No section'}</span>
           </div>
-          <div className="management-tabs small-tabs" aria-label="Year plan view">
+          <div className="year-plan-view-toggle small-tabs" aria-label="Year plan view">
             <button
               className={context.view === 'outline' ? 'active' : ''}
               type="button"
@@ -246,10 +250,19 @@ export function YearPlanPage() {
         onCourseChange={updateCourse}
         onOpenSchool={() => navigate('/school')}
         displayMode={context.view}
-        allowAiDrafts={false}
+        allowAiDrafts
         onOpenLesson={(lessonId) =>
-          navigate(`/lessons/${lessonId}?returnTo=${encodeURIComponent(returnTo)}`)
+          navigate(
+            `/lessons/${lessonId}?returnTo=${encodeURIComponent(yearPlanReturnTo(lessonId))}`
+          )
         }
+        initialLessonId={selectedLessonId}
+        onLessonSelectionChange={(lessonId) => {
+          const next = new URLSearchParams(params);
+          if (lessonId) next.set('lesson', lessonId);
+          else next.delete('lesson');
+          setParams(next, { replace: true });
+        }}
       />
     </main>
   );

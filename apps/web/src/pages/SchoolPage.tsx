@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import type { CalendarImportResponse, SchoolCalendarResponse } from '@teacheros/contracts';
 import { ApiError, useApiClient } from '../lib/api.js';
-import { rememberManagementTab } from '../lib/management-tabs.js';
 
 type ManualDayOff = { title: string; startDate: string; endDate: string };
 
@@ -66,7 +65,6 @@ function savedEventGroups(events: SchoolCalendarResponse['events']) {
 
 export function SchoolPage() {
   const api = useApiClient();
-  const navigate = useNavigate();
   const [calendar, setCalendar] = useState<SchoolCalendarResponse | null>(null);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -255,11 +253,7 @@ export function SchoolPage() {
           <h1>School Calendar</h1>
           <p>Set the instructional year and the days that change normal student learning.</p>
         </div>
-        <Link
-          className="button-link secondary"
-          to="/management"
-          onClick={() => rememberManagementTab('import')}
-        >
+        <Link className="button-link secondary" to="/courses?import=schedule">
           Import schedule
         </Link>
       </section>
@@ -522,9 +516,7 @@ export function SchoolPage() {
                     Schedule Days
                   </h2>
                 </div>
-                <button className="secondary" type="button" onClick={() => navigate('/management')}>
-                  View Calendar
-                </button>
+                <span className="muted">Manage calendar details below.</span>
               </article>
             </section>
           ) : null}

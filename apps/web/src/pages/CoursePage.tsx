@@ -7,6 +7,8 @@ import { ApiError, useApiClient } from '../lib/api.js';
 
 type LessonDraft = { title: string; description: string; duration: string };
 type SegmentDraft = { title: string; description: string; duration: string };
+type MeetingDraft = { day: string; time: string; endTime: string; room: string };
+const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'];
 
 function toNullable(value: string): string | null {
   const trimmed = value.trim();
@@ -98,6 +100,13 @@ export function CoursePage() {
 
   const [lessonDrafts, setLessonDrafts] = useState<Record<string, LessonDraft>>({});
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, SegmentDraft>>({});
+  const [newSectionName, setNewSectionName] = useState('');
+  const [newSectionMeetings, setNewSectionMeetings] = useState<MeetingDraft[]>([
+    { day: 'Monday', time: '', endTime: '', room: '' }
+  ]);
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [editingSectionName, setEditingSectionName] = useState('');
+  const [editingMeetings, setEditingMeetings] = useState<MeetingDraft[]>([]);
 
   const loadCourse = useCallback(async () => {
     if (!courseId) return;
@@ -149,9 +158,11 @@ export function CoursePage() {
       </div>
     );
   }
+  const courseSections =
+    schedule?.sections.filter((section) => section.courseId === course?.id) ?? [];
 
   return (
-    <div className="stack">
+    <main className="course-detail-workspace stack">
       <div className="editor-topbar">
         <div>
           <p className="eyebrow">Shared curriculum</p>
@@ -176,6 +187,9 @@ export function CoursePage() {
           </button>
           <Link className="button-link done-editing" to="/courses">
             Done Editing
+          </Link>
+          <Link className="button-link" to={`/year-plan?course=${courseId}`}>
+            Open Year Plan
           </Link>
         </div>
       </div>
@@ -255,54 +269,326 @@ export function CoursePage() {
             <div className="section-heading">
               <div>
                 <h3>Class Groups</h3>
-                <p className="muted">
-                  {schedule?.sections.filter((section) => section.courseId === course.id).length ??
-                    0}{' '}
-                  Class Groups share this Course
-                </p>
+                <p className="muted">{courseSections.length} Class Groups share this Course</p>
               </div>
             </div>
-            {schedule?.sections
-              .filter((section) => section.courseId === course.id)
-              .map((section) => (
+            {courseSections.length ? (
+              courseSections.map((section) => (
                 <div className="course-edit-meeting-row" key={section.sectionId}>
-                  <div>
-                    <strong>{section.sectionName}</strong>
-                    <span>
-                      {section.meetings
-                        .map(
-                          (meeting) =>
-                            `${meeting.day} ${meeting.time ?? '—'}–${meeting.endTime ?? '—'}`
+                  {editingSectionId === section.sectionId ? (
+                    <div className="section-meeting-editor">
+                      <input
+                        className="input"
+                        value={editingSectionName}
+                        onChange={(event) => setEditingSectionName(event.target.value)}
+                      />
+                      {editingMeetings.map((meeting, index) => (
+                        <div
+                          className="section-meeting-fields"
+                          key={`${section.sectionId}-${index}`}
+                        >
+                          <select
+                            className="input"
+                            value={meeting.day}
+                            onChange={(event) =>
+                              setEditingMeetings((items) =>
+                                items.map((item, itemIndex) =>
+                                  itemIndex === index ? { ...item, day: event.target.value } : item
+                                )
+                              )
+                            }
+                          >
+                            {meetingDays.map((day) => (
+                              <option key={day}>{day}</option>
+                            ))}
+                          </select>
+                          <input
+                            className="input"
+                            type="time"
+                            value={meeting.time}
+                            onChange={(event) =>
+                              setEditingMeetings((items) =>
+                                items.map((item, itemIndex) =>
+                                  itemIndex === index ? { ...item, time: event.target.value } : item
+                                )
+                              )
+                            }
+                          />
+                          <input
+                            className="input"
+                            type="time"
+                            value={meeting.endTime}
+                            onChange={(event) =>
+                              setEditingMeetings((items) =>
+                                items.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, endTime: event.target.value }
+                                    : item
+                                )
+                              )
+                            }
+                          />
+                          <input
+                            className="input"
+                            value={meeting.room}
+                            placeholder="Room"
+                            onChange={(event) =>
+                              setEditingMeetings((items) =>
+                                items.map((item, itemIndex) =>
+                                  itemIndex === index ? { ...item, room: event.target.value } : item
+                                )
+                              )
+                            }
+                          />
+                          <button
+                            className="button-link"
+                            type="button"
+                            onClick={() =>
+                              setEditingMeetings((items) =>
+                                items.filter((_, itemIndex) => itemIndex !== index)
+                              )
+                            }
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      <div className="profile-actions">
+                        <button
+                          className="secondary"
+                          type="button"
+                          onClick={() =>
+                            setEditingMeetings((items) => [
+                              ...items,
+                              { day: 'Monday', time: '', endTime: '', room: '' }
+                            ])
+                          }
+                        >
+                          + Meeting
+                        </button>
+                        <button
+                          type="button"
+                          disabled={saving || !editingSectionName.trim()}
+                          onClick={async () => {
+                            try {
+                              setSaving(true);
+                              setSchedule(
+                                await api.updateSection(section.sectionId, {
+                                  sectionName: editingSectionName.trim(),
+                                  meetings: editingMeetings.map((meeting) => ({
+                                    day: meeting.day as any,
+                                    time: meeting.time || null,
+                                    endTime: meeting.endTime || null,
+                                    room: meeting.room || null
+                                  }))
+                                })
+                              );
+                              setEditingSectionId(null);
+                            } catch (err) {
+                              setError(
+                                err instanceof ApiError
+                                  ? err.message
+                                  : 'Could not save class group.'
+                              );
+                            } finally {
+                              setSaving(false);
+                            }
+                          }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          className="secondary"
+                          type="button"
+                          onClick={() => setEditingSectionId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <strong>{section.sectionName}</strong>
+                        <span>
+                          {section.meetings
+                            .map(
+                              (meeting) =>
+                                `${meeting.day} ${meeting.time ?? '—'}–${meeting.endTime ?? '—'}`
+                            )
+                            .join(' · ') || 'No meeting times yet'}
+                        </span>
+                      </div>
+                      <div className="profile-actions">
+                        <button
+                          className="secondary"
+                          type="button"
+                          onClick={() => {
+                            setEditingSectionId(section.sectionId);
+                            setEditingSectionName(section.sectionName);
+                            setEditingMeetings(
+                              section.meetings.map((meeting) => ({
+                                day: meeting.day,
+                                time: meeting.time ?? '',
+                                endTime: meeting.endTime ?? '',
+                                room: meeting.room ?? ''
+                              }))
+                            );
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="button-link"
+                          type="button"
+                          onClick={async () => {
+                            if (!window.confirm(`Delete ${section.sectionName}?`)) return;
+                            try {
+                              setSaving(true);
+                              await api.deleteSection(section.sectionId);
+                              setSchedule(await api.getSchedule());
+                            } catch (err) {
+                              setError(
+                                err instanceof ApiError
+                                  ? err.message
+                                  : 'Could not delete class group.'
+                              );
+                            } finally {
+                              setSaving(false);
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))
+            ) : (
+              <p className="muted">No class groups yet. Add one below.</p>
+            )}
+            <div className="section-meeting-editor">
+              <strong>Add class group</strong>
+              <input
+                className="input"
+                value={newSectionName}
+                onChange={(event) => setNewSectionName(event.target.value)}
+                placeholder="Group A"
+              />
+              {newSectionMeetings.map((meeting, index) => (
+                <div className="section-meeting-fields" key={`new-${index}`}>
+                  <select
+                    className="input"
+                    value={meeting.day}
+                    onChange={(event) =>
+                      setNewSectionMeetings((items) =>
+                        items.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, day: event.target.value } : item
                         )
-                        .join(' · ') || 'No meeting times yet'}
-                    </span>
-                  </div>
-                  <button
-                    className="secondary"
-                    type="button"
-                    onClick={async () => {
-                      const sectionName = window.prompt('Class Group name', section.sectionName);
-                      if (!sectionName?.trim()) return;
-                      try {
-                        setSaving(true);
-                        setSchedule(
-                          await api.updateSection(section.sectionId, {
-                            sectionName: sectionName.trim()
-                          })
-                        );
-                      } catch (err) {
-                        setError(
-                          err instanceof ApiError ? err.message : 'Could not edit class group'
-                        );
-                      } finally {
-                        setSaving(false);
-                      }
-                    }}
+                      )
+                    }
                   >
-                    Edit Class Group
+                    {meetingDays.map((day) => (
+                      <option key={day}>{day}</option>
+                    ))}
+                  </select>
+                  <input
+                    className="input"
+                    type="time"
+                    value={meeting.time}
+                    onChange={(event) =>
+                      setNewSectionMeetings((items) =>
+                        items.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, time: event.target.value } : item
+                        )
+                      )
+                    }
+                  />
+                  <input
+                    className="input"
+                    type="time"
+                    value={meeting.endTime}
+                    onChange={(event) =>
+                      setNewSectionMeetings((items) =>
+                        items.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, endTime: event.target.value } : item
+                        )
+                      )
+                    }
+                  />
+                  <input
+                    className="input"
+                    value={meeting.room}
+                    placeholder="Room"
+                    onChange={(event) =>
+                      setNewSectionMeetings((items) =>
+                        items.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, room: event.target.value } : item
+                        )
+                      )
+                    }
+                  />
+                  <button
+                    className="button-link"
+                    type="button"
+                    disabled={newSectionMeetings.length === 1}
+                    onClick={() =>
+                      setNewSectionMeetings((items) =>
+                        items.filter((_, itemIndex) => itemIndex !== index)
+                      )
+                    }
+                  >
+                    Remove
                   </button>
                 </div>
-              )) ?? <p className="muted">Add Class Groups from Management.</p>}
+              ))}
+              <div className="profile-actions">
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() =>
+                    setNewSectionMeetings((items) => [
+                      ...items,
+                      { day: 'Monday', time: '', endTime: '', room: '' }
+                    ])
+                  }
+                >
+                  + Meeting
+                </button>
+                <button
+                  type="button"
+                  disabled={saving || !newSectionName.trim()}
+                  onClick={async () => {
+                    try {
+                      setSaving(true);
+                      setSchedule(
+                        await api.createSection({
+                          courseId: course.id,
+                          sectionName: newSectionName.trim(),
+                          meetings: newSectionMeetings.map((meeting) => ({
+                            day: meeting.day as any,
+                            time: meeting.time || null,
+                            endTime: meeting.endTime || null,
+                            room: meeting.room || null
+                          }))
+                        })
+                      );
+                      setNewSectionName('');
+                      setNewSectionMeetings([{ day: 'Monday', time: '', endTime: '', room: '' }]);
+                    } catch (err) {
+                      setError(
+                        err instanceof ApiError ? err.message : 'Could not add class group.'
+                      );
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                >
+                  Add group
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="card stack">
@@ -710,6 +996,6 @@ export function CoursePage() {
           </div>
         </>
       ) : null}
-    </div>
+    </main>
   );
 }
