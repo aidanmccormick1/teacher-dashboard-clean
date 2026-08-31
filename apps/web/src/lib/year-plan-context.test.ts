@@ -25,12 +25,13 @@ describe('Year Plan URL context', () => {
       view: 'timeline'
     });
   });
-  it('restores a remembered valid context and serializes it durably', () => {
+  it('restores a remembered course but defaults to shared course planning', () => {
     const context = resolveYearPlanContext(new URLSearchParams(), courses, sections, {
       courseId: 'spanish',
       sectionId: '5b',
       view: 'timeline'
     });
-    expect(yearPlanSearch(context)).toBe('view=timeline&course=spanish&section=5b');
+    expect(context).toEqual({ courseId: 'spanish', sectionId: null, view: 'timeline' });
+    expect(yearPlanSearch(context)).toBe('view=timeline&course=spanish');
   });
 });

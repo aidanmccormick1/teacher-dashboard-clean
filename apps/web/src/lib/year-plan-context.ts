@@ -27,13 +27,12 @@ export function resolveYearPlanContext(
         ? courses[0]!.id
         : null;
   const validSections = sections.filter((section) => !courseId || section.courseId === courseId);
+  // Shared curriculum is always the default Year Plan mode. A section is an
+  // explicit date-preview context, never a prerequisite to planning the
+  // course's meeting sequence.
   const sectionId = validSections.some((section) => section.id === requestedSection)
     ? requestedSection
-    : remembered && validSections.some((section) => section.id === remembered.sectionId)
-      ? remembered.sectionId
-      : validSections.length === 1
-        ? validSections[0]!.id
-        : null;
+    : null;
   return { courseId, sectionId, view: requestedView === 'outline' ? 'outline' : 'timeline' };
 }
 

@@ -6,6 +6,20 @@ export type PlanningRange = {
   meetingCount: number;
 };
 
+type PlannedSpan = Pick<PlanningRange, 'start' | 'meetingCount'>;
+
+/**
+ * A drag-create range is additive: it may never silently write over an
+ * existing planned unit. This comparison deliberately operates on meeting
+ * indexes, after the schedule service has already resolved real dates.
+ */
+export function planningRangeIntersects(range: PlannedSpan, planned: PlannedSpan[]): boolean {
+  return planned.some(
+    (item) =>
+      range.start < item.start + item.meetingCount && item.start < range.start + range.meetingCount
+  );
+}
+
 /**
  * Convert a pointer selection into an inclusive range of already-resolved
  * meeting instances. Calendar days never enter this calculation: closures,

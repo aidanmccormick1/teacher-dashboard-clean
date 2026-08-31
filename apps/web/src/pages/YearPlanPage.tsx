@@ -148,24 +148,6 @@ export function YearPlanPage() {
     );
   const courseSections =
     schedule?.sections.filter((section) => section.courseId === selectedCourse.id) ?? [];
-  if (!selectedSection && courseSections.length > 1)
-    return (
-      <main className="year-plan-selection-state">
-        <p className="eyebrow">{selectedCourse.name} · Year Plan</p>
-        <h1>Choose the section whose meeting dates you are planning against</h1>
-        <div className="year-plan-choice-list">
-          {courseSections.map((section) => (
-            <button
-              key={section.sectionId}
-              type="button"
-              onClick={() => updateContext({ sectionId: section.sectionId })}
-            >
-              {section.sectionName}
-            </button>
-          ))}
-        </div>
-      </main>
-    );
 
   const plannedMeetingCount = selectedCourse.units.reduce(
     (total, unit) => total + (unit.plannedMeetingCount ?? 0),
@@ -194,13 +176,13 @@ export function YearPlanPage() {
             </select>
           </label>
           <label>
-            <span className="visually-hidden">Planning against section</span>
+            <span className="visually-hidden">Optional section date preview</span>
             <select
               className="input"
               value={selectedSection?.sectionId ?? ''}
               onChange={(event) => updateContext({ sectionId: event.target.value || null })}
             >
-              <option value="">No section selected</option>
+              <option value="">Course meetings</option>
               {courseSections.map((section) => (
                 <option key={section.sectionId} value={section.sectionId}>
                   {section.sectionName}
@@ -210,7 +192,9 @@ export function YearPlanPage() {
           </label>
           <div className="year-plan-summary" aria-label="Planning status">
             <span>{plannedMeetingCount} planned</span>
-            <span>{selectedSection ? `${selectedSection.sectionName}` : 'No section'}</span>
+            <span>
+              {selectedSection ? `${selectedSection.sectionName} dates` : 'Course meeting index'}
+            </span>
           </div>
           <div className="year-plan-view-toggle small-tabs" aria-label="Year plan view">
             <button

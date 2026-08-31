@@ -7,6 +7,17 @@
   align-items: flex-start;
 }
 
+.curriculum-timeline-navigation {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.curriculum-timeline-navigation button {
+  min-width: 34px;
+  padding: 7px 9px;
+}
+
 .curriculum-add-unit-control {
   display: grid;
   gap: 8px;
@@ -244,13 +255,21 @@
   color: var(--muted);
   cursor: crosshair;
   user-select: none;
+  touch-action: none;
 }
 
 .curriculum-create-lane span {
   grid-column: 1 / -1;
   align-self: center;
   padding: 0 12px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.curriculum-create-lane:hover span,
+.curriculum-create-lane:focus-within span {
+  opacity: 1;
 }
 
 .curriculum-range-preview {
@@ -259,7 +278,10 @@
   bottom: 24px;
   z-index: 2;
   display: grid;
-  place-items: start center;
+  align-content: start;
+  justify-items: center;
+  gap: 2px;
+  overflow: hidden;
   min-width: 1px;
   border: 1px solid rgba(57, 104, 140, 0.7);
   background: rgba(108, 169, 206, 0.18);
@@ -267,6 +289,26 @@
   pointer-events: none;
   font-size: 0.72rem;
   font-weight: 800;
+}
+
+.curriculum-range-preview span,
+.curriculum-range-preview small {
+  max-width: 100%;
+  padding: 2px 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.curriculum-range-preview small {
+  color: #913f36;
+  font-size: 0.66rem;
+}
+
+.curriculum-range-preview.conflict {
+  border-color: rgba(173, 81, 71, 0.82);
+  background: rgba(214, 126, 114, 0.16);
+  color: #913f36;
 }
 
 .curriculum-range-popover {
@@ -295,6 +337,16 @@
   font-size: 0.82rem;
 }
 
+.curriculum-range-conflict {
+  margin: 2px 0 0;
+  padding: 8px;
+  border-left: 2px solid var(--red);
+  background: #fff5f2;
+  color: #913f36;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
 .curriculum-range-kind {
   display: flex;
   gap: 4px;
@@ -311,5 +363,11 @@
 .curriculum-range-kind button.active {
   border-color: var(--green);
   background: #edf5ef;
-  color: var(--green-dark);
+  color: var(--green);
+}
+
+@media (max-width: 780px) {
+  .curriculum-timeline-navigation {
+    order: 4;
+  }
 }

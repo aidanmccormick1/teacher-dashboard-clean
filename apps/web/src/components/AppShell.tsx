@@ -64,6 +64,8 @@ export function AppShell() {
   const [isSyncingFeedback, setIsSyncingFeedback] = useState(false);
   const mobileNavigationRef = useRef<HTMLDivElement>(null);
   const mobileToggleRef = useRef<HTMLButtonElement>(null);
+  const feedbackPanelRef = useRef<HTMLDivElement>(null);
+  const feedbackReturnFocusRef = useRef<HTMLElement | null>(null);
   const activePrimaryNavigationId = primaryNavigationIdForPath(location.pathname);
   const visuallyCollapsed = isSidebarCollapsed && !isSidebarHoverExpanded;
 
@@ -79,14 +81,55 @@ export function AppShell() {
   }, [isMobileNavigationOpen]);
 
   useEffect(() => {
+    if (!isFeedbackOpen) return;
+    const panel = feedbackPanelRef.current;
+    const focusable = () =>
+      Array.from(
+        panel?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], select:not([disabled]), textarea:not([disabled]), input:not([disabled])'
+        ) ?? []
+      );
+    const focusFirst = () => focusable()[0]?.focus();
+    window.setTimeout(focusFirst, 0);
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsFeedbackOpen(false);
+        window.setTimeout(() => feedbackReturnFocusRef.current?.focus(), 0);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const controls = focusable();
+      if (!controls.length) return;
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', trapFocus);
+    return () => window.removeEventListener('keydown', trapFocus);
+  }, [isFeedbackOpen]);
+
+  useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || !isMobileNavigationOpen) return;
-      setIsMobileNavigationOpen(false);
-      mobileToggleRef.current?.focus();
+      if (event.key !== 'Escape') return;
+      if (isImportOpen) {
+        setIsImportOpen(false);
+        return;
+      }
+      if (isMobileNavigationOpen) {
+        setIsMobileNavigationOpen(false);
+        mobileToggleRef.current?.focus();
+      }
     };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [isMobileNavigationOpen]);
+  }, [isImportOpen, isMobileNavigationOpen]);
 
   const closeMobileNavigation = () => setIsMobileNavigationOpen(false);
   const toggleSidebar = () => {
@@ -96,8 +139,13 @@ export function AppShell() {
     saveSidebarCollapsed(next);
   };
   const openFeedback = () => {
+    feedbackReturnFocusRef.current = document.activeElement as HTMLElement | null;
     setFeedbackEntries(readFeedbackEntries());
     setIsFeedbackOpen(true);
+  };
+  const closeFeedback = () => {
+    setIsFeedbackOpen(false);
+    window.setTimeout(() => feedbackReturnFocusRef.current?.focus(), 0);
   };
 
   const saveFeedback = async () => {
@@ -387,14 +435,20 @@ export function AppShell() {
         <Outlet />
       </main>
       {isFeedbackOpen ? (
-        <aside className="feedback-drawer" aria-label="Teacher feedback">
-          <div className="feedback-panel">
+        <aside className="feedback-drawer" role="presentation">
+          <div
+            ref={feedbackPanelRef}
+            className="feedback-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Teacher feedback"
+          >
             <div className="section-heading">
               <div>
                 <p className="eyebrow">Teacher feedback</p>
                 <h2>What should we fix?</h2>
               </div>
-              <button className="secondary" type="button" onClick={() => setIsFeedbackOpen(false)}>
+              <button className="secondary" type="button" onClick={closeFeedback}>
                 Close
               </button>
             </div>

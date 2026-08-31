@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizePlanningRange } from './year-plan-range.js';
+import { normalizePlanningRange, planningRangeIntersects } from './year-plan-range.js';
 
 const meetings = [
   { date: '2026-09-07' },
@@ -28,5 +28,13 @@ describe('normalizePlanningRange', () => {
 
   it('does not create a range without effective meetings', () => {
     expect(normalizePlanningRange(0, 1, [])).toBeNull();
+  });
+
+  it('detects conflicts without treating adjacent planned ranges as overlaps', () => {
+    const planned = [{ start: 3, meetingCount: 2 }];
+
+    expect(planningRangeIntersects({ start: 1, meetingCount: 2 }, planned)).toBe(false);
+    expect(planningRangeIntersects({ start: 2, meetingCount: 2 }, planned)).toBe(true);
+    expect(planningRangeIntersects({ start: 5, meetingCount: 2 }, planned)).toBe(false);
   });
 });

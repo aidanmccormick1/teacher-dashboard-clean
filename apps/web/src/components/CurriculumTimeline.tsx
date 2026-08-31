@@ -19,6 +19,7 @@ import type {
 import { ApiError, useApiClient } from '../lib/api.js';
 import {
   normalizePlanningRange,
+  planningRangeIntersects,
   planningRangeLabel,
   type PlanningRange
 } from '../lib/year-plan-range.js';
@@ -181,6 +182,7 @@ export function CurriculumTimeline({
   const [rangeTitle, setRangeTitle] = useState('');
   const [rangeLessonCount, setRangeLessonCount] = useState('');
   const [rangeUnitId, setRangeUnitId] = useState('');
+  const [todayDate, setTodayDate] = useState<string | null>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const scrollStorageKey = `teacheros_year_plan_scroll_${course.id}_${selectedSection?.sectionId ?? 'none'}_${displayMode}`;
 
@@ -193,6 +195,23 @@ export function CurriculumTimeline({
       })
       .catch(() => {
         if (active) setMeetingData(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [api]);
+
+  // School-local "today" is resolved by the API. The timeline only consumes
+  // that date to move its viewport and never infers a class from browser time.
+  useEffect(() => {
+    let active = true;
+    void api
+      .dashboardToday()
+      .then((value) => {
+        if (active) setTodayDate(value.date);
+      })
+      .catch(() => {
+        if (active) setTodayDate(null);
       });
     return () => {
       active = false;
@@ -293,6 +312,12 @@ export function CurriculumTimeline({
     : 0;
   const unplannedMeetings = Math.max(0, planningBase - plannedMeetings);
   const canEditSharedPlan = !selectedSection || editingSharedPlan;
+  const rangeOverlapsExistingPlan = (range: RangeDraft) =>
+    !range.unitId &&
+    planningRangeIntersects(
+      range,
+      positions.map((position) => ({ start: position.start, meetingCount: position.span }))
+    );
 
   const effectiveLessonStart = (lesson: Lesson, fallback: number) =>
     sectionPlanByLesson.get(lesson.id)?.plannedStartMeeting ??
@@ -337,6 +362,26 @@ export function CurriculumTimeline({
     }
     setRangeDrag(null);
     setRangePreview(null);
+  };
+
+  const scrollCanvasBy = (direction: -1 | 1) => {
+    const canvas = canvasWrapRef.current;
+    if (!canvas) return;
+    canvas.scrollBy({
+      left: direction * Math.max(240, canvas.clientWidth * 0.72),
+      behavior: 'smooth'
+    });
+  };
+
+  const scrollToToday = () => {
+    const canvas = canvasWrapRef.current;
+    if (!canvas || !todayDate || !rangeMeetings.length) return;
+    const targetIndex = rangeMeetings.findIndex((meeting) => meeting.date >= todayDate);
+    const index = targetIndex === -1 ? rangeMeetings.length - 1 : targetIndex;
+    canvas.scrollTo({
+      left: Math.max(0, index * slotWidth - Math.max(slotWidth, canvas.clientWidth * 0.28)),
+      behavior: 'smooth'
+    });
   };
 
   const confirmRangeCreation = async () => {
@@ -924,6 +969,32 @@ export function CurriculumTimeline({
             </button>
           ))}
         </div>
+        <div className="curriculum-timeline-navigation" aria-label="Timeline navigation">
+          <button
+            className="secondary"
+            type="button"
+            aria-label="Show previous dates"
+            onClick={() => scrollCanvasBy(-1)}
+          >
+            ←
+          </button>
+          <button
+            className="secondary"
+            type="button"
+            disabled={!todayDate || !rangeMeetings.length}
+            onClick={scrollToToday}
+          >
+            Today
+          </button>
+          <button
+            className="secondary"
+            type="button"
+            aria-label="Show next dates"
+            onClick={() => scrollCanvasBy(1)}
+          >
+            →
+          </button>
+        </div>
         {selectedSection ? (
           <div className="curriculum-scope-control">
             <span>
@@ -944,10 +1015,16 @@ export function CurriculumTimeline({
 
       {!meetings.length ? (
         <div className="curriculum-setup-callout">
-          <span>Dates appear after you add the school year and class meetings.</span>
-          <button className="secondary" type="button" onClick={onOpenSchool}>
-            Add school year
-          </button>
+          <span>
+            {selectedSection
+              ? 'Dates appear after you add the school year and class meetings.'
+              : 'Planning by course meeting number. Choose a class group only to preview its dates.'}
+          </span>
+          {selectedSection ? (
+            <button className="secondary" type="button" onClick={onOpenSchool}>
+              Add school year
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -964,7 +1041,7 @@ export function CurriculumTimeline({
         {selectedSection ? (
           <span>{selectedSection.sectionName} rhythm</span>
         ) : (
-          <span>Choose a class group for dated pacing</span>
+          <span>Course meeting sequence</span>
         )}
       </div>
 
@@ -1600,17 +1677,18 @@ export function CurriculumTimeline({
                 setRangePreview(null);
               }}
             >
-              <span>Drag across class meetings to plan a new unit</span>
+              <span>Drag across dates to plan</span>
             </div>
             {rangePreview ? (
               <div
-                className="curriculum-range-preview"
+                className={`curriculum-range-preview${rangeOverlapsExistingPlan(rangePreview) ? ' conflict' : ''}`}
                 style={{
                   left: rangePreview.start * slotWidth,
                   width: rangePreview.meetingCount * slotWidth
                 }}
               >
-                {rangePreview.meetingCount} meetings
+                <span>{planningRangeLabel(rangePreview, rangeMeetings)}</span>
+                {rangeOverlapsExistingPlan(rangePreview) ? <small>Existing plan</small> : null}
               </div>
             ) : null}
           </div>
@@ -1627,6 +1705,12 @@ export function CurriculumTimeline({
             <p className="eyebrow">Create in selected range</p>
             <strong>{planningRangeLabel(rangeDraft, rangeMeetings)}</strong>
             <span>Uses {selectedSection?.sectionName}'s effective class meetings.</span>
+            {rangeOverlapsExistingPlan(rangeDraft) && rangeKind === 'unit' ? (
+              <p className="curriculum-range-conflict" role="status">
+                An existing unit is planned here. It will not be overwritten; choose another range
+                or add lessons to a selected unit instead.
+              </p>
+            ) : null}
           </div>
           <div className="curriculum-range-kind" role="group" aria-label="What to create">
             <button
@@ -1683,7 +1767,11 @@ export function CurriculumTimeline({
           <div className="profile-actions">
             <button
               type="button"
-              disabled={saving || (rangeKind === 'lessons' && !rangeUnitId)}
+              disabled={
+                saving ||
+                (rangeKind === 'lessons' && !rangeUnitId) ||
+                (rangeKind === 'unit' && rangeOverlapsExistingPlan(rangeDraft))
+              }
               onClick={() => void confirmRangeCreation()}
             >
               Create
