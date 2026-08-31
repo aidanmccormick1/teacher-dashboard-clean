@@ -227,6 +227,9 @@ export const sectionMeetingOverrides = pgTable(
       .notNull()
       .references(() => sections.id, { onDelete: 'cascade' }),
     date: date('date').notNull(),
+    // Identifies the scheduled occurrence being changed. `legacy` preserves
+    // pre-Phase-2 date-only overrides for schedules that have a single block.
+    occurrenceKey: text('occurrence_key').notNull().default('legacy'),
     startTime: time('start_time'),
     endTime: time('end_time'),
     room: text('room'),
@@ -237,7 +240,13 @@ export const sectionMeetingOverrides = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
-  (table) => [unique('uniq_section_meeting_override').on(table.sectionId, table.date)]
+  (table) => [
+    unique('uniq_section_meeting_override_occurrence').on(
+      table.sectionId,
+      table.date,
+      table.occurrenceKey
+    )
+  ]
 );
 
 export const teacherPreferences = pgTable(
@@ -360,6 +369,13 @@ export const sectionLessonState = pgTable(
       onDelete: 'set null'
     }),
     completedSegmentIds: jsonb('completed_segment_ids').$type<string[]>().notNull().default([]),
+    // Progress written before meeting history existed. New meeting-history
+    // writes derive their cumulative state from this stable baseline plus
+    // occurrence snapshots, rather than from mutable current segments.
+    historicalCompletedSegmentIds: jsonb('historical_completed_segment_ids')
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     carryOverNote: text('carry_over_note'),
     lastTaughtDate: date('last_taught_date'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -369,6 +385,56 @@ export const sectionLessonState = pgTable(
     unique('uniq_section_lesson_state').on(table.sectionId, table.lessonId),
     index('idx_section_lesson_state_status').on(table.sectionId, table.status)
   ]
+);
+
+// Section plans are deliberately sparse: absent values inherit the shared
+// Course → Unit → Lesson planning fields. They never copy lesson content.
+export const sectionLessonPlans = pgTable(
+  'section_lesson_plans',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => sections.id, { onDelete: 'cascade' }),
+    lessonId: uuid('lesson_id')
+      .notNull()
+      .references(() => lessons.id, { onDelete: 'cascade' }),
+    plannedStartMeeting: integer('planned_start_meeting'),
+    plannedMeetingCount: integer('planned_meeting_count'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_section_lesson_plan').on(table.sectionId, table.lessonId),
+    index('idx_section_lesson_plans_section').on(table.sectionId)
+  ]
+);
+
+export const sectionPlanOperations = pgTable(
+  'section_plan_operations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => sections.id, { onDelete: 'cascade' }),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    previousOverrides: jsonb('previous_overrides')
+      .$type<
+        Array<{
+          lessonId: string;
+          plannedStartMeeting: number | null;
+          plannedMeetingCount: number | null;
+        }>
+      >()
+      .notNull()
+      .default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_section_plan_operations_section').on(table.sectionId, table.createdAt)]
 );
 
 // One real teaching occurrence. It records the facts of that day without
@@ -384,21 +450,36 @@ export const classMeetings = pgTable(
       .notNull()
       .references(() => lessons.id, { onDelete: 'cascade' }),
     meetingDate: date('meeting_date').notNull(),
+    // `HH:MM` for a scheduled block; `legacy` for records created before
+    // occurrence identity was introduced or unscheduled manual meetings.
+    occurrenceKey: text('occurrence_key').notNull().default('legacy'),
     scheduledStartTime: time('scheduled_start_time'),
     scheduledEndTime: time('scheduled_end_time'),
     completedStepIds: jsonb('completed_step_ids').$type<string[]>().notNull().default([]),
+    // Immutable-on-write historical rendering data. It deliberately has no FK
+    // because current curriculum steps may later be renamed or deleted.
+    stepSnapshot:
+      jsonb('step_snapshot').$type<
+        Array<{ id: string; title: string; order: number; completed: boolean }>
+      >(),
     stoppedAfterStepId: uuid('stopped_after_step_id').references(() => lessonSegments.id, {
       onDelete: 'set null'
     }),
+    stoppingPointStepId: uuid('stopping_point_step_id'),
     rawNote: text('raw_note'),
     status: text('status').notNull().default('in_progress'),
     startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
     endedAt: timestamp('ended_at', { withTimezone: true }),
+    revision: integer('revision').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => [
-    unique('uniq_class_meeting_section_date').on(table.sectionId, table.meetingDate),
+    unique('uniq_class_meeting_occurrence').on(
+      table.sectionId,
+      table.meetingDate,
+      table.occurrenceKey
+    ),
     index('idx_class_meetings_section_date').on(table.sectionId, table.meetingDate)
   ]
 );

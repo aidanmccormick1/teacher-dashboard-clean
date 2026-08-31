@@ -99,7 +99,10 @@ export async function createApp(config: AppConfig) {
   await app.register(helmet);
 
   await app.register(rateLimit, {
-    max: 100,
+    // Database-backed integration runs issue many legitimate requests from one
+    // injected client. Keep production protection intact without making test
+    // outcomes depend on the order or size of unrelated test cases.
+    max: config.NODE_ENV === 'test' ? 10_000 : 100,
     timeWindow: '1 minute'
   });
 

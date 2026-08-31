@@ -59,6 +59,12 @@ function formatTimeRange(startTime: string | null, endTime: string | null): stri
   return `${startTime} – ${endTime}`;
 }
 
+function classroomPath(sectionId: string, meetingTime: string | null): string {
+  const query = new URLSearchParams({ section: sectionId });
+  if (meetingTime) query.set('meetingTime', meetingTime);
+  return `/classroom?${query.toString()}`;
+}
+
 function classStatus(item: TodayClass): 'now' | 'upcoming' | 'done' | 'unscheduled' {
   return item.status === 'completed' ? 'done' : item.status;
 }
@@ -416,7 +422,7 @@ export function DashboardPage() {
       prompts.push({
         title: 'Resume the active lesson',
         body: `${currentResume.lesson.title} is ready with ${activeLessonProgress.completed}/${activeLessonProgress.total} segments complete.`,
-        to: `/classroom?section=${state.today.currentClass.sectionId}`,
+        to: classroomPath(state.today.currentClass.sectionId, state.today.currentClass.meetingTime),
         managementTab: null,
         action: 'Resume class'
       });
@@ -426,7 +432,7 @@ export function DashboardPage() {
       prompts.push({
         title: 'Prep the next class',
         body: `${state.today.nextClass.sectionName} is ready for ${nextResume.lesson.title}.`,
-        to: `/classroom?section=${state.today.nextClass.sectionId}`,
+        to: classroomPath(state.today.nextClass.sectionId, state.today.nextClass.meetingTime),
         managementTab: null,
         action: 'Open tracker'
       });
@@ -583,7 +589,10 @@ export function DashboardPage() {
             {state.today?.currentClass && currentResume?.lesson ? (
               <Link
                 className="button-link"
-                to={`/classroom?section=${state.today.currentClass.sectionId}`}
+                to={classroomPath(
+                  state.today.currentClass.sectionId,
+                  state.today.currentClass.meetingTime
+                )}
               >
                 Resume current class
               </Link>
@@ -819,7 +828,10 @@ export function DashboardPage() {
                   <div className="profile-actions">
                     <Link
                       className="button-link"
-                      to={`/classroom?section=${state.today.nextClass.sectionId}`}
+                      to={classroomPath(
+                        state.today.nextClass.sectionId,
+                        state.today.nextClass.meetingTime
+                      )}
                     >
                       Prep next class
                     </Link>

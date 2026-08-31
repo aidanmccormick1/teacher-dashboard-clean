@@ -27,6 +27,13 @@ function defaultEndTime(startTime: string | null) {
   return `${String(Math.floor(end / 60) % 24).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`;
 }
 
+// A section can legitimately have two blocks on one day. The durable
+// occurrence identity is the scheduled local start time, with `legacy` for
+// imported date-only records and manual/untimed meetings.
+function occurrenceKey(startTime: string | null | undefined) {
+  return startTime?.slice(0, 5) || 'legacy';
+}
+
 export async function loadActiveSchoolYear(schoolId: string, timeZone = 'UTC') {
   const today = localDateFor(new Date(), timeZone);
   const all = await db
@@ -94,7 +101,10 @@ export async function buildMeetingInstances(
         .where(inArray(sectionMeetingOverrides.sectionId, sectionIds))
     : [];
   const overrideByKey = new Map(
-    overrides.map((override) => [`${override.sectionId}:${override.date}`, override])
+    overrides.map((override) => [
+      `${override.sectionId}:${override.date}:${override.occurrenceKey}`,
+      override
+    ])
   );
   const sectionById = new Map(
     sectionRows.map((row) => [
@@ -116,6 +126,7 @@ export async function buildMeetingInstances(
   const first = new Date(`${from}T12:00:00.000Z`);
   const last = new Date(`${to}T12:00:00.000Z`);
   const output: MeetingInstancesResponse['meetings'] = [];
+  const emittedOccurrences = new Set<string>();
   const emittedSectionDates = new Set<string>();
 
   for (const row of sectionRows) {
@@ -133,7 +144,12 @@ export async function buildMeetingInstances(
         calendarEvents.some((event) => event.type === 'no_school')
       )
         continue;
-      const override = overrideByKey.get(`${row.sectionId}:${date}`);
+      const rowOccurrenceKey = occurrenceKey(row.startTime);
+      const override =
+        overrideByKey.get(`${row.sectionId}:${date}:${rowOccurrenceKey}`) ??
+        // Backward-compatible date-only overrides continue to affect every
+        // pre-existing regular block for that section/date.
+        overrideByKey.get(`${row.sectionId}:${date}:legacy`);
       // A special/minimum/testing day does not inherit the ordinary bell
       // schedule. We only create a real meeting when the calendar import (or
       // teacher) supplied a date-specific group override. This keeps the next
@@ -164,6 +180,7 @@ export async function buildMeetingInstances(
             }
           : null
       });
+      emittedOccurrences.add(`${row.sectionId}:${date}:${rowOccurrenceKey}`);
       emittedSectionDates.add(`${row.sectionId}:${date}`);
     }
   }
@@ -172,9 +189,13 @@ export async function buildMeetingInstances(
   // meet. Treat that override as a dated meeting, but never duplicate a
   // regular occurrence that was already expanded for the same group and date.
   for (const override of overrides) {
-    const key = `${override.sectionId}:${override.date}`;
+    const key = `${override.sectionId}:${override.date}:${override.occurrenceKey}`;
+    const dateKey = `${override.sectionId}:${override.date}`;
     if (
-      emittedSectionDates.has(key) ||
+      emittedOccurrences.has(key) ||
+      // A legacy override is a date-only compatibility record. Once a normal
+      // block was emitted, it must not create a second phantom occurrence.
+      (override.occurrenceKey === 'legacy' && emittedSectionDates.has(dateKey)) ||
       override.cancelled ||
       override.date < from ||
       override.date > to
@@ -211,6 +232,8 @@ export async function buildMeetingInstances(
           }
         : null
     });
+    emittedOccurrences.add(key);
+    emittedSectionDates.add(dateKey);
   }
 
   output.sort((a, b) =>

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -18,6 +18,8 @@ import {
   ClassNotesUpsertRequestSchema,
   ClassNotesUpsertResponseSchema,
   ClassMeetingUpsertRequestSchema,
+  ClassMeetingLookupQuerySchema,
+  ClassMeetingLookupResponseSchema,
   ClassMeetingResponseSchema,
   CreateUploadUrlRequestSchema,
   CreateUploadUrlResponseSchema,
@@ -69,6 +71,10 @@ import {
   SchoolTimezoneUpdateRequestSchema,
   SchoolYearUpsertRequestSchema,
   SectionMeetingOverrideRequestSchema,
+  SectionLessonPlanResponseSchema,
+  SectionLessonPlanShiftRequestSchema,
+  SectionPlanningContextQuerySchema,
+  SectionPlanningContextResponseSchema,
   TeacherPreferencesSchema,
   TeacherPreferencesUpdateRequestSchema,
   UuidSchema
@@ -88,6 +94,8 @@ import {
   schoolHolidays,
   schoolYears,
   sectionMeetingOverrides,
+  sectionLessonPlans,
+  sectionPlanOperations,
   sectionLessonState,
   sectionMeetings,
   sections,
@@ -351,6 +359,33 @@ function timeToMinutes(time: string | null): number | null {
   const minutes = Number(parts[1] ?? Number.NaN);
   if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
   return hours * 60 + minutes;
+}
+
+function meetingOccurrenceKey(startTime: string | null | undefined): string {
+  return startTime?.slice(0, 5) || 'legacy';
+}
+
+class MeetingRevisionConflictError extends Error {
+  constructor(message = 'This class meeting changed in another session. Refresh to reconcile it.') {
+    super(message);
+    this.name = 'MeetingRevisionConflictError';
+  }
+}
+
+class MeetingHistoryExistsError extends Error {
+  constructor() {
+    super(
+      'This lesson already has class-meeting history. Save through the classroom meeting endpoint.'
+    );
+    this.name = 'MeetingHistoryExistsError';
+  }
+}
+
+class SectionPlanUndoConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SectionPlanUndoConflictError';
+  }
 }
 
 function endTimeFromStart(startTime: string | null): string | null {
@@ -1634,11 +1669,25 @@ export async function v1Routes(app: FastifyInstance) {
         (reply as any).code(404);
         return { error: 'Section not found', requestId: request.id };
       }
+      const occurrenceKey = meetingOccurrenceKey(body.scheduledStartTime);
       await db
         .insert(sectionMeetingOverrides)
-        .values({ sectionId: params.sectionId, ...body, createdByUserId: user.id })
+        .values({
+          sectionId: params.sectionId,
+          date: body.date,
+          occurrenceKey,
+          startTime: body.startTime,
+          endTime: body.endTime,
+          room: body.room,
+          cancelled: body.cancelled,
+          createdByUserId: user.id
+        })
         .onConflictDoUpdate({
-          target: [sectionMeetingOverrides.sectionId, sectionMeetingOverrides.date],
+          target: [
+            sectionMeetingOverrides.sectionId,
+            sectionMeetingOverrides.date,
+            sectionMeetingOverrides.occurrenceKey
+          ],
           set: {
             startTime: body.startTime,
             endTime: body.endTime,
@@ -1658,6 +1707,320 @@ export async function v1Routes(app: FastifyInstance) {
       return buildMeetingInstances(user.id, schoolId, {
         sectionId: params.sectionId,
         timeZone: await loadSchoolTimezone(schoolId, request)
+      });
+    }
+  );
+
+  app.post(
+    '/v1/sections/:sectionId/lesson-plans/shift',
+    {
+      schema: {
+        params: SectionParamsSchema,
+        body: SectionLessonPlanShiftRequestSchema,
+        response: { 200: SectionLessonPlanResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionParamsSchema.parse(request.params);
+      const body = SectionLessonPlanShiftRequestSchema.parse(request.body);
+      const ownedSection = await findOwnedSection(user.id, params.sectionId);
+      if (
+        !ownedSection ||
+        !(await findOwnedLessonInSectionCourse(user.id, params.sectionId, body.lessonId))
+      ) {
+        (reply as any).code(404);
+        return { error: 'Section or lesson not found', requestId: request.id };
+      }
+
+      const result = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext(${`section-plan:${params.sectionId}`}))`
+        );
+        const curriculum = await tx
+          .select({
+            lessonId: lessons.id,
+            title: lessons.title,
+            courseStart: lessons.plannedStartMeeting,
+            courseCount: lessons.plannedMeetingCount,
+            overrideStart: sectionLessonPlans.plannedStartMeeting,
+            overrideCount: sectionLessonPlans.plannedMeetingCount,
+            overrideId: sectionLessonPlans.id
+          })
+          .from(lessons)
+          .innerJoin(units, eq(lessons.unitId, units.id))
+          .leftJoin(
+            sectionLessonPlans,
+            and(
+              eq(sectionLessonPlans.lessonId, lessons.id),
+              eq(sectionLessonPlans.sectionId, params.sectionId)
+            )
+          )
+          .where(eq(units.courseId, ownedSection.courseId))
+          .orderBy(asc(units.orderIndex), asc(lessons.orderIndex), asc(lessons.createdAt));
+        const target = curriculum.find((lesson) => lesson.lessonId === body.lessonId);
+        const targetStart = target?.overrideStart ?? target?.courseStart ?? null;
+        if (!target || targetStart === null) {
+          throw new Error('This lesson needs a planned meeting before it can be shifted.');
+        }
+        const affected = curriculum.filter((lesson) => {
+          const start = lesson.overrideStart ?? lesson.courseStart;
+          return start !== null && start >= targetStart;
+        });
+        const previousOverrides = affected.map((lesson) => ({
+          lessonId: lesson.lessonId,
+          existed: Boolean(lesson.overrideId),
+          plannedStartMeeting: lesson.overrideStart,
+          plannedMeetingCount: lesson.overrideCount
+        }));
+        for (const lesson of affected) {
+          const effectiveStart = lesson.overrideStart ?? lesson.courseStart;
+          const effectiveCount = lesson.overrideCount ?? lesson.courseCount;
+          if (effectiveStart === null) continue;
+          await tx
+            .insert(sectionLessonPlans)
+            .values({
+              sectionId: params.sectionId,
+              lessonId: lesson.lessonId,
+              plannedStartMeeting: Math.max(0, effectiveStart + body.meetingDelta),
+              plannedMeetingCount: effectiveCount
+            })
+            .onConflictDoUpdate({
+              target: [sectionLessonPlans.sectionId, sectionLessonPlans.lessonId],
+              set: {
+                plannedStartMeeting: Math.max(0, effectiveStart + body.meetingDelta),
+                plannedMeetingCount: effectiveCount,
+                revision: sql`${sectionLessonPlans.revision} + 1`,
+                updatedAt: new Date()
+              }
+            });
+        }
+        const [operation] = await tx
+          .insert(sectionPlanOperations)
+          .values({
+            sectionId: params.sectionId,
+            courseId: ownedSection.courseId,
+            kind: 'shift_forward',
+            previousOverrides
+          })
+          .returning({ id: sectionPlanOperations.id });
+        const plans = await tx
+          .select({
+            lessonId: sectionLessonPlans.lessonId,
+            plannedStartMeeting: sectionLessonPlans.plannedStartMeeting,
+            plannedMeetingCount: sectionLessonPlans.plannedMeetingCount,
+            revision: sectionLessonPlans.revision
+          })
+          .from(sectionLessonPlans)
+          .where(eq(sectionLessonPlans.sectionId, params.sectionId));
+        return { operationId: operation?.id ?? null, plans };
+      });
+      return SectionLessonPlanResponseSchema.parse(result);
+    }
+  );
+
+  app.post(
+    '/v1/sections/:sectionId/lesson-plans/:operationId/undo',
+    {
+      schema: {
+        params: SectionParamsSchema.extend({ operationId: UuidSchema }),
+        response: { 200: SectionLessonPlanResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionParamsSchema.extend({ operationId: UuidSchema }).parse(request.params);
+      const ownedSection = await findOwnedSection(user.id, params.sectionId);
+      if (!ownedSection) {
+        (reply as any).code(404);
+        return { error: 'Section not found', requestId: request.id };
+      }
+      try {
+        const result = await db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtext(${`section-plan:${params.sectionId}`}))`
+          );
+          const [operation] = await tx
+            .select()
+            .from(sectionPlanOperations)
+            .where(
+              and(
+                eq(sectionPlanOperations.id, params.operationId),
+                eq(sectionPlanOperations.sectionId, params.sectionId),
+                eq(sectionPlanOperations.courseId, ownedSection.courseId)
+              )
+            )
+            .limit(1);
+          if (!operation) {
+            throw new SectionPlanUndoConflictError(
+              'Planning operation not found or already undone.'
+            );
+          }
+          const [latestOperation] = await tx
+            .select({ id: sectionPlanOperations.id })
+            .from(sectionPlanOperations)
+            .where(
+              and(
+                eq(sectionPlanOperations.sectionId, params.sectionId),
+                eq(sectionPlanOperations.courseId, ownedSection.courseId)
+              )
+            )
+            .orderBy(desc(sectionPlanOperations.createdAt), desc(sectionPlanOperations.id))
+            .limit(1);
+          if (latestOperation?.id !== operation.id) {
+            throw new SectionPlanUndoConflictError(
+              'Only the most recent section planning change can be undone.'
+            );
+          }
+          const previous = operation.previousOverrides as Array<{
+            lessonId: string;
+            existed?: boolean;
+            plannedStartMeeting: number | null;
+            plannedMeetingCount: number | null;
+          }>;
+          for (const item of previous) {
+            if (!item.existed) {
+              await tx
+                .delete(sectionLessonPlans)
+                .where(
+                  and(
+                    eq(sectionLessonPlans.sectionId, params.sectionId),
+                    eq(sectionLessonPlans.lessonId, item.lessonId)
+                  )
+                );
+              continue;
+            }
+            await tx
+              .insert(sectionLessonPlans)
+              .values({
+                sectionId: params.sectionId,
+                lessonId: item.lessonId,
+                plannedStartMeeting: item.plannedStartMeeting,
+                plannedMeetingCount: item.plannedMeetingCount
+              })
+              .onConflictDoUpdate({
+                target: [sectionLessonPlans.sectionId, sectionLessonPlans.lessonId],
+                set: {
+                  plannedStartMeeting: item.plannedStartMeeting,
+                  plannedMeetingCount: item.plannedMeetingCount,
+                  revision: sql`${sectionLessonPlans.revision} + 1`,
+                  updatedAt: new Date()
+                }
+              });
+          }
+          await tx.delete(sectionPlanOperations).where(eq(sectionPlanOperations.id, operation.id));
+          const plans = await tx
+            .select({
+              lessonId: sectionLessonPlans.lessonId,
+              plannedStartMeeting: sectionLessonPlans.plannedStartMeeting,
+              plannedMeetingCount: sectionLessonPlans.plannedMeetingCount,
+              revision: sectionLessonPlans.revision
+            })
+            .from(sectionLessonPlans)
+            .where(eq(sectionLessonPlans.sectionId, params.sectionId));
+          return { operationId: null, plans };
+        });
+        return SectionLessonPlanResponseSchema.parse(result);
+      } catch (error) {
+        if (error instanceof SectionPlanUndoConflictError) {
+          (reply as any).code(409);
+          return { error: error.message, requestId: request.id };
+        }
+        throw error;
+      }
+    }
+  );
+
+  app.get(
+    '/v1/sections/:sectionId/planning-context',
+    {
+      schema: {
+        params: SectionParamsSchema,
+        querystring: SectionPlanningContextQuerySchema,
+        response: { 200: SectionPlanningContextResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionParamsSchema.parse(request.params);
+      const query = SectionPlanningContextQuerySchema.parse(request.query);
+      const ownedSection = await findOwnedSection(user.id, params.sectionId);
+      if (!ownedSection) {
+        (reply as any).code(404);
+        return { error: 'Section not found', requestId: request.id };
+      }
+      const curriculum = await db
+        .select({
+          lessonId: lessons.id,
+          title: lessons.title,
+          courseStart: lessons.plannedStartMeeting,
+          courseCount: lessons.plannedMeetingCount,
+          sectionStart: sectionLessonPlans.plannedStartMeeting,
+          sectionCount: sectionLessonPlans.plannedMeetingCount,
+          sectionPlanId: sectionLessonPlans.id
+        })
+        .from(lessons)
+        .innerJoin(units, eq(lessons.unitId, units.id))
+        .leftJoin(
+          sectionLessonPlans,
+          and(
+            eq(sectionLessonPlans.lessonId, lessons.id),
+            eq(sectionLessonPlans.sectionId, params.sectionId)
+          )
+        )
+        .where(eq(units.courseId, ownedSection.courseId))
+        .orderBy(asc(units.orderIndex), asc(lessons.orderIndex), asc(lessons.createdAt));
+      const planned = curriculum.find((lesson) => {
+        const start = lesson.sectionStart ?? lesson.courseStart;
+        const count = lesson.sectionCount ?? lesson.courseCount;
+        return (
+          start !== null &&
+          count !== null &&
+          query.meetingIndex >= start &&
+          query.meetingIndex < start + count
+        );
+      });
+      const [actual] = await db
+        .select({
+          lessonId: sectionLessonState.lessonId,
+          status: sectionLessonState.status,
+          completedStepIds: sectionLessonState.completedSegmentIds,
+          stoppedAtStepId: sectionLessonState.stoppedAtSegmentId
+        })
+        .from(sectionLessonState)
+        .innerJoin(lessons, eq(sectionLessonState.lessonId, lessons.id))
+        .innerJoin(units, eq(lessons.unitId, units.id))
+        .where(
+          and(
+            eq(sectionLessonState.sectionId, params.sectionId),
+            eq(units.courseId, ownedSection.courseId),
+            inArray(sectionLessonState.status, [
+              'in_progress',
+              'stopped_at_segment',
+              'carried_over',
+              'needs_reteach'
+            ])
+          )
+        )
+        .orderBy(desc(sectionLessonState.updatedAt))
+        .limit(1);
+      return SectionPlanningContextResponseSchema.parse({
+        planned: planned
+          ? {
+              lessonId: planned.lessonId,
+              title: planned.title,
+              plannedStartMeeting: planned.sectionStart ?? planned.courseStart,
+              plannedMeetingCount: planned.sectionCount ?? planned.courseCount,
+              source: planned.sectionPlanId ? 'section' : 'course'
+            }
+          : null,
+        actual: actual ?? null
       });
     }
   );
@@ -1765,7 +2128,19 @@ export async function v1Routes(app: FastifyInstance) {
             .orderBy(asc(lessonSegments.orderIndex), asc(lessonSegments.createdAt))
         : [];
 
-      const [lastNote] = await db
+      const recentMeetingNotes = await db
+        .select({
+          id: classMeetings.id,
+          date: classMeetings.meetingDate,
+          content: classMeetings.rawNote,
+          updatedAt: classMeetings.updatedAt
+        })
+        .from(classMeetings)
+        .where(eq(classMeetings.sectionId, params.sectionId))
+        .orderBy(desc(classMeetings.meetingDate), desc(classMeetings.updatedAt))
+        .limit(25);
+      const lastMeetingNote = recentMeetingNotes.find((note) => note.content !== null) ?? null;
+      const [lastLegacyNote] = await db
         .select({
           noteId: classNotes.id,
           date: classNotes.date,
@@ -1810,14 +2185,15 @@ export async function v1Routes(app: FastifyInstance) {
               updatedAt: activeState.updatedAt.toISOString()
             }
           : null,
-        lastNote: lastNote
-          ? {
-              noteId: lastNote.noteId,
-              date: lastNote.date,
-              content: lastNote.content,
-              updatedAt: lastNote.updatedAt.toISOString()
-            }
-          : null
+        lastNote:
+          (lastMeetingNote ?? lastLegacyNote)
+            ? {
+                noteId: lastMeetingNote?.id ?? lastLegacyNote!.noteId,
+                date: lastMeetingNote?.date ?? lastLegacyNote!.date,
+                content: lastMeetingNote?.content ?? lastLegacyNote!.content,
+                updatedAt: (lastMeetingNote?.updatedAt ?? lastLegacyNote!.updatedAt).toISOString()
+              }
+            : null
       });
     }
   );
@@ -2901,116 +3277,362 @@ export async function v1Routes(app: FastifyInstance) {
         (reply as any).code(404);
         return { error: 'Section or lesson not found', requestId: request.id };
       }
-      const steps = await db
-        .select({ id: lessonSegments.id })
-        .from(lessonSegments)
-        .where(eq(lessonSegments.lessonId, body.lessonId))
-        .orderBy(asc(lessonSegments.orderIndex));
-      const validIds = new Set(steps.map((step) => step.id));
-      const completedStepIds = [...new Set(body.completedStepIds.filter((id) => validIds.has(id)))];
-      const [meeting] = await db
-        .insert(classMeetings)
-        .values({
-          sectionId: body.sectionId,
-          lessonId: body.lessonId,
-          meetingDate: body.meetingDate,
-          scheduledStartTime: body.scheduledStartTime,
-          scheduledEndTime: body.scheduledEndTime,
-          completedStepIds,
-          rawNote: body.rawNote,
-          status: body.endClass ? 'ended' : 'in_progress',
-          endedAt: body.endClass ? new Date() : null
-        })
-        .onConflictDoUpdate({
-          target: [classMeetings.sectionId, classMeetings.meetingDate],
-          set: {
-            completedStepIds,
-            rawNote: body.rawNote,
-            status: body.endClass ? 'ended' : 'in_progress',
-            endedAt: body.endClass ? new Date() : null,
-            updatedAt: new Date()
+      const requestedOccurrenceKey = meetingOccurrenceKey(body.scheduledStartTime);
+      try {
+        const response = await db.transaction(async (tx) => {
+          // State and cumulative history are shared by all occurrences of one
+          // section/lesson. Serialize that narrow aggregate, while retaining
+          // per-occurrence optimistic revisions for two tabs on the same row.
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtext(${`${body.sectionId}:${body.lessonId}`}))`
+          );
+          const steps = await tx
+            .select({
+              id: lessonSegments.id,
+              title: lessonSegments.title,
+              orderIndex: lessonSegments.orderIndex
+            })
+            .from(lessonSegments)
+            .where(eq(lessonSegments.lessonId, body.lessonId))
+            .orderBy(asc(lessonSegments.orderIndex), asc(lessonSegments.createdAt));
+          const validIds = new Set(steps.map((step) => step.id));
+          const completedStepIds = [
+            ...new Set(body.completedStepIds.filter((id) => validIds.has(id)))
+          ];
+          // Timed occurrences never adopt a date-only legacy row: that would
+          // collapse split blocks after migration. Legacy is reserved for an
+          // explicitly unscheduled/manual occurrence.
+          const lookupKeys =
+            requestedOccurrenceKey === 'legacy' ? ['legacy'] : [requestedOccurrenceKey];
+          const candidates = await tx
+            .select()
+            .from(classMeetings)
+            .where(
+              and(
+                eq(classMeetings.sectionId, body.sectionId),
+                eq(classMeetings.meetingDate, body.meetingDate),
+                inArray(classMeetings.occurrenceKey, lookupKeys)
+              )
+            )
+            .orderBy(desc(classMeetings.occurrenceKey));
+          const existing =
+            candidates.find((meeting) => meeting.occurrenceKey === requestedOccurrenceKey) ?? null;
+          if (existing && existing.lessonId !== body.lessonId) {
+            throw new MeetingRevisionConflictError(
+              'This scheduled class already belongs to a different lesson.'
+            );
           }
-        })
-        .returning();
-      if (!meeting) throw new Error('Failed to save class meeting');
-      const history = await db
-        .select({ completedStepIds: classMeetings.completedStepIds })
+          if (existing && body.expectedRevision !== existing.revision) {
+            throw new MeetingRevisionConflictError();
+          }
+          const historicalState = await tx
+            .select({
+              historicalCompletedSegmentIds: sectionLessonState.historicalCompletedSegmentIds,
+              lastTaughtDate: sectionLessonState.lastTaughtDate
+            })
+            .from(sectionLessonState)
+            .where(
+              and(
+                eq(sectionLessonState.sectionId, body.sectionId),
+                eq(sectionLessonState.lessonId, body.lessonId)
+              )
+            )
+            .limit(1);
+          const existingSnapshot = existing?.stepSnapshot ?? null;
+          const snapshot = existingSnapshot
+            ? existingSnapshot.map((step) => ({
+                ...step,
+                // The snapshot is the curriculum as this occurrence first saw
+                // it. Later editing must never add/rename/reorder history;
+                // only completion for IDs already in the snapshot may change.
+                completed: completedStepIds.includes(step.id)
+                  ? true
+                  : validIds.has(step.id)
+                    ? false
+                    : step.completed
+              }))
+            : existing
+              ? null
+              : steps.map((step) => ({
+                  id: step.id,
+                  title: step.title,
+                  order: step.orderIndex,
+                  completed: completedStepIds.includes(step.id)
+                }));
+          const now = new Date();
+          let meeting = existing;
+          if (existing) {
+            const [updated] = await tx
+              .update(classMeetings)
+              .set({
+                completedStepIds,
+                stepSnapshot: snapshot,
+                rawNote: body.rawNote,
+                status: existing.status === 'ended' || body.endClass ? 'ended' : 'in_progress',
+                endedAt: existing.endedAt ?? (body.endClass ? now : null),
+                revision: existing.revision + 1,
+                updatedAt: now
+              })
+              .where(
+                and(
+                  eq(classMeetings.id, existing.id),
+                  eq(classMeetings.revision, existing.revision)
+                )
+              )
+              .returning();
+            if (!updated) throw new MeetingRevisionConflictError();
+            meeting = updated;
+          } else {
+            const [created] = await tx
+              .insert(classMeetings)
+              .values({
+                sectionId: body.sectionId,
+                lessonId: body.lessonId,
+                meetingDate: body.meetingDate,
+                occurrenceKey: requestedOccurrenceKey,
+                scheduledStartTime: body.scheduledStartTime,
+                scheduledEndTime: body.scheduledEndTime,
+                completedStepIds,
+                stepSnapshot: snapshot,
+                rawNote: body.rawNote,
+                status: body.endClass ? 'ended' : 'in_progress',
+                endedAt: body.endClass ? now : null
+              })
+              .onConflictDoNothing()
+              .returning();
+            if (!created) throw new MeetingRevisionConflictError();
+            meeting = created;
+          }
+          if (!meeting) throw new Error('Failed to save class meeting');
+          const history = await tx
+            .select({ id: classMeetings.id, completedStepIds: classMeetings.completedStepIds })
+            .from(classMeetings)
+            .where(
+              and(
+                eq(classMeetings.sectionId, body.sectionId),
+                eq(classMeetings.lessonId, body.lessonId)
+              )
+            );
+          const priorCompletedStepIds = [
+            ...new Set([
+              ...(historicalState[0]?.historicalCompletedSegmentIds ?? []),
+              ...history
+                .filter((item) => item.id !== meeting.id)
+                .flatMap((item) => item.completedStepIds)
+            ])
+          ].filter((id) => validIds.has(id));
+          const cumulativeCompletedStepIds = [
+            ...new Set([...priorCompletedStepIds, ...completedStepIds])
+          ];
+          const firstIncomplete = steps.find(
+            (step) => !cumulativeCompletedStepIds.includes(step.id)
+          );
+          const stoppedAfterStepId = firstIncomplete
+            ? (steps[steps.indexOf(firstIncomplete) - 1]?.id ?? null)
+            : (steps.at(-1)?.id ?? null);
+          const stoppingPointStepId = firstIncomplete?.id ?? null;
+          const lessonCompleted =
+            steps.length > 0 && steps.every((step) => cumulativeCompletedStepIds.includes(step.id));
+          const stateStatus = lessonCompleted
+            ? 'completed'
+            : meeting.status === 'ended'
+              ? 'stopped_at_segment'
+              : 'in_progress';
+          const lastTaughtDate =
+            historicalState[0]?.lastTaughtDate &&
+            historicalState[0].lastTaughtDate > body.meetingDate
+              ? historicalState[0].lastTaughtDate
+              : body.meetingDate;
+          await tx
+            .update(classMeetings)
+            .set({ stoppedAfterStepId, stoppingPointStepId, updatedAt: now })
+            .where(eq(classMeetings.id, meeting.id));
+          await tx
+            .insert(sectionLessonState)
+            .values({
+              sectionId: body.sectionId,
+              lessonId: body.lessonId,
+              status: stateStatus,
+              currentSegmentId: stoppingPointStepId,
+              stoppedAtSegmentId: stoppingPointStepId,
+              completedSegmentIds: cumulativeCompletedStepIds,
+              historicalCompletedSegmentIds: [],
+              carryOverNote: body.rawNote,
+              lastTaughtDate
+            })
+            .onConflictDoUpdate({
+              target: [sectionLessonState.sectionId, sectionLessonState.lessonId],
+              set: {
+                status: stateStatus,
+                currentSegmentId: stoppingPointStepId,
+                stoppedAtSegmentId: stoppingPointStepId,
+                completedSegmentIds: cumulativeCompletedStepIds,
+                carryOverNote: body.rawNote,
+                lastTaughtDate,
+                updatedAt: now
+              }
+            });
+          if (body.rawNote === null) {
+            await tx
+              .delete(classNotes)
+              .where(
+                and(
+                  eq(classNotes.sectionId, body.sectionId),
+                  eq(classNotes.userId, user.id),
+                  eq(classNotes.date, body.meetingDate),
+                  eq(classNotes.noteType, 'raw')
+                )
+              );
+          } else {
+            await tx
+              .insert(classNotes)
+              .values({
+                sectionId: body.sectionId,
+                userId: user.id,
+                date: body.meetingDate,
+                noteType: 'raw',
+                content: body.rawNote
+              })
+              .onConflictDoUpdate({
+                target: [
+                  classNotes.sectionId,
+                  classNotes.userId,
+                  classNotes.date,
+                  classNotes.noteType
+                ],
+                set: { content: body.rawNote, updatedAt: now }
+              });
+          }
+          return ClassMeetingResponseSchema.parse({
+            id: meeting.id,
+            status: meeting.status,
+            completedStepIds: meeting.completedStepIds,
+            stoppedAfterStepId,
+            rawNote: meeting.rawNote,
+            meetingDate: meeting.meetingDate,
+            scheduledStartTime: meeting.scheduledStartTime?.slice(0, 5) ?? null,
+            scheduledEndTime: meeting.scheduledEndTime?.slice(0, 5) ?? null,
+            occurrenceKey: meeting.occurrenceKey,
+            revision: meeting.revision,
+            stepSnapshot: snapshot,
+            stoppingPointStepId,
+            endedAt: meeting.endedAt?.toISOString() ?? null,
+            cumulativeCompletedStepIds,
+            lessonCompleted
+          });
+        });
+        return response;
+      } catch (error) {
+        if (error instanceof MeetingRevisionConflictError) {
+          (reply as any).code(409);
+          return { error: error.message, requestId: request.id };
+        }
+        throw error;
+      }
+    }
+  );
+
+  app.get(
+    '/v1/sections/:sectionId/class-meeting',
+    {
+      schema: {
+        params: SectionParamsSchema,
+        querystring: ClassMeetingLookupQuerySchema,
+        response: { 200: ClassMeetingLookupResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionParamsSchema.parse(request.params);
+      const query = ClassMeetingLookupQuerySchema.parse(request.query);
+      if (!(await findOwnedLessonInSectionCourse(user.id, params.sectionId, query.lessonId))) {
+        (reply as any).code(404);
+        return { error: 'Section or lesson not found', requestId: request.id };
+      }
+      const key = meetingOccurrenceKey(query.scheduledStartTime);
+      const lookupKeys = key === 'legacy' ? ['legacy'] : [key];
+      const candidates = await db
+        .select()
         .from(classMeetings)
         .where(
           and(
-            eq(classMeetings.sectionId, body.sectionId),
-            eq(classMeetings.lessonId, body.lessonId)
+            eq(classMeetings.sectionId, params.sectionId),
+            eq(classMeetings.meetingDate, query.meetingDate),
+            inArray(classMeetings.occurrenceKey, lookupKeys)
           )
         );
-      const cumulativeCompletedStepIds = [
-        ...new Set(history.flatMap((item) => item.completedStepIds))
-      ];
-      const contiguous = steps.findIndex((step) => !cumulativeCompletedStepIds.includes(step.id));
-      const stoppedAfterStepId =
-        contiguous === -1
-          ? (steps.at(-1)?.id ?? null)
-          : contiguous === 0
-            ? null
-            : (steps[contiguous - 1]?.id ?? null);
-      const lessonCompleted =
-        steps.length > 0 && steps.every((step) => cumulativeCompletedStepIds.includes(step.id));
-      await db
-        .insert(sectionLessonState)
-        .values({
-          sectionId: body.sectionId,
-          lessonId: body.lessonId,
-          status: lessonCompleted
-            ? 'completed'
-            : body.endClass
-              ? 'stopped_at_segment'
-              : 'in_progress',
-          currentSegmentId: lessonCompleted ? null : stoppedAfterStepId,
-          stoppedAtSegmentId: lessonCompleted ? null : stoppedAfterStepId,
-          completedSegmentIds: cumulativeCompletedStepIds,
-          carryOverNote: body.rawNote,
-          lastTaughtDate: body.meetingDate
-        })
-        .onConflictDoUpdate({
-          target: [sectionLessonState.sectionId, sectionLessonState.lessonId],
-          set: {
-            status: lessonCompleted
-              ? 'completed'
-              : body.endClass
-                ? 'stopped_at_segment'
-                : 'in_progress',
-            currentSegmentId: lessonCompleted ? null : stoppedAfterStepId,
-            stoppedAtSegmentId: lessonCompleted ? null : stoppedAfterStepId,
-            completedSegmentIds: cumulativeCompletedStepIds,
-            carryOverNote: body.rawNote,
-            lastTaughtDate: body.meetingDate,
-            updatedAt: new Date()
-          }
-        });
-      if (body.rawNote?.trim()) {
-        await db
-          .insert(classNotes)
-          .values({
-            sectionId: body.sectionId,
-            userId: user.id,
-            date: body.meetingDate,
-            noteType: 'raw',
-            content: body.rawNote
-          })
-          .onConflictDoUpdate({
-            target: [classNotes.sectionId, classNotes.userId, classNotes.date, classNotes.noteType],
-            set: { content: body.rawNote, updatedAt: new Date() }
-          });
+      const meeting = candidates.find((item) => item.occurrenceKey === key) ?? null;
+      if (meeting && meeting.lessonId !== query.lessonId) {
+        (reply as any).code(409);
+        return {
+          error: 'This scheduled class belongs to a different lesson.',
+          requestId: request.id
+        };
       }
-      return ClassMeetingResponseSchema.parse({
-        id: meeting.id,
-        status: meeting.status,
-        completedStepIds: meeting.completedStepIds,
-        stoppedAfterStepId,
-        rawNote: meeting.rawNote,
-        meetingDate: meeting.meetingDate,
-        endedAt: meeting.endedAt?.toISOString() ?? null,
-        cumulativeCompletedStepIds,
-        lessonCompleted
+      const steps = await db
+        .select({ id: lessonSegments.id })
+        .from(lessonSegments)
+        .where(eq(lessonSegments.lessonId, query.lessonId));
+      const validIds = new Set(steps.map((step) => step.id));
+      const [state] = await db
+        .select({ historicalCompletedSegmentIds: sectionLessonState.historicalCompletedSegmentIds })
+        .from(sectionLessonState)
+        .where(
+          and(
+            eq(sectionLessonState.sectionId, params.sectionId),
+            eq(sectionLessonState.lessonId, query.lessonId)
+          )
+        )
+        .limit(1);
+      const history = await db
+        .select({ id: classMeetings.id, completedStepIds: classMeetings.completedStepIds })
+        .from(classMeetings)
+        .where(
+          and(
+            eq(classMeetings.sectionId, params.sectionId),
+            eq(classMeetings.lessonId, query.lessonId)
+          )
+        );
+      const historicalCompletedStepIds = [
+        ...new Set([
+          ...(state?.historicalCompletedSegmentIds ?? []),
+          ...history
+            .filter((item) => item.id !== meeting?.id)
+            .flatMap((item) => item.completedStepIds)
+        ])
+      ].filter((id) => validIds.has(id));
+      const cumulative = [
+        ...new Set([...historicalCompletedStepIds, ...(meeting?.completedStepIds ?? [])])
+      ];
+      const firstIncomplete = steps.find((step) => !cumulative.includes(step.id));
+      const stoppedAfterStepId = firstIncomplete
+        ? (steps[steps.indexOf(firstIncomplete) - 1]?.id ?? null)
+        : (steps.at(-1)?.id ?? null);
+      const lessonCompleted =
+        steps.length > 0 && steps.every((step) => cumulative.includes(step.id));
+      return ClassMeetingLookupResponseSchema.parse({
+        historicalCompletedStepIds,
+        meeting: meeting
+          ? {
+              id: meeting.id,
+              status: meeting.status,
+              completedStepIds: meeting.completedStepIds,
+              stoppedAfterStepId,
+              rawNote: meeting.rawNote,
+              meetingDate: meeting.meetingDate,
+              scheduledStartTime: meeting.scheduledStartTime?.slice(0, 5) ?? null,
+              scheduledEndTime: meeting.scheduledEndTime?.slice(0, 5) ?? null,
+              occurrenceKey: meeting.occurrenceKey,
+              revision: meeting.revision,
+              stepSnapshot: meeting.stepSnapshot ?? null,
+              stoppingPointStepId: meeting.stoppingPointStepId,
+              endedAt: meeting.endedAt?.toISOString() ?? null,
+              cumulativeCompletedStepIds: cumulative,
+              lessonCompleted
+            }
+          : null
       });
     }
   );
@@ -3040,35 +3662,98 @@ export async function v1Routes(app: FastifyInstance) {
         (reply as any).code(404);
         return { error: 'Section or lesson not found', requestId: request.id };
       }
-
-      const [state] = await db
-        .insert(sectionLessonState)
-        .values({
-          sectionId: body.sectionId,
-          lessonId: body.lessonId,
-          status: body.status,
-          currentSegmentId: body.currentSegmentId,
-          stoppedAtSegmentId: body.stoppedAtSegmentId,
-          completedSegmentIds: body.completedSegmentIds,
-          carryOverNote: body.carryOverNote,
-          lastTaughtDate: body.lastTaughtDate
-        })
-        .onConflictDoUpdate({
-          target: [sectionLessonState.sectionId, sectionLessonState.lessonId],
-          set: {
-            status: body.status,
-            currentSegmentId: body.currentSegmentId,
-            stoppedAtSegmentId: body.stoppedAtSegmentId,
-            completedSegmentIds: body.completedSegmentIds,
-            carryOverNote: body.carryOverNote,
-            lastTaughtDate: body.lastTaughtDate,
-            updatedAt: new Date()
-          }
-        })
-        .returning({
-          id: sectionLessonState.id,
-          updatedAt: sectionLessonState.updatedAt
+      // Compatibility path for pre-Phase-2 clients. It can only establish
+      // baseline progress before any durable meeting history exists; otherwise
+      // it would make the materialized section state contradict the record.
+      const [history] = await db
+        .select({ id: classMeetings.id })
+        .from(classMeetings)
+        .where(
+          and(
+            eq(classMeetings.sectionId, body.sectionId),
+            eq(classMeetings.lessonId, body.lessonId)
+          )
+        )
+        .limit(1);
+      if (history) {
+        (reply as any).code(409);
+        return {
+          error:
+            'This lesson already has class-meeting history. Save through the classroom meeting endpoint.',
+          requestId: request.id
+        };
+      }
+      const segmentRows = await db
+        .select({ id: lessonSegments.id })
+        .from(lessonSegments)
+        .where(eq(lessonSegments.lessonId, body.lessonId));
+      const validSegmentIds = new Set(segmentRows.map((segment) => segment.id));
+      const completedSegmentIds = [
+        ...new Set(body.completedSegmentIds.filter((id) => validSegmentIds.has(id)))
+      ];
+      const currentSegmentId =
+        body.currentSegmentId && validSegmentIds.has(body.currentSegmentId)
+          ? body.currentSegmentId
+          : null;
+      const stoppedAtSegmentId =
+        body.stoppedAtSegmentId && validSegmentIds.has(body.stoppedAtSegmentId)
+          ? body.stoppedAtSegmentId
+          : null;
+      let state: { id: string; updatedAt: Date } | undefined;
+      try {
+        [state] = await db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtext(${`${body.sectionId}:${body.lessonId}`}))`
+          );
+          const [lockedHistory] = await tx
+            .select({ id: classMeetings.id })
+            .from(classMeetings)
+            .where(
+              and(
+                eq(classMeetings.sectionId, body.sectionId),
+                eq(classMeetings.lessonId, body.lessonId)
+              )
+            )
+            .limit(1);
+          if (lockedHistory) throw new MeetingHistoryExistsError();
+          return tx
+            .insert(sectionLessonState)
+            .values({
+              sectionId: body.sectionId,
+              lessonId: body.lessonId,
+              status: body.status,
+              currentSegmentId,
+              stoppedAtSegmentId,
+              completedSegmentIds,
+              historicalCompletedSegmentIds: completedSegmentIds,
+              carryOverNote: body.carryOverNote,
+              lastTaughtDate: body.lastTaughtDate
+            })
+            .onConflictDoUpdate({
+              target: [sectionLessonState.sectionId, sectionLessonState.lessonId],
+              set: {
+                status: body.status,
+                currentSegmentId,
+                stoppedAtSegmentId,
+                completedSegmentIds,
+                historicalCompletedSegmentIds: completedSegmentIds,
+                carryOverNote: body.carryOverNote,
+                lastTaughtDate: body.lastTaughtDate,
+                updatedAt: new Date()
+              }
+            })
+            .returning({
+              id: sectionLessonState.id,
+              updatedAt: sectionLessonState.updatedAt
+            });
         });
+      } catch (error) {
+        if (error instanceof MeetingHistoryExistsError) {
+          (reply as any).code(409);
+          return { error: error.message, requestId: request.id };
+        }
+        throw error;
+      }
       if (!state) throw new Error('Failed to upsert lesson state');
 
       return {

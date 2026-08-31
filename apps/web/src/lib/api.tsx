@@ -12,6 +12,7 @@ import type {
   ClassNotesUpsertRequest,
   ClassMeetingUpsertRequest,
   ClassMeetingResponse,
+  ClassMeetingLookupResponse,
   ClassNotesUpsertResponse,
   ClassroomResumeResponse,
   CourseCreateRequest,
@@ -240,6 +241,21 @@ export function useApiClient() {
       getClassroomResume: (sectionId: string) =>
         request<ClassroomResumeResponse>(
           `/v1/sections/${sectionId}/resume`,
+          { method: 'GET' },
+          auth
+        ),
+      getClassMeeting: (
+        sectionId: string,
+        query: { lessonId: string; meetingDate: string; scheduledStartTime: string | null }
+      ) =>
+        request<ClassMeetingLookupResponse>(
+          `/v1/sections/${sectionId}/class-meeting?${new URLSearchParams({
+            lessonId: query.lessonId,
+            meetingDate: query.meetingDate,
+            ...(query.scheduledStartTime === null
+              ? {}
+              : { scheduledStartTime: query.scheduledStartTime })
+          }).toString()}`,
           { method: 'GET' },
           auth
         ),

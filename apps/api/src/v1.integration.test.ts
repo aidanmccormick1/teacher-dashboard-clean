@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +13,10 @@ import type { AppConfig } from './config.js';
 let app: Awaited<ReturnType<typeof createApp>>;
 const runIntegration = process.env.RUN_INTEGRATION_DB_TESTS === '1';
 const describeIf = runIntegration ? describe : describe.skip;
+const migrationsDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../packages/db/migrations'
+);
 
 const teacherHeaders = {
   'x-dev-user-id': 'teacher-dev-1',
@@ -36,7 +41,6 @@ const onboardingBody = {
 };
 
 async function runMigrations() {
-  const migrationsDir = path.resolve(process.cwd(), '../../packages/db/migrations');
   const migrationFiles = [
     '0000_initial.sql',
     '0001_ai_jobs_cancel_status.sql',
@@ -48,7 +52,8 @@ async function runMigrations() {
     '0007_lesson_plan_workspace.sql',
     '0008_lesson_workspace_sharing.sql',
     '0009_class_meetings.sql',
-    '0010_school_timezone.sql'
+    '0010_school_timezone.sql',
+    '0011_planning_and_meeting_history.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -64,6 +69,8 @@ async function resetDatabase() {
       ai_jobs,
       class_meetings,
       class_notes,
+      section_plan_operations,
+      section_lesson_plans,
       lesson_shares,
       section_lesson_state,
       lesson_segments,
@@ -314,6 +321,7 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
 
       const fakeQueue = {
         add: vi.fn(async () => ({ id: failedJob?.id ?? 'x' })),
+        close: vi.fn(async () => undefined),
         remove: vi.fn(async () => undefined),
         getJob: vi.fn(async (jobId: string) => {
           if (jobId === failedJob?.id) {
@@ -587,6 +595,640 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           expect.objectContaining({ date: '2026-09-16', startTime: '13:00' })
         ])
       );
+    });
+  });
+
+  describe('Phase 2 planning and meeting history', () => {
+    type CourseDetailPayload = {
+      course: {
+        id: string;
+        units: Array<{
+          id: string;
+          lessons: Array<{ id: string; segments: Array<{ id: string; title: string }> }>;
+        }>;
+      };
+    };
+
+    async function fixture() {
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/v1/onboarding',
+            headers: teacherHeaders,
+            payload: onboardingBody
+          })
+        ).statusCode
+      ).toBe(200);
+      const course = (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/courses',
+          headers: teacherHeaders,
+          payload: { name: 'Spanish 5', subject: 'World Languages', gradeLevel: '5' }
+        })
+      ).json<{ course: { id: string } }>();
+      const unit = (
+        await app.inject({
+          method: 'POST',
+          url: `/v1/courses/${course.course.id}/units`,
+          headers: teacherHeaders,
+          payload: { title: 'Unit 1', description: null, orderIndex: 0 }
+        })
+      ).json<CourseDetailPayload>();
+      const unitId = unit.course.units[0]!.id;
+      const firstLesson = (
+        await app.inject({
+          method: 'POST',
+          url: `/v1/units/${unitId}/lessons`,
+          headers: teacherHeaders,
+          payload: {
+            title: 'Introducing Yourself',
+            description: null,
+            estimatedDurationMinutes: null,
+            plannedStartMeeting: 0,
+            plannedMeetingCount: 1
+          }
+        })
+      ).json<CourseDetailPayload>();
+      const lessonOneId = firstLesson.course.units[0]!.lessons[0]!.id;
+      const secondLesson = (
+        await app.inject({
+          method: 'POST',
+          url: `/v1/units/${unitId}/lessons`,
+          headers: teacherHeaders,
+          payload: {
+            title: 'Partner Introductions',
+            description: null,
+            estimatedDurationMinutes: null,
+            plannedStartMeeting: 1,
+            plannedMeetingCount: 1
+          }
+        })
+      ).json<CourseDetailPayload>();
+      const lessonTwoId = secondLesson.course.units[0]!.lessons.find(
+        (lesson) => lesson.id !== lessonOneId
+      )!.id;
+      let detail = secondLesson;
+      for (const [title, orderIndex] of [
+        ['Warm-up', 0],
+        ['Model', 1],
+        ['Partner Practice', 2]
+      ] as const) {
+        detail = (
+          await app.inject({
+            method: 'POST',
+            url: `/v1/lessons/${lessonOneId}/segments`,
+            headers: teacherHeaders,
+            payload: { title, description: null, durationMinutes: 5, orderIndex }
+          })
+        ).json<typeof detail>();
+      }
+      const lessonOne = detail.course.units[0]!.lessons.find(
+        (lesson) => lesson.id === lessonOneId
+      )!;
+      const [stepOne, stepTwo, stepThree] = lessonOne.segments;
+      await app.inject({
+        method: 'POST',
+        url: `/v1/lessons/${lessonTwoId}/segments`,
+        headers: teacherHeaders,
+        payload: { title: 'Listen', description: null, durationMinutes: 5, orderIndex: 0 }
+      });
+      const withAllSecondLessonSteps = (
+        await app.inject({
+          method: 'POST',
+          url: `/v1/lessons/${lessonTwoId}/segments`,
+          headers: teacherHeaders,
+          payload: { title: 'Respond', description: null, durationMinutes: 5, orderIndex: 1 }
+        })
+      ).json<CourseDetailPayload>();
+      const [lessonTwoStepOne, lessonTwoStepTwo] =
+        withAllSecondLessonSteps.course.units[0]!.lessons.find(
+          (lesson) => lesson.id === lessonTwoId
+        )!.segments;
+      const sectionsResponse = await app.inject({
+        method: 'POST',
+        url: '/v1/sections',
+        headers: teacherHeaders,
+        payload: {
+          courseId: course.course.id,
+          sectionName: 'Spanish 5B',
+          meetings: [
+            { day: 'Monday', time: '10:00', endTime: '10:50', room: null },
+            { day: 'Monday', time: '14:00', endTime: '14:50', room: null }
+          ]
+        }
+      });
+      const sectionOneId = sectionsResponse
+        .json<{ sections: Array<{ sectionId: string; sectionName: string }> }>()
+        .sections.find((section) => section.sectionName === 'Spanish 5B')!.sectionId;
+      const secondSectionResponse = await app.inject({
+        method: 'POST',
+        url: '/v1/sections',
+        headers: teacherHeaders,
+        payload: {
+          courseId: course.course.id,
+          sectionName: 'Spanish 5C',
+          meetings: [{ day: 'Wednesday', time: '10:00', endTime: '10:50', room: null }]
+        }
+      });
+      const sectionTwoId = secondSectionResponse
+        .json<{ sections: Array<{ sectionId: string; sectionName: string }> }>()
+        .sections.find((section) => section.sectionName === 'Spanish 5C')!.sectionId;
+      return {
+        courseId: course.course.id,
+        lessonOneId,
+        lessonTwoId,
+        stepOne: stepOne!.id,
+        stepTwo: stepTwo!.id,
+        stepThree: stepThree!.id,
+        lessonTwoStepOne: lessonTwoStepOne!.id,
+        lessonTwoStepTwo: lessonTwoStepTwo!.id,
+        sectionOneId,
+        sectionTwoId
+      };
+    }
+
+    it('isolates section planning and preserves revision-safe occurrence history', async () => {
+      const data = await fixture();
+      await app.inject({
+        method: 'POST',
+        url: '/v1/school-year',
+        headers: teacherHeaders,
+        payload: { startDate: '2026-01-01', endDate: '2026-12-31' }
+      });
+      const perBlockOverride = await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${data.sectionOneId}/meeting-overrides`,
+        headers: teacherHeaders,
+        payload: {
+          date: '2026-09-07',
+          scheduledStartTime: '14:00',
+          startTime: '15:00',
+          endTime: '15:50',
+          room: null,
+          cancelled: false
+        }
+      });
+      expect(perBlockOverride.statusCode).toBe(200);
+      const sameDayMeetings = await app.inject({
+        method: 'GET',
+        url: '/v1/meeting-instances?startDate=2026-09-07&endDate=2026-09-07',
+        headers: teacherHeaders
+      });
+      expect(
+        sameDayMeetings
+          .json<{ meetings: Array<{ sectionId: string; startTime: string | null }> }>()
+          .meetings.filter((meeting) => meeting.sectionId === data.sectionOneId)
+          .map((meeting) => meeting.startTime)
+      ).toEqual(['10:00', '15:00']);
+      const initial = await app.inject({
+        method: 'POST',
+        url: '/v1/class-meetings/upsert',
+        headers: teacherHeaders,
+        payload: {
+          sectionId: data.sectionOneId,
+          lessonId: data.lessonOneId,
+          meetingDate: '2026-09-07',
+          scheduledStartTime: '10:00',
+          scheduledEndTime: '10:50',
+          completedStepIds: [],
+          rawNote: '  exact\nraw note  ',
+          expectedRevision: null
+        }
+      });
+      expect(initial.statusCode).toBe(200);
+      const first = initial.json<{
+        id: string;
+        revision: number;
+        rawNote: string;
+        stepSnapshot: Array<{ title: string; order: number }>;
+      }>();
+      expect(first.rawNote).toBe('  exact\nraw note  ');
+      expect(first.stepSnapshot).toEqual(
+        expect.arrayContaining([expect.objectContaining({ title: 'Warm-up', order: 0 })])
+      );
+      // Reapplying the migration to a simulated pre-Phase-2 row proves that
+      // old timed history receives a timed key rather than matching all blocks.
+      await pool.query('UPDATE class_meetings SET occurrence_key = $1 WHERE id = $2', [
+        'legacy',
+        first.id
+      ]);
+      const migration = await readFile(
+        path.join(migrationsDir, '0011_planning_and_meeting_history.sql'),
+        'utf8'
+      );
+      await pool.query(migration);
+      const backfilled = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${data.sectionOneId}/class-meeting?lessonId=${data.lessonOneId}&meetingDate=2026-09-07&scheduledStartTime=10%3A00`,
+        headers: teacherHeaders
+      });
+      expect(
+        backfilled.json<{ meeting: { id: string; occurrenceKey: string } | null }>().meeting
+      ).toMatchObject({
+        id: first.id,
+        occurrenceKey: '10:00'
+      });
+
+      const checked = await app.inject({
+        method: 'POST',
+        url: '/v1/class-meetings/upsert',
+        headers: teacherHeaders,
+        payload: {
+          sectionId: data.sectionOneId,
+          lessonId: data.lessonOneId,
+          meetingDate: '2026-09-07',
+          scheduledStartTime: '10:00',
+          scheduledEndTime: '10:50',
+          completedStepIds: [data.stepOne, data.stepTwo],
+          rawNote: '  exact\nraw note  ',
+          expectedRevision: first.revision
+        }
+      });
+      expect(checked.statusCode).toBe(200);
+      const checkedPayload = checked.json<{ revision: number; completedStepIds: string[] }>();
+      expect(checkedPayload.completedStepIds).toEqual([data.stepOne, data.stepTwo]);
+
+      const unchecked = await app.inject({
+        method: 'POST',
+        url: '/v1/class-meetings/upsert',
+        headers: teacherHeaders,
+        payload: {
+          sectionId: data.sectionOneId,
+          lessonId: data.lessonOneId,
+          meetingDate: '2026-09-07',
+          scheduledStartTime: '10:00',
+          scheduledEndTime: '10:50',
+          completedStepIds: [data.stepOne],
+          rawNote: '  exact\nraw note  ',
+          expectedRevision: checkedPayload.revision,
+          endClass: true
+        }
+      });
+      expect(unchecked.statusCode).toBe(200);
+      const current = unchecked.json<{
+        id: string;
+        revision: number;
+        completedStepIds: string[];
+        cumulativeCompletedStepIds: string[];
+        stoppingPointStepId: string | null;
+      }>();
+      expect(current.id).toBe(first.id);
+      expect(current.completedStepIds).toEqual([data.stepOne]);
+      expect(current.cumulativeCompletedStepIds).toEqual([data.stepOne]);
+      expect(current.stoppingPointStepId).toBe(data.stepTwo);
+
+      const stale = await app.inject({
+        method: 'POST',
+        url: '/v1/class-meetings/upsert',
+        headers: teacherHeaders,
+        payload: {
+          sectionId: data.sectionOneId,
+          lessonId: data.lessonOneId,
+          meetingDate: '2026-09-07',
+          scheduledStartTime: '10:00',
+          scheduledEndTime: '10:50',
+          completedStepIds: [data.stepOne, data.stepTwo],
+          rawNote: 'stale write',
+          expectedRevision: checkedPayload.revision
+        }
+      });
+      expect(stale.statusCode).toBe(409);
+
+      const secondBlock = await app.inject({
+        method: 'POST',
+        url: '/v1/class-meetings/upsert',
+        headers: teacherHeaders,
+        payload: {
+          sectionId: data.sectionOneId,
+          lessonId: data.lessonOneId,
+          meetingDate: '2026-09-07',
+          scheduledStartTime: '15:00',
+          scheduledEndTime: '15:50',
+          completedStepIds: [data.stepTwo],
+          rawNote: 'afternoon block',
+          expectedRevision: null
+        }
+      });
+      expect(secondBlock.statusCode).toBe(200);
+      expect(secondBlock.json<{ id: string }>().id).not.toBe(first.id);
+
+      const sectionTwoComplete = await app.inject({
+        method: 'POST',
+        url: '/v1/class-meetings/upsert',
+        headers: teacherHeaders,
+        payload: {
+          sectionId: data.sectionTwoId,
+          lessonId: data.lessonOneId,
+          meetingDate: '2026-09-09',
+          scheduledStartTime: '10:00',
+          scheduledEndTime: '10:50',
+          completedStepIds: [data.stepOne, data.stepTwo, data.stepThree],
+          rawNote: 'all done',
+          expectedRevision: null,
+          endClass: true
+        }
+      });
+      expect(sectionTwoComplete.statusCode).toBe(200);
+      const resumeOne = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${data.sectionOneId}/resume`,
+        headers: teacherHeaders
+      });
+      const resumeTwo = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${data.sectionTwoId}/resume`,
+        headers: teacherHeaders
+      });
+      expect(
+        resumeOne.json<{ state: { status: string; completedSegmentIds: string[] } | null }>().state
+      ).toMatchObject({
+        status: 'in_progress',
+        completedSegmentIds: [data.stepOne, data.stepTwo]
+      });
+      expect(resumeTwo.json<{ lesson: { id: string } | null }>().lesson?.id).toBe(data.lessonTwoId);
+
+      const renamed = await app.inject({
+        method: 'PATCH',
+        url: `/v1/segments/${data.stepOne}`,
+        headers: teacherHeaders,
+        payload: { title: 'Renamed warm-up', orderIndex: 2 }
+      });
+      expect(renamed.statusCode).toBe(200);
+      const removed = await app.inject({
+        method: 'DELETE',
+        url: `/v1/segments/${data.stepTwo}`,
+        headers: teacherHeaders
+      });
+      expect(removed.statusCode).toBe(200);
+      const added = await app.inject({
+        method: 'POST',
+        url: `/v1/lessons/${data.lessonOneId}/segments`,
+        headers: teacherHeaders,
+        payload: { title: 'Exit ticket', description: null, durationMinutes: 5, orderIndex: 3 }
+      });
+      expect(added.statusCode).toBe(200);
+      const afterCurriculumEdit = await app.inject({
+        method: 'POST',
+        url: '/v1/class-meetings/upsert',
+        headers: teacherHeaders,
+        payload: {
+          sectionId: data.sectionOneId,
+          lessonId: data.lessonOneId,
+          meetingDate: '2026-09-07',
+          scheduledStartTime: '10:00',
+          scheduledEndTime: '10:50',
+          completedStepIds: [data.stepOne],
+          rawNote: '  exact\nraw note  ',
+          expectedRevision: current.revision
+        }
+      });
+      expect(afterCurriculumEdit.statusCode).toBe(200);
+      const historical = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${data.sectionOneId}/class-meeting?lessonId=${data.lessonOneId}&meetingDate=2026-09-07&scheduledStartTime=10%3A00`,
+        headers: teacherHeaders
+      });
+      expect(historical.statusCode).toBe(200);
+      expect(
+        historical.json<{
+          meeting: {
+            stepSnapshot: Array<{ id: string; title: string; order: number; completed: boolean }>;
+          };
+        }>().meeting.stepSnapshot
+      ).toEqual([
+        { id: data.stepOne, title: 'Warm-up', order: 0, completed: true },
+        { id: data.stepTwo, title: 'Model', order: 1, completed: false },
+        { id: data.stepThree, title: 'Partner Practice', order: 2, completed: false }
+      ]);
+
+      const contextBefore = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${data.sectionOneId}/planning-context?meetingIndex=1`,
+        headers: teacherHeaders
+      });
+      expect(
+        contextBefore.json<{
+          planned: { lessonId: string } | null;
+          actual: { lessonId: string } | null;
+        }>()
+      ).toMatchObject({
+        planned: { lessonId: data.lessonTwoId },
+        actual: { lessonId: data.lessonOneId }
+      });
+      const shifted = await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${data.sectionOneId}/lesson-plans/shift`,
+        headers: teacherHeaders,
+        payload: { lessonId: data.lessonTwoId, meetingDelta: 2 }
+      });
+      expect(shifted.statusCode).toBe(200);
+      const shiftPayload = shifted.json<{
+        operationId: string;
+        plans: Array<{ lessonId: string; plannedStartMeeting: number | null }>;
+      }>();
+      expect(shiftPayload.plans).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ lessonId: data.lessonTwoId, plannedStartMeeting: 3 })
+        ])
+      );
+      const unchangedOtherSection = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${data.sectionTwoId}/planning-context?meetingIndex=1`,
+        headers: teacherHeaders
+      });
+      expect(
+        unchangedOtherSection.json<{ planned: { lessonId: string; source: string } | null }>()
+          .planned
+      ).toEqual({
+        lessonId: data.lessonTwoId,
+        title: 'Partner Introductions',
+        plannedStartMeeting: 1,
+        plannedMeetingCount: 1,
+        source: 'course'
+      });
+      const undo = await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${data.sectionOneId}/lesson-plans/${shiftPayload.operationId}/undo`,
+        headers: teacherHeaders
+      });
+      expect(undo.statusCode).toBe(200);
+      expect(undo.json<{ plans: unknown[] }>().plans).toEqual([]);
+
+      const firstStackedShift = await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${data.sectionOneId}/lesson-plans/shift`,
+        headers: teacherHeaders,
+        payload: { lessonId: data.lessonTwoId, meetingDelta: 1 }
+      });
+      const secondStackedShift = await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${data.sectionOneId}/lesson-plans/shift`,
+        headers: teacherHeaders,
+        payload: { lessonId: data.lessonTwoId, meetingDelta: 1 }
+      });
+      expect(firstStackedShift.statusCode).toBe(200);
+      expect(secondStackedShift.statusCode).toBe(200);
+      const firstOperationId = firstStackedShift.json<{ operationId: string }>().operationId;
+      const secondOperationId = secondStackedShift.json<{ operationId: string }>().operationId;
+      const outOfOrderUndo = await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${data.sectionOneId}/lesson-plans/${firstOperationId}/undo`,
+        headers: teacherHeaders
+      });
+      expect(outOfOrderUndo.statusCode).toBe(409);
+      const undoSecond = await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${data.sectionOneId}/lesson-plans/${secondOperationId}/undo`,
+        headers: teacherHeaders
+      });
+      const undoFirst = await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${data.sectionOneId}/lesson-plans/${firstOperationId}/undo`,
+        headers: teacherHeaders
+      });
+      expect(undoSecond.statusCode).toBe(200);
+      expect(undoFirst.statusCode).toBe(200);
+      expect(undoFirst.json<{ plans: unknown[] }>().plans).toEqual([]);
+
+      // Distinct periods for the same section/lesson may save at the same time.
+      // The aggregate lock must preserve both completions rather than allowing
+      // a last writer to erase the other period's progress.
+      const concurrentOccurrences = await Promise.all(
+        [
+          { scheduledStartTime: '10:00', completedStepIds: [data.lessonTwoStepOne] },
+          { scheduledStartTime: '14:00', completedStepIds: [data.lessonTwoStepTwo] }
+        ].map(({ scheduledStartTime, completedStepIds }) =>
+          app.inject({
+            method: 'POST',
+            url: '/v1/class-meetings/upsert',
+            headers: teacherHeaders,
+            payload: {
+              sectionId: data.sectionOneId,
+              lessonId: data.lessonTwoId,
+              meetingDate: '2026-09-14',
+              scheduledStartTime,
+              scheduledEndTime: scheduledStartTime === '10:00' ? '10:50' : '14:50',
+              completedStepIds,
+              rawNote: null,
+              expectedRevision: null
+            }
+          })
+        )
+      );
+      expect(concurrentOccurrences.map((result) => result.statusCode)).toEqual([200, 200]);
+      const concurrentLookup = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${data.sectionOneId}/class-meeting?lessonId=${data.lessonTwoId}&meetingDate=2026-09-14&scheduledStartTime=10%3A00`,
+        headers: teacherHeaders
+      });
+      expect(
+        concurrentLookup.json<{ meeting: { cumulativeCompletedStepIds: string[] } | null }>()
+          .meeting?.cumulativeCompletedStepIds
+      ).toEqual(expect.arrayContaining([data.lessonTwoStepOne, data.lessonTwoStepTwo]));
+    });
+
+    it('rolls back meeting history and section state when a transactional companion write fails', async () => {
+      const data = await fixture();
+      await pool.query(`
+        CREATE OR REPLACE FUNCTION integration_fail_class_note() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'forced class note failure'; END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER integration_fail_class_note_trigger
+        BEFORE INSERT ON class_notes FOR EACH ROW EXECUTE FUNCTION integration_fail_class_note();
+      `);
+      try {
+        const failed = await app.inject({
+          method: 'POST',
+          url: '/v1/class-meetings/upsert',
+          headers: teacherHeaders,
+          payload: {
+            sectionId: data.sectionOneId,
+            lessonId: data.lessonOneId,
+            meetingDate: '2026-09-07',
+            scheduledStartTime: '10:00',
+            scheduledEndTime: '10:50',
+            completedStepIds: [data.stepOne],
+            rawNote: 'this transaction must fail',
+            expectedRevision: null
+          }
+        });
+        expect(failed.statusCode).toBe(500);
+      } finally {
+        await pool.query(
+          'DROP TRIGGER IF EXISTS integration_fail_class_note_trigger ON class_notes;'
+        );
+        await pool.query('DROP FUNCTION IF EXISTS integration_fail_class_note();');
+      }
+      const lookup = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${data.sectionOneId}/class-meeting?lessonId=${data.lessonOneId}&meetingDate=2026-09-07&scheduledStartTime=10%3A00`,
+        headers: teacherHeaders
+      });
+      expect(lookup.statusCode).toBe(200);
+      expect(lookup.json<{ meeting: unknown | null }>().meeting).toBeNull();
+      const resume = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${data.sectionOneId}/resume`,
+        headers: teacherHeaders
+      });
+      expect(resume.json<{ state: unknown | null }>().state).toBeNull();
+    });
+
+    it('carries legacy progress forward as a baseline without allowing it to overwrite history', async () => {
+      const data = await fixture();
+      const baseline = await app.inject({
+        method: 'POST',
+        url: '/v1/lesson-progress/upsert',
+        headers: teacherHeaders,
+        payload: {
+          sectionId: data.sectionOneId,
+          lessonId: data.lessonOneId,
+          status: 'in_progress',
+          currentSegmentId: data.stepTwo,
+          stoppedAtSegmentId: data.stepTwo,
+          completedSegmentIds: [data.stepOne],
+          carryOverNote: 'legacy baseline',
+          lastTaughtDate: '2026-09-01'
+        }
+      });
+      expect(baseline.statusCode).toBe(200);
+      const meeting = await app.inject({
+        method: 'POST',
+        url: '/v1/class-meetings/upsert',
+        headers: teacherHeaders,
+        payload: {
+          sectionId: data.sectionOneId,
+          lessonId: data.lessonOneId,
+          meetingDate: '2026-09-07',
+          scheduledStartTime: '10:00',
+          scheduledEndTime: '10:50',
+          completedStepIds: [data.stepTwo],
+          rawNote: 'first history record',
+          expectedRevision: null
+        }
+      });
+      expect(meeting.statusCode).toBe(200);
+      expect(
+        meeting.json<{ cumulativeCompletedStepIds: string[] }>().cumulativeCompletedStepIds
+      ).toEqual(expect.arrayContaining([data.stepOne, data.stepTwo]));
+      const rejectedLegacyOverwrite = await app.inject({
+        method: 'POST',
+        url: '/v1/lesson-progress/upsert',
+        headers: teacherHeaders,
+        payload: {
+          sectionId: data.sectionOneId,
+          lessonId: data.lessonOneId,
+          status: 'in_progress',
+          currentSegmentId: null,
+          stoppedAtSegmentId: null,
+          completedSegmentIds: [],
+          carryOverNote: null,
+          lastTaughtDate: '2026-09-07'
+        }
+      });
+      expect(rejectedLegacyOverwrite.statusCode).toBe(409);
     });
   });
 

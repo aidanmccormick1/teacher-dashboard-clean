@@ -4,7 +4,7 @@ import type { PublicLessonResponse } from '@teacheros/contracts';
 import { getPublicLesson } from '../lib/api.js';
 function safeHtml(value: string | null) {
   const doc = new DOMParser().parseFromString(value ?? '', 'text/html');
-  for (const node of doc.body.querySelectorAll('*')) {
+  for (const node of Array.from(doc.body.querySelectorAll('*'))) {
     if (
       !['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'A'].includes(
         node.tagName

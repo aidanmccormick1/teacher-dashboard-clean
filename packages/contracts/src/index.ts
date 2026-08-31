@@ -334,6 +334,9 @@ export const CalendarCommitResponseSchema = SchoolCalendarResponseSchema;
 export const SectionMeetingOverrideRequestSchema = z
   .object({
     date: IsoDateSchema,
+    // Targets a particular recurring block when a section meets twice on a
+    // date. Omitted values preserve date-only legacy overrides.
+    scheduledStartTime: IsoTimeSchema.nullable().optional(),
     startTime: IsoTimeSchema.nullable(),
     endTime: IsoTimeSchema.nullable(),
     room: z.string().nullable(),
@@ -426,7 +429,16 @@ export const ClassMeetingUpsertRequestSchema = z.object({
   scheduledEndTime: z.string().nullable(),
   completedStepIds: z.array(UuidSchema),
   rawNote: z.string().nullable(),
-  endClass: z.boolean().default(false)
+  endClass: z.boolean().default(false),
+  // Null means the client observed no occurrence. Existing occurrences must
+  // use the revision returned by a read or prior save.
+  expectedRevision: z.number().int().positive().nullable().optional()
+});
+export const ClassMeetingStepSnapshotSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  order: z.number().int().nonnegative(),
+  completed: z.boolean()
 });
 export const ClassMeetingResponseSchema = z.object({
   id: UuidSchema,
@@ -435,9 +447,66 @@ export const ClassMeetingResponseSchema = z.object({
   stoppedAfterStepId: UuidSchema.nullable(),
   rawNote: z.string().nullable(),
   meetingDate: IsoDateSchema,
+  scheduledStartTime: IsoTimeSchema.nullable(),
+  scheduledEndTime: IsoTimeSchema.nullable(),
+  occurrenceKey: z.string(),
+  revision: z.number().int().positive(),
+  stepSnapshot: z.array(ClassMeetingStepSnapshotSchema).nullable(),
+  stoppingPointStepId: UuidSchema.nullable(),
   endedAt: z.string().nullable(),
   cumulativeCompletedStepIds: z.array(UuidSchema),
   lessonCompleted: z.boolean()
+});
+
+export const ClassMeetingLookupQuerySchema = z.object({
+  lessonId: UuidSchema,
+  meetingDate: IsoDateSchema,
+  scheduledStartTime: IsoTimeSchema.nullable().optional()
+});
+export const ClassMeetingLookupResponseSchema = z.object({
+  meeting: ClassMeetingResponseSchema.nullable(),
+  historicalCompletedStepIds: z.array(UuidSchema)
+});
+
+export const SectionLessonPlanShiftRequestSchema = z.object({
+  lessonId: UuidSchema,
+  meetingDelta: z
+    .number()
+    .int()
+    .refine((value) => value !== 0, 'meetingDelta cannot be zero')
+});
+export const SectionLessonPlanResponseSchema = z.object({
+  operationId: UuidSchema.nullable(),
+  plans: z.array(
+    z.object({
+      lessonId: UuidSchema,
+      plannedStartMeeting: z.number().int().nonnegative().nullable(),
+      plannedMeetingCount: z.number().int().positive().nullable(),
+      revision: z.number().int().positive()
+    })
+  )
+});
+export const SectionPlanningContextQuerySchema = z.object({
+  meetingIndex: z.coerce.number().int().nonnegative()
+});
+export const SectionPlanningContextResponseSchema = z.object({
+  planned: z
+    .object({
+      lessonId: UuidSchema,
+      title: z.string(),
+      plannedStartMeeting: z.number().int().nonnegative().nullable(),
+      plannedMeetingCount: z.number().int().positive().nullable(),
+      source: z.enum(['section', 'course'])
+    })
+    .nullable(),
+  actual: z
+    .object({
+      lessonId: UuidSchema,
+      status: LessonProgressStatusSchema,
+      completedStepIds: z.array(UuidSchema),
+      stoppedAtStepId: UuidSchema.nullable()
+    })
+    .nullable()
 });
 
 export const ParseScheduleRequestSchema = z.object({
@@ -814,4 +883,10 @@ export type SegmentUpdateRequest = z.infer<typeof SegmentUpdateRequestSchema>;
 export type ClassroomResumeResponse = z.infer<typeof ClassroomResumeResponseSchema>;
 export type ClassMeetingUpsertRequest = z.infer<typeof ClassMeetingUpsertRequestSchema>;
 export type ClassMeetingResponse = z.infer<typeof ClassMeetingResponseSchema>;
+export type ClassMeetingLookupQuery = z.infer<typeof ClassMeetingLookupQuerySchema>;
+export type ClassMeetingLookupResponse = z.infer<typeof ClassMeetingLookupResponseSchema>;
+export type SectionLessonPlanShiftRequest = z.infer<typeof SectionLessonPlanShiftRequestSchema>;
+export type SectionLessonPlanResponse = z.infer<typeof SectionLessonPlanResponseSchema>;
+export type SectionPlanningContextQuery = z.infer<typeof SectionPlanningContextQuerySchema>;
+export type SectionPlanningContextResponse = z.infer<typeof SectionPlanningContextResponseSchema>;
 export type DeleteEntityResponse = z.infer<typeof DeleteEntityResponseSchema>;

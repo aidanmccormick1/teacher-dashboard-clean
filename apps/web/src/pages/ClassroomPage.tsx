@@ -17,28 +17,51 @@ export function ClassroomPage() {
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
   const [resume, setResume] = useState<ClassroomResumeResponse | null>(null);
   const [checks, setChecks] = useState<string[]>([]);
+  const [historicalChecks, setHistoricalChecks] = useState<string[]>([]);
   const [ending, setEnding] = useState(false);
   const [note, setNote] = useState('');
   const [state, setState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
   const latest = useRef<{ checks: string[]; note: string } | null>(null);
+  const meetingRevision = useRef<number | null>(null);
+  const persistRef = useRef<(endClass?: boolean) => void>(() => undefined);
   const chain = useRef<Promise<void>>(Promise.resolve());
   const requested = params.get('section');
+  const requestedMeetingTime = params.get('meetingTime');
   const detected = dashboard?.currentClass ?? dashboard?.nextClass ?? null;
   const sectionId = requested ?? detected?.sectionId ?? '';
   const selected = schedule?.sections.find((item) => item.sectionId === sectionId);
-  const context = selected
-    ? {
-        sectionId: selected.sectionId,
-        courseName: selected.courseName,
-        sectionName: selected.sectionName,
-        meetingTime: detected?.sectionId === selected.sectionId ? detected.meetingTime : null,
-        endTime: detected?.sectionId === selected.sectionId ? detected.endTime : null
-      }
-    : detected;
+  const sectionTodayMeetings =
+    dashboard?.todaySchedule.filter((item) => item.sectionId === sectionId) ?? [];
+  const requestedTodayMeeting = requestedMeetingTime
+    ? (sectionTodayMeetings.find((item) => item.meetingTime === requestedMeetingTime) ?? null)
+    : null;
+  const selectedTodayMeeting =
+    requestedTodayMeeting ??
+    (detected?.sectionId === sectionId ? detected : null) ??
+    (sectionTodayMeetings.length === 1 ? sectionTodayMeetings[0] : null) ??
+    null;
+  const requiresMeetingChoice = Boolean(
+    selected && sectionTodayMeetings.length > 1 && !selectedTodayMeeting
+  );
+  const context =
+    selected && !requiresMeetingChoice
+      ? {
+          sectionId: selected.sectionId,
+          courseName: selected.courseName,
+          sectionName: selected.sectionName,
+          // Dashboard's schedule projection is authoritative. A manually
+          // selected class gets its actual scheduled occurrence too, rather
+          // than falling back to a date-only meeting identity.
+          meetingTime: selectedTodayMeeting?.meetingTime ?? null,
+          endTime: selectedTodayMeeting?.endTime ?? null
+        }
+      : detected;
   const lesson = resume?.lesson;
-  const prior = resume?.state?.completedSegmentIds ?? [];
+  // Current occurrence edits must remain reversible. Only earlier meeting
+  // history is locked; checks saved for this live occurrence can be unchecked.
+  const prior = historicalChecks;
   const allChecked = [...new Set([...prior, ...checks])];
   const lastStop = lesson?.segments.find((step) => step.id === resume?.state?.stoppedAtSegmentId);
   useEffect(() => {
@@ -61,12 +84,52 @@ export function ClassroomPage() {
       .then((value) => {
         setResume(value);
         setChecks([]);
+        setHistoricalChecks([]);
+        meetingRevision.current = null;
         setNote(value.lastNote?.content ?? value.state?.carryOverNote ?? '');
       })
       .catch((err) =>
         setError(err instanceof ApiError ? err.message : 'Could not load lesson progress.')
       );
   }, [api, sectionId]);
+  useEffect(() => {
+    if (!lesson || !context || !dashboard) return;
+    let cancelled = false;
+    void api
+      .getClassMeeting(context.sectionId, {
+        lessonId: lesson.id,
+        meetingDate: dashboard.date,
+        scheduledStartTime: context.meetingTime
+      })
+      .then((value) => {
+        if (cancelled) return;
+        const currentChecks = value.meeting?.completedStepIds ?? [];
+        setHistoricalChecks(value.historicalCompletedStepIds);
+        setChecks(currentChecks);
+        meetingRevision.current = value.meeting?.revision ?? null;
+        const nextNote =
+          value.meeting?.rawNote !== null && value.meeting?.rawNote !== undefined
+            ? value.meeting.rawNote
+            : (resume?.lastNote?.content ?? resume?.state?.carryOverNote ?? '');
+        setNote(nextNote);
+        latest.current = { checks: currentChecks, note: nextNote };
+      })
+      .catch((err) => {
+        if (!cancelled)
+          setError(err instanceof ApiError ? err.message : 'Could not load this class meeting.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    api,
+    context?.meetingTime,
+    context?.sectionId,
+    dashboard?.date,
+    lesson?.id,
+    resume?.lastNote?.content,
+    resume?.state?.carryOverNote
+  ]);
   const persist = (endClass = false) => {
     if (!lesson || !context || !dashboard) return;
     const current = latest.current ?? { checks, note };
@@ -80,10 +143,14 @@ export function ClassroomPage() {
           scheduledStartTime: context.meetingTime,
           scheduledEndTime: context.endTime,
           completedStepIds: current.checks,
-          rawNote: current.note.trim() || null,
-          endClass
+          // Preserve exact teacher text, including intentional whitespace and
+          // an empty string. Null is the only explicit clear operation.
+          rawNote: current.note,
+          endClass,
+          expectedRevision: meetingRevision.current
         });
         setChecks(response.completedStepIds);
+        meetingRevision.current = response.revision;
         setState('saved');
         if (endClass)
           setResume((previous) =>
@@ -94,18 +161,50 @@ export function ClassroomPage() {
                     ...previous.state,
                     completedSegmentIds: response.cumulativeCompletedStepIds,
                     status: response.lessonCompleted ? 'completed' : 'stopped_at_segment',
-                    stoppedAtSegmentId: response.stoppedAfterStepId,
+                    stoppedAtSegmentId: response.stoppingPointStepId,
                     carryOverNote: response.rawNote,
                     lastTaughtDate: response.meetingDate
                   }
                 }
               : previous
           );
-      } catch {
+      } catch (err) {
         setState('error');
+        if (err instanceof ApiError && err.status === 409) {
+          // Keep a recoverable local copy, then re-read the canonical version
+          // and its revision. We never overwrite a different session blindly.
+          try {
+            window.sessionStorage.setItem(
+              `teacheros_class_meeting_conflict_${context.sectionId}_${dashboard.date}_${lesson.id}`,
+              JSON.stringify(current)
+            );
+            const remote = await api.getClassMeeting(context.sectionId, {
+              lessonId: lesson.id,
+              meetingDate: dashboard.date,
+              scheduledStartTime: context.meetingTime
+            });
+            const remoteChecks = remote.meeting?.completedStepIds ?? [];
+            const remoteNote = remote.meeting?.rawNote ?? '';
+            meetingRevision.current = remote.meeting?.revision ?? null;
+            setHistoricalChecks(remote.historicalCompletedStepIds);
+            setChecks(remoteChecks);
+            setNote(remoteNote);
+            latest.current = { checks: remoteChecks, note: remoteNote };
+            setError(
+              'This class changed elsewhere. The saved version was refreshed; your local draft is retained for recovery.'
+            );
+          } catch {
+            setError(
+              'This class changed elsewhere. Your local edits are still in this browser; refresh before saving again.'
+            );
+          }
+        } else {
+          setError(err instanceof ApiError ? err.message : 'Could not save this class meeting.');
+        }
       }
     });
   };
+  persistRef.current = persist;
   const queue = (nextChecks: string[], nextNote: string) => {
     latest.current = { checks: nextChecks, note: nextNote };
     setChecks(nextChecks);
@@ -118,7 +217,7 @@ export function ClassroomPage() {
     () => () => {
       if (timer.current) {
         clearTimeout(timer.current);
-        persist();
+        persistRef.current();
       }
     },
     []
@@ -126,6 +225,12 @@ export function ClassroomPage() {
   const changeSection = (id: string) => {
     const next = new URLSearchParams(params);
     id ? next.set('section', id) : next.delete('section');
+    next.delete('meetingTime');
+    setParams(next);
+  };
+  const changeMeetingTime = (meetingTime: string) => {
+    const next = new URLSearchParams(params);
+    meetingTime ? next.set('meetingTime', meetingTime) : next.delete('meetingTime');
     setParams(next);
   };
   const nextClass =
@@ -159,13 +264,42 @@ export function ClassroomPage() {
             </option>
           ))}
         </select>
+        {selected && sectionTodayMeetings.length > 1 ? (
+          <select
+            aria-label="Choose meeting time"
+            className="input classroom-switcher"
+            value={selectedTodayMeeting?.meetingTime ?? ''}
+            onChange={(e) => changeMeetingTime(e.target.value)}
+          >
+            <option value="">Choose meeting time</option>
+            {sectionTodayMeetings.map((meeting) => (
+              <option
+                key={`${meeting.sectionId}-${meeting.meetingTime ?? 'unscheduled'}`}
+                value={meeting.meetingTime ?? ''}
+              >
+                {timeRange(meeting.meetingTime, meeting.endTime)}
+              </option>
+            ))}
+          </select>
+        ) : null}
       </header>
       {error ? <p className="notice warning">{error}</p> : null}
-      {!context ? (
+      {requiresMeetingChoice ? (
         <section className="live-empty">
-          <h2>No class selected</h2>
-          <p>Choose a scheduled section to prepare its live lesson.</p>
+          <h2>Choose the class period</h2>
+          <p>
+            This section has multiple meetings today. Choose its meeting time before changing lesson
+            progress.
+          </p>
         </section>
+      ) : null}
+      {!context ? (
+        !requiresMeetingChoice ? (
+          <section className="live-empty">
+            <h2>No class selected</h2>
+            <p>Choose a scheduled section to prepare its live lesson.</p>
+          </section>
+        ) : null
       ) : (
         <>
           <section className="live-now">

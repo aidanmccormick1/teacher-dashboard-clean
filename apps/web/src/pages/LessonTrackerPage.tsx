@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 
-import type { ClassroomResumeResponse } from '@teacheros/contracts';
+import type { ClassroomResumeResponse, DashboardTodayResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { rememberManagementTab } from '../lib/management-tabs.js';
@@ -24,7 +24,9 @@ function readTrackerDraft(sectionId: string, lessonId: string): LessonTrackerDra
     const parsed = JSON.parse(raw) as Partial<LessonTrackerDraft>;
     return {
       note: parsed.note ?? '',
-      completedSegmentIds: Array.isArray(parsed.completedSegmentIds) ? parsed.completedSegmentIds : [],
+      completedSegmentIds: Array.isArray(parsed.completedSegmentIds)
+        ? parsed.completedSegmentIds
+        : [],
       stoppedAtSegmentId: parsed.stoppedAtSegmentId ?? null,
       updatedAt: parsed.updatedAt ?? ''
     };
@@ -36,6 +38,8 @@ function readTrackerDraft(sectionId: string, lessonId: string): LessonTrackerDra
 export function LessonTrackerPage() {
   const api = useApiClient();
   const { sectionId = '', lessonId = '' } = useParams();
+  const [params, setParams] = useSearchParams();
+  const requestedMeetingTime = params.get('meetingTime');
   const [resume, setResume] = useState<ClassroomResumeResponse | null>(null);
   const [note, setNote] = useState('');
   const [completedSegmentIds, setCompletedSegmentIds] = useState<string[]>([]);
@@ -46,6 +50,11 @@ export function LessonTrackerPage() {
   const [error, setError] = useState<string | null>(null);
   const [draftStatus, setDraftStatus] = useState<string | null>(null);
   const [trackerLoaded, setTrackerLoaded] = useState(false);
+  const [meetingDate, setMeetingDate] = useState<string | null>(null);
+  const [meetingRevision, setMeetingRevision] = useState<number | null>(null);
+  const [scheduledStartTime, setScheduledStartTime] = useState<string | null>(null);
+  const [scheduledEndTime, setScheduledEndTime] = useState<string | null>(null);
+  const [meetingChoices, setMeetingChoices] = useState<DashboardTodayResponse['todaySchedule']>([]);
 
   useEffect(() => {
     if (!sectionId) return;
@@ -53,35 +62,99 @@ export function LessonTrackerPage() {
 
     void (async () => {
       try {
-        const response = await api.getClassroomResume(sectionId);
+        const [response, today] = await Promise.all([
+          api.getClassroomResume(sectionId),
+          api.dashboardToday()
+        ]);
         const effectiveLessonId = response.lesson?.id ?? lessonId;
-        const localDraft = effectiveLessonId ? readTrackerDraft(sectionId, effectiveLessonId) : null;
+        const localDraft = effectiveLessonId
+          ? readTrackerDraft(sectionId, effectiveLessonId)
+          : null;
+        const sectionMeetings = today.todaySchedule.filter(
+          (meeting) => meeting.sectionId === sectionId
+        );
+        const requestedMeeting = requestedMeetingTime
+          ? (sectionMeetings.find((meeting) => meeting.meetingTime === requestedMeetingTime) ??
+            null)
+          : null;
+        const scheduledMeeting =
+          requestedMeeting ??
+          (today.currentClass?.sectionId === sectionId ? today.currentClass : null) ??
+          (today.nextClass?.sectionId === sectionId ? today.nextClass : null) ??
+          (sectionMeetings.length === 1 ? sectionMeetings[0] : null) ??
+          null;
+        const requiresMeetingChoice = sectionMeetings.length > 1 && !scheduledMeeting;
+        const existing =
+          response.lesson && !requiresMeetingChoice
+            ? await api.getClassMeeting(sectionId, {
+                lessonId: response.lesson.id,
+                meetingDate: today.date,
+                scheduledStartTime: scheduledMeeting?.meetingTime ?? null
+              })
+            : null;
         setResume(response);
-        setNote(localDraft?.note ?? response.state?.carryOverNote ?? response.lastNote?.content ?? '');
-        setCompletedSegmentIds(localDraft?.completedSegmentIds ?? response.state?.completedSegmentIds ?? []);
-        setStoppedAtSegmentId(localDraft?.stoppedAtSegmentId ?? response.state?.stoppedAtSegmentId ?? null);
-        setDraftStatus(localDraft ? `Local draft restored${localDraft.updatedAt ? ` from ${localDraft.updatedAt}` : ''}.` : null);
+        setMeetingDate(today.date);
+        setMeetingRevision(existing?.meeting?.revision ?? null);
+        setScheduledStartTime(scheduledMeeting?.meetingTime ?? null);
+        setScheduledEndTime(scheduledMeeting?.endTime ?? null);
+        setMeetingChoices(sectionMeetings);
+        setNote(
+          localDraft?.note ??
+            existing?.meeting?.rawNote ??
+            response.state?.carryOverNote ??
+            response.lastNote?.content ??
+            ''
+        );
+        setCompletedSegmentIds(
+          localDraft?.completedSegmentIds ??
+            existing?.meeting?.completedStepIds ??
+            response.state?.completedSegmentIds ??
+            []
+        );
+        setStoppedAtSegmentId(
+          localDraft?.stoppedAtSegmentId ??
+            existing?.meeting?.stoppingPointStepId ??
+            response.state?.stoppedAtSegmentId ??
+            null
+        );
+        setDraftStatus(
+          localDraft
+            ? `Local draft restored${localDraft.updatedAt ? ` from ${localDraft.updatedAt}` : ''}.`
+            : null
+        );
         setTrackerLoaded(true);
-        setError(null);
+        setError(
+          requiresMeetingChoice
+            ? 'This section has multiple meetings today. Choose the class period before saving progress.'
+            : null
+        );
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Failed to load lesson tracker');
         setTrackerLoaded(true);
       }
     })();
-  }, [api, lessonId, sectionId]);
+  }, [api, lessonId, requestedMeetingTime, sectionId]);
 
   const lesson = resume?.lesson;
   const hasRouteMismatch = Boolean(lesson && lesson.id !== lessonId);
   const stoppedSegment = lesson?.segments.find((segment) => segment.id === stoppedAtSegmentId);
-  const nextOpenSegment = lesson?.segments.find((segment) => !completedSegmentIds.includes(segment.id));
+  const nextOpenSegment = lesson?.segments.find(
+    (segment) => !completedSegmentIds.includes(segment.id)
+  );
   const progressPercent = lesson?.segments.length
     ? Math.round((completedSegmentIds.length / lesson.segments.length) * 100)
     : 0;
   const classSummary = [
-    resume ? `${resume.section.courseName} / ${resume.section.sectionName}` : `Section ${sectionId}`,
+    resume
+      ? `${resume.section.courseName} / ${resume.section.sectionName}`
+      : `Section ${sectionId}`,
     `Lesson: ${lesson?.title ?? lessonId}`,
     `Progress: ${completedSegmentIds.length}/${lesson?.segments.length ?? 0} segments complete`,
-    stoppedSegment ? `Stopped at: ${stoppedSegment.title}` : nextOpenSegment ? `Next: ${nextOpenSegment.title}` : 'Next: lesson complete',
+    stoppedSegment
+      ? `Stopped at: ${stoppedSegment.title}`
+      : nextOpenSegment
+        ? `Next: ${nextOpenSegment.title}`
+        : 'Next: lesson complete',
     '',
     note.trim() || 'No carry-over note.'
   ].join('\n');
@@ -98,7 +171,15 @@ export function LessonTrackerPage() {
         updatedAt: new Date().toLocaleTimeString()
       } satisfies LessonTrackerDraft)
     );
-  }, [completedSegmentIds, lesson?.id, lessonId, note, sectionId, stoppedAtSegmentId, trackerLoaded]);
+  }, [
+    completedSegmentIds,
+    lesson?.id,
+    lessonId,
+    note,
+    sectionId,
+    stoppedAtSegmentId,
+    trackerLoaded
+  ]);
 
   const clearLocalDraft = () => {
     const effectiveLessonId = lesson?.id ?? lessonId;
@@ -107,10 +188,22 @@ export function LessonTrackerPage() {
     setDraftStatus('Local draft cleared.');
   };
 
-  const saveProgress = async (options?: { completeLesson?: boolean; stoppedAtSegmentId?: string | null; carryOverNote?: string }) => {
-    if (!lesson) return;
-    const nextCompletedSegmentIds = options?.completeLesson ? lesson.segments.map((segment) => segment.id) : completedSegmentIds;
-    const nextStoppedAtSegmentId = options?.completeLesson ? null : (options?.stoppedAtSegmentId ?? stoppedAtSegmentId);
+  const saveProgress = async (options?: {
+    completeLesson?: boolean;
+    stoppedAtSegmentId?: string | null;
+    carryOverNote?: string;
+  }) => {
+    if (!lesson || !meetingDate) return;
+    if (meetingChoices.length > 1 && !scheduledStartTime) {
+      setError('Choose the class period before saving progress.');
+      return;
+    }
+    const nextCompletedSegmentIds = options?.completeLesson
+      ? lesson.segments.map((segment) => segment.id)
+      : completedSegmentIds;
+    const nextStoppedAtSegmentId = options?.completeLesson
+      ? null
+      : (options?.stoppedAtSegmentId ?? stoppedAtSegmentId);
     const nextNote = options?.carryOverNote ?? note;
 
     try {
@@ -119,30 +212,32 @@ export function LessonTrackerPage() {
         lesson.segments.length > 0 &&
         lesson.segments.every((segment) => nextCompletedSegmentIds.includes(segment.id));
 
-      await api.upsertLessonProgress({
+      const response = await api.upsertClassMeeting({
         sectionId,
         lessonId: lesson.id,
-        status: allDone ? 'completed' : nextStoppedAtSegmentId ? 'stopped_at_segment' : 'in_progress',
-        currentSegmentId: nextStoppedAtSegmentId,
-        stoppedAtSegmentId: nextStoppedAtSegmentId,
-        completedSegmentIds: nextCompletedSegmentIds,
-        carryOverNote: nextNote || null,
-        lastTaughtDate: new Date().toISOString().slice(0, 10)
+        meetingDate,
+        scheduledStartTime,
+        scheduledEndTime,
+        completedStepIds: nextCompletedSegmentIds,
+        rawNote: nextNote,
+        endClass: allDone,
+        expectedRevision: meetingRevision
       });
-      await api.upsertClassNote({
-        sectionId,
-        date: new Date().toISOString().slice(0, 10),
-        noteType: 'raw',
-        content: nextNote || 'Tracked lesson progress'
-      });
-      setCompletedSegmentIds(nextCompletedSegmentIds);
-      setStoppedAtSegmentId(nextStoppedAtSegmentId);
+      setMeetingRevision(response.revision);
+      setCompletedSegmentIds(response.completedStepIds);
+      setStoppedAtSegmentId(response.stoppingPointStepId);
       window.localStorage.removeItem(trackerDraftKey(sectionId, lesson.id));
       setDraftStatus(null);
       setSavedAt(new Date().toLocaleTimeString());
       setError(null);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save lesson progress');
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? 'This class meeting changed elsewhere. Refresh this tracker before saving again.'
+          : err instanceof ApiError
+            ? err.message
+            : 'Failed to save lesson progress'
+      );
     } finally {
       setSaving(false);
     }
@@ -152,6 +247,12 @@ export function LessonTrackerPage() {
     await navigator.clipboard?.writeText(classSummary).catch(() => undefined);
     setCopyStatus('Class summary copied.');
     window.setTimeout(() => setCopyStatus(null), 1600);
+  };
+
+  const changeMeetingTime = (meetingTime: string) => {
+    const next = new URLSearchParams(params);
+    meetingTime ? next.set('meetingTime', meetingTime) : next.delete('meetingTime');
+    setParams(next);
   };
 
   return (
@@ -165,7 +266,11 @@ export function LessonTrackerPage() {
           <Link className="button-link secondary" to="/classroom">
             Back to Classroom
           </Link>
-          <Link className="button-link secondary" to="/management" onClick={() => rememberManagementTab('progress')}>
+          <Link
+            className="button-link secondary"
+            to="/management"
+            onClick={() => rememberManagementTab('progress')}
+          >
             Progress
           </Link>
           <div className="progress-stack compact">
@@ -175,7 +280,32 @@ export function LessonTrackerPage() {
         </div>
       </div>
       {error ? <p className="notice warning">{error}</p> : null}
-      {draftStatus ? <p className={draftStatus.includes('cleared') ? 'notice success' : 'notice warning'}>{draftStatus}</p> : null}
+      {meetingChoices.length > 1 ? (
+        <label className="stack">
+          <span>Class period</span>
+          <select
+            className="input"
+            value={scheduledStartTime ?? ''}
+            onChange={(event) => changeMeetingTime(event.target.value)}
+          >
+            <option value="">Choose meeting time</option>
+            {meetingChoices.map((meeting) => (
+              <option
+                key={`${meeting.sectionId}-${meeting.meetingTime ?? 'unscheduled'}`}
+                value={meeting.meetingTime ?? ''}
+              >
+                {meeting.meetingTime ?? 'Time TBD'}
+                {meeting.endTime ? ` – ${meeting.endTime}` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {draftStatus ? (
+        <p className={draftStatus.includes('cleared') ? 'notice success' : 'notice warning'}>
+          {draftStatus}
+        </p>
+      ) : null}
       <div className="card stack">
         <p>
           Section:{' '}
@@ -195,7 +325,9 @@ export function LessonTrackerPage() {
         <div className="tracker-summary-grid">
           <div>
             <span>Completed</span>
-            <strong>{completedSegmentIds.length}/{lesson?.segments.length ?? 0}</strong>
+            <strong>
+              {completedSegmentIds.length}/{lesson?.segments.length ?? 0}
+            </strong>
           </div>
           <div>
             <span>Stopped at</span>
@@ -215,49 +347,66 @@ export function LessonTrackerPage() {
                 <h3>Segments</h3>
               </div>
               <div className="profile-actions">
-                <button className="secondary" type="button" onClick={() => setCompletedSegmentIds(lesson.segments.map((segment) => segment.id))}>
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() =>
+                    setCompletedSegmentIds(lesson.segments.map((segment) => segment.id))
+                  }
+                >
                   Check all
                 </button>
-                <button className="secondary" type="button" onClick={() => setCompletedSegmentIds([])}>
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => setCompletedSegmentIds([])}
+                >
                   Clear checks
                 </button>
               </div>
             </div>
             <div className="tracker-segment-list">
-            {lesson.segments.map((segment) => {
-              const isCompleted = completedSegmentIds.includes(segment.id);
-              return (
-                <div key={segment.id} className={stoppedAtSegmentId === segment.id ? 'tracker-segment stopped' : 'tracker-segment'}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={isCompleted}
-                      onChange={(event) => {
-                        setCompletedSegmentIds((previous) =>
-                          event.target.checked
-                            ? [...new Set([...previous, segment.id])]
-                            : previous.filter((id) => id !== segment.id)
-                        );
-                      }}
-                    />
-                    <span>
-                      <strong>{segment.title}</strong>
-                      {segment.durationMinutes ? ` / ${segment.durationMinutes} min` : ''}
-                    </span>
-                  </label>
-                  <button
-                    className="secondary"
-                    type="button"
-                    onClick={() => {
-                      setStoppedAtSegmentId(segment.id);
-                      setNote((current) => current || `Resume at: ${segment.title}`);
-                    }}
+              {lesson.segments.map((segment) => {
+                const isCompleted = completedSegmentIds.includes(segment.id);
+                return (
+                  <div
+                    key={segment.id}
+                    className={
+                      stoppedAtSegmentId === segment.id
+                        ? 'tracker-segment stopped'
+                        : 'tracker-segment'
+                    }
                   >
-                    Stop here
-                  </button>
-                </div>
-              );
-            })}
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={isCompleted}
+                        onChange={(event) => {
+                          setCompletedSegmentIds((previous) =>
+                            event.target.checked
+                              ? [...new Set([...previous, segment.id])]
+                              : previous.filter((id) => id !== segment.id)
+                          );
+                        }}
+                      />
+                      <span>
+                        <strong>{segment.title}</strong>
+                        {segment.durationMinutes ? ` / ${segment.durationMinutes} min` : ''}
+                      </span>
+                    </label>
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => {
+                        setStoppedAtSegmentId(segment.id);
+                        setNote((current) => current || `Resume at: ${segment.title}`);
+                      }}
+                    >
+                      Stop here
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -273,16 +422,29 @@ export function LessonTrackerPage() {
           <button type="button" disabled={!lesson || saving} onClick={() => void saveProgress()}>
             {saving ? 'Saving...' : 'Save progress'}
           </button>
-          <button className="secondary" type="button" disabled={!lesson || saving || !nextOpenSegment} onClick={() => {
-            if (!nextOpenSegment) return;
-            const nextNote = note || `Resume at: ${nextOpenSegment.title}`;
-            setStoppedAtSegmentId(nextOpenSegment.id);
-            setNote(nextNote);
-            void saveProgress({ stoppedAtSegmentId: nextOpenSegment.id, carryOverNote: nextNote });
-          }}>
+          <button
+            className="secondary"
+            type="button"
+            disabled={!lesson || saving || !nextOpenSegment}
+            onClick={() => {
+              if (!nextOpenSegment) return;
+              const nextNote = note || `Resume at: ${nextOpenSegment.title}`;
+              setStoppedAtSegmentId(nextOpenSegment.id);
+              setNote(nextNote);
+              void saveProgress({
+                stoppedAtSegmentId: nextOpenSegment.id,
+                carryOverNote: nextNote
+              });
+            }}
+          >
             Stop at next unfinished
           </button>
-          <button className="secondary" type="button" disabled={!lesson || saving} onClick={() => void saveProgress({ completeLesson: true })}>
+          <button
+            className="secondary"
+            type="button"
+            disabled={!lesson || saving}
+            onClick={() => void saveProgress({ completeLesson: true })}
+          >
             Mark lesson complete
           </button>
           <button hidden className="secondary" type="button" onClick={() => void copySummary()}>
@@ -296,7 +458,11 @@ export function LessonTrackerPage() {
         {stoppedAtSegmentId ? (
           <p className="muted">
             Stopped at: {stoppedSegment?.title ?? stoppedAtSegmentId}{' '}
-            <button className="link-button" type="button" onClick={() => setStoppedAtSegmentId(null)}>
+            <button
+              className="link-button"
+              type="button"
+              onClick={() => setStoppedAtSegmentId(null)}
+            >
               Clear stop
             </button>
           </p>
