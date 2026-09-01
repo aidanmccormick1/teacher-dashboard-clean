@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Ephesis&display=swap');
+
 :root {
   font-family: 'SF Pro Text', 'SF Pro Display', 'Avenir Next', 'Helvetica Neue', sans-serif;
   color: #242a32;
@@ -300,9 +302,9 @@ a {
 }
 
 .brand-copy span {
-  font-family: 'Snell Roundhand', 'Brush Script MT', cursive;
-  font-size: 1.05rem;
-  font-weight: 600;
+  font-family: 'Ephesis', 'Snell Roundhand', 'Brush Script MT', cursive;
+  font-size: 1.3rem;
+  font-weight: 400;
   letter-spacing: 0.02em;
 }
 
