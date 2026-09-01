@@ -6957,6 +6957,26 @@ button,
   padding: clamp(22px, 3vw, 34px);
 }
 
+.school-page .timezone-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.timezone-card h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+@media (max-width: 620px) {
+  .school-page .timezone-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .lesson-document-page {
   width: 100%;
   max-width: none;

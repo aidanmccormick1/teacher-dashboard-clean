@@ -259,13 +259,9 @@ export function SchoolPage() {
       </section>
       {error ? <p className="notice warning">{error}</p> : null}
       {saved ? <p className="notice success">{saved}</p> : null}
-      <section className="card stack">
+      <section className="card timezone-card">
         <div>
-          <p className="eyebrow">Local time</p>
           <h2>School timezone</h2>
-          <p className="muted">
-            Used to resolve class times, today’s schedule, and calendar dates.
-          </p>
         </div>
         <div className="profile-actions">
           <input

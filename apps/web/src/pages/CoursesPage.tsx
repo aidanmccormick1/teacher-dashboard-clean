@@ -464,9 +464,6 @@ export function CoursesPage() {
         <div>
           <p className="eyebrow">Courses</p>
           <h1>What you teach</h1>
-          <p className="muted">
-            Courses hold shared curriculum. Class groups hold meetings and progress.
-          </p>
         </div>
         <div className="courses-header-actions">
           <button
