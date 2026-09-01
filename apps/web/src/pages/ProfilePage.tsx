@@ -180,7 +180,6 @@ export function ProfilePage() {
         </div>
       </section>
       {error ? <p className="notice warning">{error}</p> : null}
-      {saved ? <p className="notice success">Profile saved.</p> : null}
       <section className="profile-grid">
         <article className="card profile-overview-card">
           <div>
@@ -328,21 +327,6 @@ export function ProfilePage() {
             </div>
           ) : null}
         </article>
-        <footer className="profile-save-bar">
-          <div>
-            <strong>
-              {saving
-                ? 'Saving changes…'
-                : saved
-                  ? 'All changes saved'
-                  : 'Changes save automatically'}
-            </strong>
-            <span>Your school and teaching details are saved after you pause typing.</span>
-          </div>
-          <button type="button" disabled={!canSave || saving} onClick={() => void save()}>
-            {saving ? 'Saving…' : 'Save now'}
-          </button>
-        </footer>
         <article className="card stack profile-section">
           <div className="section-heading">
             <div>

@@ -270,32 +270,6 @@ export function SchoolPage() {
       </section>
       {error ? <p className="notice warning">{error}</p> : null}
       {saved ? <p className="notice success">{saved}</p> : null}
-      <section className="card timezone-card">
-        <div>
-          <h2>School timezone</h2>
-        </div>
-        <div className="profile-actions">
-          <select
-            className="input"
-            value={timezone}
-            onChange={(event) => setTimezone(event.target.value)}
-            aria-label="School timezone"
-          >
-            {schoolTimezones.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            disabled={busy || !timezone.trim()}
-            onClick={() => void saveTimezone()}
-          >
-            Save timezone
-          </button>
-        </div>
-      </section>
       {!preview ? (
         <>
           <section className="card stack calendar-import-card">
@@ -660,6 +634,32 @@ export function SchoolPage() {
           </div>
         </section>
       )}
+      <section className="card timezone-card">
+        <div>
+          <h2>School timezone</h2>
+        </div>
+        <div className="profile-actions">
+          <select
+            className="input"
+            value={timezone}
+            onChange={(event) => setTimezone(event.target.value)}
+            aria-label="School timezone"
+          >
+            {schoolTimezones.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={busy || !timezone.trim()}
+            onClick={() => void saveTimezone()}
+          >
+            Save timezone
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
