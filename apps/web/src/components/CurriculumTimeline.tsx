@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent
 } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -37,6 +38,7 @@ type SchoolYearSettings = {
 };
 type Zoom = 'year' | 'quarter' | 'month' | 'week';
 type Selection = { type: 'unit' | 'lesson'; id: string } | null;
+type ContextMenu = { type: 'unit' | 'lesson'; id: string; x: number; y: number } | null;
 type PositionedUnit = { unit: Unit; start: number; span: number };
 type PendingChange =
   | { kind: 'move'; unit: PositionedUnit; start: number; delta: number }
@@ -114,7 +116,7 @@ function overlaps(a: PositionedUnit, b: PositionedUnit) {
 }
 
 function dateLabel(date: Date | undefined, zoom: Zoom, index: number) {
-  if (!date) return `M${index + 1}`;
+  if (!date) return zoom === 'week' ? `Week ${index + 1}` : `M${index + 1}`;
   if (zoom === 'week')
     return `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${date.getDate()}`;
   if (zoom === 'month')
@@ -129,13 +131,12 @@ function nextOrder(items: Array<{ orderIndex: number }>) {
 export function CurriculumTimeline({
   course,
   selectedSection,
-  holidays,
   schoolYearSettings,
   currentLessonId,
   onCourseChange,
   onOpenSchool,
   displayMode = 'timeline',
-  allowAiDrafts = true,
+  allowAutoGeneration = true,
   onOpenLesson,
   initialLessonId,
   onLessonSelectionChange
@@ -148,7 +149,7 @@ export function CurriculumTimeline({
   onCourseChange: (detail: CourseDetailResponse) => void;
   onOpenSchool: () => void;
   displayMode?: 'timeline' | 'outline';
-  allowAiDrafts?: boolean;
+  allowAutoGeneration?: boolean;
   onOpenLesson?: (lessonId: string) => void;
   initialLessonId?: string | null;
   onLessonSelectionChange?: (lessonId: string | null) => void;
@@ -157,6 +158,7 @@ export function CurriculumTimeline({
   const navigate = useNavigate();
   const [zoom, setZoom] = useState<Zoom>('year');
   const [selection, setSelection] = useState<Selection>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenu>(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState<string[]>(() =>
     course.units.map((unit) => unit.id)
   );
@@ -324,6 +326,16 @@ export function CurriculumTimeline({
     ...positions.map((item) => item.start + item.span),
     meetings.length || 0
   );
+  const schoolYearWeeks = schoolYearSettings
+    ? Math.max(
+        1,
+        Math.ceil(
+          (new Date(`${schoolYearSettings.endDate}T12:00:00`).getTime() -
+            new Date(`${schoolYearSettings.startDate}T12:00:00`).getTime()) /
+            (7 * 24 * 60 * 60 * 1000)
+        ) + 1
+      )
+    : 52;
   const visibleMeetings =
     zoom === 'year'
       ? Math.max(36, Math.min(furthestMeeting, 80))
@@ -331,7 +343,7 @@ export function CurriculumTimeline({
         ? Math.max(28, Math.min(furthestMeeting, 52))
         : zoom === 'month'
           ? Math.max(18, Math.min(furthestMeeting, 32))
-          : Math.max(8, Math.min(furthestMeeting, 16));
+          : Math.max(schoolYearWeeks, furthestMeeting);
   const slotWidth = zoom === 'year' ? 34 : zoom === 'quarter' ? 48 : zoom === 'month' ? 78 : 108;
   const courseMeetingSlots = useMemo(
     () =>
@@ -564,26 +576,86 @@ export function CurriculumTimeline({
     lessonPlanDraftRef.current = lessonPlanDraft;
   }, [lessonPlanDraft]);
 
-  const deleteSelected = useCallback(async () => {
-    if (!selection || saving) return;
-    const target = selection.type === 'unit' ? selectedUnit : selectedLesson;
-    if (!target) return;
-    const noun =
-      selection.type === 'unit' ? 'unit and all of its lessons' : 'lesson and all of its steps';
-    if (!window.confirm(`Delete "${target.title}"? This removes the ${noun}.`)) return;
+  const deleteSelected = useCallback(
+    async (requestedSelection: Exclude<Selection, null> | null = selection) => {
+      if (!requestedSelection || saving) return;
+      const target =
+        requestedSelection.type === 'unit'
+          ? course.units.find((unit) => unit.id === requestedSelection.id)
+          : course.units
+              .flatMap((unit) => unit.lessons)
+              .find((lesson) => lesson.id === requestedSelection.id);
+      if (!target) return;
+      const noun =
+        requestedSelection.type === 'unit'
+          ? 'unit and all of its lessons'
+          : 'lesson and all of its steps';
+      if (!window.confirm(`Delete "${target.title}"? This removes the ${noun}.`)) return;
+      try {
+        setSaving(true);
+        if (requestedSelection.type === 'unit') await api.deleteUnit(target.id);
+        else await api.deleteLesson(target.id);
+        onCourseChange(await api.getCourseDetail(course.id));
+        setSelection(null);
+        setContextMenu(null);
+        setStatus(`${requestedSelection.type === 'unit' ? 'Unit' : 'Lesson'} deleted`);
+      } catch (err) {
+        setStatus(err instanceof ApiError ? err.message : 'Could not delete the selected item');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [api, course.id, course.units, onCourseChange, saving, selection]
+  );
+
+  const duplicateItem = async (requestedSelection: Exclude<Selection, null>) => {
+    if (saving) return;
     try {
       setSaving(true);
-      if (selection.type === 'unit') await api.deleteUnit(target.id);
-      else await api.deleteLesson(target.id);
-      onCourseChange(await api.getCourseDetail(course.id));
-      setSelection(null);
-      setStatus(`${selection.type === 'unit' ? 'Unit' : 'Lesson'} deleted`);
+      const detail =
+        requestedSelection.type === 'unit'
+          ? await api.duplicateUnit(requestedSelection.id)
+          : await api.duplicateLesson(requestedSelection.id);
+      onCourseChange(detail);
+      setStatus(`${requestedSelection.type === 'unit' ? 'Unit' : 'Lesson'} duplicated`);
+      setContextMenu(null);
     } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not delete the selected item');
+      setStatus(err instanceof ApiError ? err.message : 'Could not duplicate this item');
     } finally {
       setSaving(false);
     }
-  }, [api, course.id, onCourseChange, saving, selectedLesson, selectedUnit, selection]);
+  };
+
+  const openContextMenu = (
+    event: ReactMouseEvent<HTMLElement>,
+    type: 'unit' | 'lesson',
+    id: string
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      type,
+      id,
+      x: Math.min(event.clientX, window.innerWidth - 190),
+      y: Math.min(event.clientY, window.innerHeight - 170)
+    });
+  };
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('blur', close);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('blur', close);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [contextMenu]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1178,7 +1250,7 @@ export function CurriculumTimeline({
             >
               {showUnitComposer && unitComposerMode === 'manual' ? 'Close add unit' : '+ Add unit'}
             </button>
-            {allowAiDrafts ? (
+            {allowAutoGeneration ? (
               <button
                 type="button"
                 className="secondary"
@@ -1192,8 +1264,8 @@ export function CurriculumTimeline({
                 }}
               >
                 {showUnitComposer && unitComposerMode === 'generate'
-                  ? 'Close AI generator'
-                  : '✦ Generate unit plan'}
+                  ? 'Close auto generator'
+                  : '✦ Auto generator'}
               </button>
             ) : null}
           </div>
@@ -1220,9 +1292,12 @@ export function CurriculumTimeline({
                 </button>
               </div>
             ) : (
-              <div className="curriculum-unit-generator" aria-label="Generate a full unit plan">
+              <div
+                className="curriculum-unit-generator"
+                aria-label="Auto-generate a full unit plan"
+              >
                 <div>
-                  <strong>Generate a full unit plan</strong>
+                  <strong>Auto-generate a full unit plan</strong>
                   <span>Drafts a unit, lesson sequence, and lesson steps for your review.</span>
                 </div>
                 <div className="curriculum-unit-composer">
@@ -1344,7 +1419,7 @@ export function CurriculumTimeline({
         </span>
       </div>
 
-      {draft && allowAiDrafts ? (
+      {draft && allowAutoGeneration ? (
         <aside className="curriculum-draft-card" aria-label="Draft unit">
           <div>
             <span className="curriculum-draft-label">Draft</span>
@@ -1382,15 +1457,65 @@ export function CurriculumTimeline({
           <small>{selection.type === 'unit' ? 'Unit selected' : 'Lesson selected'}</small>
           <details className="curriculum-selection-menu">
             <summary aria-label={`Actions for selected ${selection.type}`}>•••</summary>
-            <button
-              className="danger"
-              type="button"
-              disabled={saving}
-              onClick={() => void deleteSelected()}
-            >
-              Delete {selection.type}
-            </button>
+            <div>
+              {selection.type === 'lesson' && selectedLesson ? (
+                <button type="button" onClick={() => onOpenLesson?.(selectedLesson.id)}>
+                  Open lesson
+                </button>
+              ) : null}
+              <button type="button" disabled={saving} onClick={() => void duplicateItem(selection)}>
+                Duplicate {selection.type}
+              </button>
+              <button
+                className="danger"
+                type="button"
+                disabled={saving}
+                onClick={() => void deleteSelected()}
+              >
+                Delete {selection.type}
+              </button>
+            </div>
           </details>
+        </div>
+      ) : null}
+
+      {contextMenu ? (
+        <div
+          className="curriculum-context-menu"
+          role="menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {contextMenu.type === 'lesson' ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setContextMenu(null);
+                if (onOpenLesson) onOpenLesson(contextMenu.id);
+                else navigate(`/lessons/${contextMenu.id}`);
+              }}
+            >
+              Open lesson
+            </button>
+          ) : null}
+          <button
+            type="button"
+            role="menuitem"
+            disabled={saving}
+            onClick={() => void duplicateItem(contextMenu)}
+          >
+            Duplicate {contextMenu.type}
+          </button>
+          <button
+            className="danger"
+            type="button"
+            role="menuitem"
+            disabled={saving}
+            onClick={() => void deleteSelected(contextMenu)}
+          >
+            Delete {contextMenu.type}
+          </button>
         </div>
       ) : null}
 
@@ -1713,7 +1838,10 @@ export function CurriculumTimeline({
                     unitSelected ? 'curriculum-tree-unit selected' : 'curriculum-tree-unit'
                   }
                 >
-                  <div className="curriculum-tree-row">
+                  <div
+                    className="curriculum-tree-row"
+                    onContextMenu={(event) => openContextMenu(event, 'unit', position.unit.id)}
+                  >
                     <button
                       className="curriculum-disclosure"
                       type="button"
@@ -1748,6 +1876,7 @@ export function CurriculumTimeline({
                             ]
                               .filter(Boolean)
                               .join(' ')}
+                            onContextMenu={(event) => openContextMenu(event, 'lesson', lesson.id)}
                             onDragOver={(event) => {
                               event.preventDefault();
                               if (outlineDraggedLessonId !== lesson.id)
@@ -1827,7 +1956,7 @@ export function CurriculumTimeline({
                             setGeneratedLessonDraft(null);
                           }}
                         >
-                          ✦ Generate lessons
+                          ✦ Auto-generate lessons
                         </button>
                       </div>
                       {lessonGeneratorUnitId === position.unit.id ? (
@@ -1852,7 +1981,7 @@ export function CurriculumTimeline({
                           </label>
                           {generatedLessonDraft?.unitId === position.unit.id ? (
                             <div className="curriculum-generated-lessons">
-                              <span>AI draft · not added yet</span>
+                              <span>Auto-generated draft · not added yet</span>
                               <ol>
                                 {generatedLessonDraft.draft.unit.lessons.map((lesson) => (
                                   <li key={lesson.title}>{lesson.title}</li>
@@ -1959,6 +2088,7 @@ export function CurriculumTimeline({
                         gridColumn: `${start + 1} / span ${Math.min(span, visibleMeetings - start)}`
                       }}
                       aria-label={`Unit ${position.unit.title}, meetings ${start + 1} through ${start + span}`}
+                      onContextMenu={(event) => openContextMenu(event, 'unit', position.unit.id)}
                     >
                       <button
                         className="curriculum-unit-grab"
@@ -2043,6 +2173,7 @@ export function CurriculumTimeline({
                                 gridColumn: `${displayStart + 1} / span ${Math.max(1, Math.min(displaySpan, visibleMeetings - displayStart))}`
                               }}
                               aria-label={`${lesson.title}, ${displaySpan} ${displaySpan === 1 ? 'meeting' : 'meetings'}`}
+                              onContextMenu={(event) => openContextMenu(event, 'lesson', lesson.id)}
                             >
                               <button
                                 className="curriculum-lesson-grab"

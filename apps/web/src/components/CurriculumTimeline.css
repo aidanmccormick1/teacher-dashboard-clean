@@ -559,18 +559,51 @@
   background: rgba(62, 97, 122, 0.09);
 }
 
-.curriculum-selection-menu button {
+.curriculum-selection-menu > div {
   position: absolute;
   top: 30px;
   right: 0;
   z-index: 9;
-  width: 132px;
+  display: grid;
+  width: 160px;
+  padding: 4px;
   border: 1px solid var(--line);
-  padding: 8px 10px;
   background: #fff;
-  color: var(--red);
+  border-radius: 7px;
   box-shadow: 0 9px 22px rgba(43, 57, 66, 0.15);
+}
+
+.curriculum-selection-menu button,
+.curriculum-context-menu button {
+  width: 100%;
+  border: 0;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
   text-align: left;
+}
+
+.curriculum-selection-menu button:hover,
+.curriculum-context-menu button:hover {
+  background: rgba(62, 97, 122, 0.08);
+}
+
+.curriculum-selection-menu button.danger,
+.curriculum-context-menu button.danger {
+  color: var(--red);
+}
+
+.curriculum-context-menu {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  width: 180px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(43, 57, 66, 0.2);
 }
 
 /* Expanded units use mirrored outline/canvas rows so lesson bars never stack. */
@@ -676,7 +709,7 @@
   font-size: 0.68rem;
 }
 
-.curriculum-lesson-row > .curriculum-lesson-reorder {
+.curriculum-lesson-row > button.curriculum-lesson-reorder {
   flex: 0 0 24px;
   width: 24px;
   min-width: 24px;

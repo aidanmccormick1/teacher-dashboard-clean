@@ -516,6 +516,10 @@ const SectionParamsSchema = z.object({ sectionId: UuidSchema });
 const HolidayParamsSchema = z.object({ holidayId: UuidSchema });
 const AiJobParamsSchema = z.object({ jobId: UuidSchema });
 
+function nextOrderIndex(items: Array<{ orderIndex: number }>) {
+  return items.reduce((largest, item) => Math.max(largest, item.orderIndex), -1) + 1;
+}
+
 async function findOwnedCourse(userId: string, courseId: string) {
   const [course] = await db
     .select({
@@ -2902,6 +2906,85 @@ export async function v1Routes(app: FastifyInstance) {
   );
 
   app.post(
+    '/v1/units/:unitId/duplicate',
+    {
+      schema: {
+        params: UnitParamsSchema,
+        response: { 200: CourseDetailResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { unitId } = UnitParamsSchema.parse(request.params);
+      const courseId = await findOwnedCourseIdForUnit(user.id, unitId);
+      const detail = courseId ? await buildCourseDetail(user.id, courseId) : null;
+      const source = detail?.course.units.find((unit) => unit.id === unitId);
+      if (!courseId || !detail || !source) {
+        (reply as any).code(404);
+        return { error: 'Unit not found', requestId: request.id };
+      }
+      const orderIndex = nextOrderIndex(detail.course.units);
+      const newStart = Math.max(
+        0,
+        ...detail.course.units.map(
+          (unit) => (unit.plannedStartMeeting ?? 0) + (unit.plannedMeetingCount ?? 1)
+        )
+      );
+      await db.transaction(async (tx) => {
+        const [copy] = await tx
+          .insert(units)
+          .values({
+            courseId,
+            title: `${source.title} copy`,
+            description: source.description,
+            orderIndex,
+            plannedStartMeeting: newStart,
+            plannedMeetingCount: source.plannedMeetingCount
+          })
+          .returning({ id: units.id });
+        if (!copy) throw new Error('Failed to duplicate unit');
+        for (const lesson of source.lessons) {
+          const [lessonCopy] = await tx
+            .insert(lessons)
+            .values({
+              unitId: copy.id,
+              title: lesson.title,
+              description: lesson.description,
+              lessonPlan: lesson.lessonPlan,
+              estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+              orderIndex: lesson.orderIndex,
+              plannedStartMeeting:
+                lesson.plannedStartMeeting === null
+                  ? null
+                  : newStart +
+                    Math.max(0, lesson.plannedStartMeeting - (source.plannedStartMeeting ?? 0)),
+              plannedMeetingCount: lesson.plannedMeetingCount
+            })
+            .returning({ id: lessons.id });
+          if (!lessonCopy) throw new Error('Failed to duplicate lesson');
+          if (lesson.segments.length) {
+            await tx.insert(lessonSegments).values(
+              lesson.segments.map((step) => ({
+                lessonId: lessonCopy.id,
+                title: step.title,
+                description: step.description,
+                durationMinutes: step.durationMinutes,
+                stepType: step.stepType,
+                orderIndex: step.orderIndex
+              }))
+            );
+          }
+        }
+      });
+      const updated = await buildCourseDetail(user.id, courseId);
+      if (!updated) throw new Error('Failed to load duplicated unit');
+      return updated;
+    }
+  );
+
+  app.post(
     '/v1/units/:unitId/lessons',
     {
       schema: {
@@ -3007,6 +3090,66 @@ export async function v1Routes(app: FastifyInstance) {
       const detail = await buildCourseDetail(user.id, ownedCourseId);
       if (!detail) throw new Error('Failed to load course detail');
       return detail;
+    }
+  );
+
+  app.post(
+    '/v1/lessons/:lessonId/duplicate',
+    {
+      schema: {
+        params: LessonParamsSchema,
+        response: { 200: CourseDetailResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { lessonId } = LessonParamsSchema.parse(request.params);
+      const courseId = await findOwnedCourseIdForLesson(user.id, lessonId);
+      const detail = courseId ? await buildCourseDetail(user.id, courseId) : null;
+      const unit = detail?.course.units.find((item) =>
+        item.lessons.some((lesson) => lesson.id === lessonId)
+      );
+      const source = unit?.lessons.find((lesson) => lesson.id === lessonId);
+      if (!courseId || !detail || !unit || !source) {
+        (reply as any).code(404);
+        return { error: 'Lesson not found', requestId: request.id };
+      }
+      await db.transaction(async (tx) => {
+        const [copy] = await tx
+          .insert(lessons)
+          .values({
+            unitId: unit.id,
+            title: `${source.title} copy`,
+            description: source.description,
+            lessonPlan: source.lessonPlan,
+            estimatedDurationMinutes: source.estimatedDurationMinutes,
+            orderIndex: nextOrderIndex(unit.lessons),
+            plannedStartMeeting:
+              source.plannedStartMeeting === null
+                ? null
+                : source.plannedStartMeeting + (source.plannedMeetingCount ?? 1),
+            plannedMeetingCount: source.plannedMeetingCount
+          })
+          .returning({ id: lessons.id });
+        if (!copy) throw new Error('Failed to duplicate lesson');
+        if (source.segments.length) {
+          await tx.insert(lessonSegments).values(
+            source.segments.map((step) => ({
+              lessonId: copy.id,
+              title: step.title,
+              description: step.description,
+              durationMinutes: step.durationMinutes,
+              stepType: step.stepType,
+              orderIndex: step.orderIndex
+            }))
+          );
+        }
+      });
+      const updated = await buildCourseDetail(user.id, courseId);
+      if (!updated) throw new Error('Failed to load duplicated lesson');
+      return updated;
     }
   );
 

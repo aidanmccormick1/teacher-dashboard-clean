@@ -184,7 +184,7 @@ export function YearPlanPage() {
         onCourseChange={updateCourse}
         onOpenSchool={() => navigate('/school')}
         displayMode={context.view}
-        allowAiDrafts
+        allowAutoGeneration
         onOpenLesson={(lessonId) =>
           navigate(
             `/lessons/${lessonId}?returnTo=${encodeURIComponent(yearPlanReturnTo(lessonId))}`

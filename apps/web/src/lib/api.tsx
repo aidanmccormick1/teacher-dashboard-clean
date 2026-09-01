@@ -372,6 +372,8 @@ export function useApiClient() {
           { method: 'PATCH', body: JSON.stringify(body) },
           auth
         ),
+      duplicateUnit: (unitId: string) =>
+        request<CourseDetailResponse>(`/v1/units/${unitId}/duplicate`, { method: 'POST' }, auth),
       deleteUnit: (unitId: string) =>
         request<DeleteEntityResponse>(`/v1/units/${unitId}`, { method: 'DELETE' }, auth),
       createLesson: (unitId: string, body: LessonCreateRequest) =>
@@ -384,6 +386,12 @@ export function useApiClient() {
         request<CourseDetailResponse>(
           `/v1/lessons/${lessonId}`,
           { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      duplicateLesson: (lessonId: string) =>
+        request<CourseDetailResponse>(
+          `/v1/lessons/${lessonId}/duplicate`,
+          { method: 'POST' },
           auth
         ),
       getLessonWorkspace: (lessonId: string) =>
