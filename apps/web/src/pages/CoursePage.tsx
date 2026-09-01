@@ -31,53 +31,6 @@ function parseOptionalOrder(value: string): number | undefined {
   return parsed;
 }
 
-function buildCourseOutline(course: CourseDetailResponse['course']): string {
-  const lines = [
-    course.name,
-    [course.subject, course.gradeLevel].filter(Boolean).join(' / ') || 'Course outline',
-    ''
-  ];
-
-  if (!course.units.length) {
-    lines.push('No units yet.');
-    return lines.join('\n');
-  }
-
-  course.units.forEach((unit) => {
-    lines.push(`Unit ${unit.orderIndex}: ${unit.title}`);
-    if (unit.description) lines.push(`  ${unit.description}`);
-
-    if (!unit.lessons.length) {
-      lines.push('  - No lessons yet');
-    }
-
-    unit.lessons.forEach((lesson) => {
-      lines.push(
-        `  Lesson ${lesson.orderIndex}: ${lesson.title}${
-          lesson.estimatedDurationMinutes ? ` (${lesson.estimatedDurationMinutes} min)` : ''
-        }`
-      );
-      if (lesson.description) lines.push(`    ${lesson.description}`);
-
-      if (!lesson.segments.length) {
-        lines.push('    - No segments yet');
-      }
-
-      lesson.segments.forEach((segment) => {
-        lines.push(
-          `    - ${segment.orderIndex}. ${segment.title}${
-            segment.durationMinutes ? ` (${segment.durationMinutes} min)` : ''
-          }`
-        );
-      });
-    });
-
-    lines.push('');
-  });
-
-  return lines.join('\n').trim();
-}
-
 export function CoursePage() {
   const api = useApiClient();
   const navigate = useNavigate();
@@ -144,12 +97,6 @@ export function CoursePage() {
     setCourseGradeLevel(detail.course.gradeLevel ?? '');
   };
 
-  const copyCourseOutline = async () => {
-    if (!course) return;
-    await navigator.clipboard?.writeText(buildCourseOutline(course)).catch(() => undefined);
-    setCopyStatus('Course outline copied.');
-    window.setTimeout(() => setCopyStatus(null), 1800);
-  };
   const courseAction = async (action: 'share' | 'duplicate' | 'archive') => {
     if (!course) return;
     try {
@@ -202,15 +149,6 @@ export function CoursePage() {
           <Link className="button-link secondary" to="/courses">
             ← Courses
           </Link>
-          <button
-            hidden
-            className="button-link secondary"
-            type="button"
-            disabled={!course}
-            onClick={() => void copyCourseOutline()}
-          >
-            Copy outline
-          </button>
           <Link className="button-link done-editing" to="/courses">
             Done Editing
           </Link>
