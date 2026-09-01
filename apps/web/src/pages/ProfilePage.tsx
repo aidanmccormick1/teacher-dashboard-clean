@@ -176,7 +176,6 @@ export function ProfilePage() {
         <div>
           <p className="eyebrow">Your profile</p>
           <h1>Your school & teaching profile</h1>
-          <p>Keep the details that shape your teaching experience in one place.</p>
         </div>
       </section>
       {error ? <p className="notice warning">{error}</p> : null}

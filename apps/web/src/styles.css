@@ -445,6 +445,12 @@ a {
   line-height: 1;
 }
 
+/* Primary navigation uses icons only in the minimized sidebar. */
+.sidebar:not(.sidebar-collapsed) #primary-navigation .sidebar-nav-icon,
+.sidebar.sidebar-hover-expanded #primary-navigation .sidebar-nav-icon {
+  display: none;
+}
+
 .sidebar-nav-label {
   overflow: hidden;
   text-overflow: ellipsis;
