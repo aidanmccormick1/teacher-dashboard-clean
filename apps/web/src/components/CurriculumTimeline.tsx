@@ -42,6 +42,13 @@ type PendingChange =
   | { kind: 'move'; unit: PositionedUnit; start: number; delta: number }
   | { kind: 'resize'; unit: PositionedUnit; span: number; delta: number };
 type Drag = { unit: PositionedUnit; mode: 'move' | 'resize'; originX: number };
+type LessonDrag = {
+  lesson: Lesson;
+  mode: 'move' | 'resize';
+  originX: number;
+  start: number;
+  span: number;
+};
 type RangeDrag = { originIndex: number; originX: number; unitId: string | null; laneTop: number };
 type RangeDraft = PlanningRange & { unitId: string | null };
 type LessonPlanDraft = {
@@ -150,7 +157,9 @@ export function CurriculumTimeline({
   const navigate = useNavigate();
   const [zoom, setZoom] = useState<Zoom>('year');
   const [selection, setSelection] = useState<Selection>(null);
-  const [expandedUnitIds, setExpandedUnitIds] = useState<string[]>([]);
+  const [expandedUnitIds, setExpandedUnitIds] = useState<string[]>(() =>
+    course.units.map((unit) => unit.id)
+  );
   const [showUnitComposer, setShowUnitComposer] = useState(false);
   const [unitComposerMode, setUnitComposerMode] = useState<'manual' | 'generate'>('manual');
   const [quickLessonUnitId, setQuickLessonUnitId] = useState<string | null>(null);
@@ -158,6 +167,13 @@ export function CurriculumTimeline({
   const [manualUnitTitle, setManualUnitTitle] = useState('');
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftMeetingCount, setDraftMeetingCount] = useState('');
+  const [lessonGeneratorUnitId, setLessonGeneratorUnitId] = useState<string | null>(null);
+  const [lessonGeneratorPrompt, setLessonGeneratorPrompt] = useState('');
+  const [lessonGeneratorCount, setLessonGeneratorCount] = useState('5');
+  const [generatedLessonDraft, setGeneratedLessonDraft] = useState<{
+    unitId: string;
+    draft: Awaited<ReturnType<typeof api.generateUnitDraft>>;
+  } | null>(null);
   const [draft, setDraft] = useState<Awaited<ReturnType<typeof api.generateUnitDraft>> | null>(
     null
   );
@@ -166,6 +182,13 @@ export function CurriculumTimeline({
   const [isGeneratingUnit, setIsGeneratingUnit] = useState(false);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dragPreview, setDragPreview] = useState<number | null>(null);
+  const [lessonDrag, setLessonDrag] = useState<LessonDrag | null>(null);
+  const [lessonDragPreview, setLessonDragPreview] = useState<{
+    start: number;
+    span: number;
+  } | null>(null);
+  const [outlineDraggedLessonId, setOutlineDraggedLessonId] = useState<string | null>(null);
+  const [outlineDropLessonId, setOutlineDropLessonId] = useState<string | null>(null);
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
   const [meetingData, setMeetingData] = useState<MeetingInstancesResponse | null>(null);
   const [lessonPlanDraft, setLessonPlanDraft] = useState<LessonPlanDraft>(emptyLessonPlan);
@@ -192,6 +215,10 @@ export function CurriculumTimeline({
   const hydratedLessonId = useRef<string | null>(null);
   const selectedLessonIdRef = useRef<string | null>(null);
   const scrollStorageKey = `teacheros_year_plan_scroll_${course.id}_${selectedSection?.sectionId ?? 'none'}_${displayMode}`;
+
+  useEffect(() => {
+    setExpandedUnitIds(course.units.map((unit) => unit.id));
+  }, [course.id]);
 
   useEffect(() => {
     let active = true;
@@ -697,6 +724,60 @@ export function CurriculumTimeline({
     setDragPreview(null);
   };
 
+  const beginLessonDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    lesson: Lesson,
+    mode: LessonDrag['mode'],
+    start: number,
+    span: number
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setLessonDrag({ lesson, mode, originX: event.clientX, start, span });
+    setLessonDragPreview({ start, span });
+  };
+
+  const updateLessonDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!lessonDrag) return;
+    const delta = Math.round((event.clientX - lessonDrag.originX) / slotWidth);
+    setLessonDragPreview({
+      start:
+        lessonDrag.mode === 'move'
+          ? clamp(lessonDrag.start + delta, 0, visibleMeetings - 1)
+          : lessonDrag.start,
+      span: lessonDrag.mode === 'resize' ? Math.max(1, lessonDrag.span + delta) : lessonDrag.span
+    });
+  };
+
+  const finishLessonDrag = async () => {
+    if (!lessonDrag || !lessonDragPreview) return;
+    const patch =
+      lessonDrag.mode === 'move'
+        ? { plannedStartMeeting: lessonDragPreview.start }
+        : { plannedMeetingCount: lessonDragPreview.span };
+    const changed =
+      lessonDrag.mode === 'move'
+        ? lessonDragPreview.start !== lessonDrag.start
+        : lessonDragPreview.span !== lessonDrag.span;
+    setLessonDrag(null);
+    setLessonDragPreview(null);
+    if (!changed) return;
+    try {
+      setSaving(true);
+      onCourseChange(await api.updateLesson(lessonDrag.lesson.id, patch));
+      setStatus(
+        lessonDrag.mode === 'move'
+          ? `${lessonDrag.lesson.title} moved`
+          : `${lessonDrag.lesson.title} duration updated`
+      );
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not update lesson timing');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const createQuickLesson = async (unit: Unit) => {
     if (!quickLessonTitle.trim()) return;
     try {
@@ -713,6 +794,102 @@ export function CurriculumTimeline({
       setQuickLessonUnitId(null);
     } catch (err) {
       setStatus(err instanceof ApiError ? err.message : 'Could not add lesson');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reorderLessonTo = async (unit: Unit, draggedId: string, targetId: string) => {
+    if (draggedId === targetId || saving) return;
+    const ordered = [...unit.lessons].sort((a, b) => a.orderIndex - b.orderIndex);
+    const from = ordered.findIndex((lesson) => lesson.id === draggedId);
+    const to = ordered.findIndex((lesson) => lesson.id === targetId);
+    if (from < 0 || to < 0) return;
+    const [moving] = ordered.splice(from, 1);
+    if (!moving) return;
+    ordered.splice(to, 0, moving);
+    try {
+      setSaving(true);
+      let detail: CourseDetailResponse | null = null;
+      for (const [index, lesson] of ordered.entries()) {
+        if (lesson.orderIndex !== index) {
+          detail = await api.updateLesson(lesson.id, { orderIndex: index });
+        }
+      }
+      if (detail) onCourseChange(detail);
+      setStatus(`${moving.title} reordered`);
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not reorder lessons');
+    } finally {
+      setSaving(false);
+      setOutlineDraggedLessonId(null);
+      setOutlineDropLessonId(null);
+    }
+  };
+
+  const createGeneratedLessonDraft = async (unit: Unit) => {
+    const meetingCount = clamp(Number(lessonGeneratorCount) || 1, 1, 30);
+    if (lessonGeneratorPrompt.trim().length < 8) return;
+    try {
+      setIsGeneratingUnit(true);
+      setGeneratedLessonDraft({
+        unitId: unit.id,
+        draft: await api.generateUnitDraft({
+          courseName: course.name,
+          gradeLevel: course.gradeLevel,
+          prompt: `${unit.title}: ${lessonGeneratorPrompt.trim()}`,
+          meetingCount: Math.max(2, meetingCount)
+        })
+      });
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not generate lesson ideas');
+    } finally {
+      setIsGeneratingUnit(false);
+    }
+  };
+
+  const acceptGeneratedLessons = async (unit: Unit) => {
+    if (!generatedLessonDraft || generatedLessonDraft.unitId !== unit.id) return;
+    try {
+      setSaving(true);
+      let detail: CourseDetailResponse | null = null;
+      for (const [offset, lesson] of generatedLessonDraft.draft.unit.lessons.entries()) {
+        detail = await api.createLesson(unit.id, {
+          title: lesson.title,
+          description: lesson.description,
+          estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+          orderIndex: nextOrder(unit.lessons) + offset,
+          plannedMeetingCount: 1,
+          lessonPlan: {
+            objective: lesson.objective ?? null,
+            teacherNotes: null,
+            studentDirections: null,
+            materials: lesson.materials ?? null,
+            links: []
+          }
+        });
+        const refreshedUnit = detail.course.units.find((item) => item.id === unit.id);
+        const createdLesson = refreshedUnit?.lessons.find(
+          (item) => item.orderIndex === nextOrder(unit.lessons) + offset
+        );
+        if (!createdLesson) continue;
+        for (const [stepIndex, step] of lesson.steps.entries()) {
+          detail = await api.createSegment(createdLesson.id, {
+            title: step.title,
+            description: step.description,
+            durationMinutes: step.durationMinutes,
+            stepType: step.stepType ?? null,
+            orderIndex: stepIndex
+          });
+        }
+      }
+      if (detail) onCourseChange(detail);
+      setGeneratedLessonDraft(null);
+      setLessonGeneratorUnitId(null);
+      setLessonGeneratorPrompt('');
+      setStatus('Generated lessons added to the unit');
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not add generated lessons');
     } finally {
       setSaving(false);
     }
@@ -974,25 +1151,6 @@ export function CurriculumTimeline({
     }
   };
 
-  const moveLesson = async (lesson: Lesson, unit: Unit, direction: -1 | 1) => {
-    if (!canEditSharedPlan) {
-      setStatus('Switch to shared course planning before reordering curriculum lessons.');
-      return;
-    }
-    const next = unit.lessons.find((item) => item.orderIndex === lesson.orderIndex + direction);
-    if (!next) return;
-    try {
-      setSaving(true);
-      let detail = await api.updateLesson(lesson.id, { orderIndex: next.orderIndex });
-      detail = await api.updateLesson(next.id, { orderIndex: lesson.orderIndex });
-      onCourseChange(detail);
-    } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not reorder lesson');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const selectUnit = (unit: Unit) => {
     setSelection({ type: 'unit', id: unit.id });
     onLessonSelectionChange?.(null);
@@ -1018,12 +1176,12 @@ export function CurriculumTimeline({
                 setShowUnitComposer((open) => !open);
               }}
             >
-              {showUnitComposer && unitComposerMode === 'manual' ? 'Close' : '+ Add unit'}
+              {showUnitComposer && unitComposerMode === 'manual' ? 'Close add unit' : '+ Add unit'}
             </button>
             {allowAiDrafts ? (
               <button
                 type="button"
-                className="button-link"
+                className="secondary"
                 onClick={() => {
                   if (showUnitComposer && unitComposerMode === 'generate') {
                     setShowUnitComposer(false);
@@ -1034,8 +1192,8 @@ export function CurriculumTimeline({
                 }}
               >
                 {showUnitComposer && unitComposerMode === 'generate'
-                  ? 'Close generator'
-                  : 'Generate full unit plan'}
+                  ? 'Close AI generator'
+                  : '✦ Generate unit plan'}
               </button>
             ) : null}
           </div>
@@ -1165,18 +1323,12 @@ export function CurriculumTimeline({
         ) : null}
       </div>
 
-      {!meetings.length ? (
+      {!meetings.length && selectedSection ? (
         <div className="curriculum-setup-callout">
-          <span>
-            {selectedSection
-              ? 'Dates appear after you add the school year and class meetings.'
-              : 'Planning by course meeting number. Choose a class group only to preview its dates.'}
-          </span>
-          {selectedSection ? (
-            <button className="secondary" type="button" onClick={onOpenSchool}>
-              Add school year
-            </button>
-          ) : null}
+          <span>Dates appear after you add the school year and class meetings.</span>
+          <button className="secondary" type="button" onClick={onOpenSchool}>
+            Add school year
+          </button>
         </div>
       ) : null}
 
@@ -1588,31 +1740,51 @@ export function CurriculumTimeline({
                         return (
                           <div
                             key={lesson.id}
-                            className={
-                              selected ? 'curriculum-lesson-row selected' : 'curriculum-lesson-row'
-                            }
+                            className={[
+                              'curriculum-lesson-row',
+                              selected ? 'selected' : '',
+                              outlineDraggedLessonId === lesson.id ? 'dragging' : '',
+                              outlineDropLessonId === lesson.id ? 'drop-target' : ''
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            onDragOver={(event) => {
+                              event.preventDefault();
+                              if (outlineDraggedLessonId !== lesson.id)
+                                setOutlineDropLessonId(lesson.id);
+                            }}
+                            onDragLeave={() => {
+                              if (outlineDropLessonId === lesson.id) setOutlineDropLessonId(null);
+                            }}
+                            onDrop={() => {
+                              if (outlineDraggedLessonId)
+                                void reorderLessonTo(
+                                  position.unit,
+                                  outlineDraggedLessonId,
+                                  lesson.id
+                                );
+                            }}
                           >
+                            <button
+                              className="curriculum-lesson-reorder"
+                              type="button"
+                              draggable
+                              aria-label={`Drag to reorder ${lesson.title}`}
+                              onDragStart={(event) => {
+                                event.dataTransfer.effectAllowed = 'move';
+                                setOutlineDraggedLessonId(lesson.id);
+                              }}
+                              onDragEnd={() => {
+                                setOutlineDraggedLessonId(null);
+                                setOutlineDropLessonId(null);
+                              }}
+                            >
+                              ⠿
+                            </button>
                             <button type="button" onClick={() => selectLesson(lesson)}>
                               {lesson.title}
                             </button>
-                            <span>
-                              <button
-                                aria-label={`Move ${lesson.title} earlier`}
-                                disabled={saving || !canEditSharedPlan}
-                                type="button"
-                                onClick={() => void moveLesson(lesson, position.unit, -1)}
-                              >
-                                ←
-                              </button>
-                              <button
-                                aria-label={`Move ${lesson.title} later`}
-                                disabled={saving || !canEditSharedPlan}
-                                type="button"
-                                onClick={() => void moveLesson(lesson, position.unit, 1)}
-                              >
-                                →
-                              </button>
-                            </span>
+                            <small>{lesson.plannedMeetingCount ?? 1} mtg</small>
                           </div>
                         );
                       })}
@@ -1631,18 +1803,89 @@ export function CurriculumTimeline({
                           }}
                           placeholder="Lesson title"
                         />
-                      ) : (
+                      ) : null}
+                      <div className="curriculum-lesson-create-actions">
                         <button
                           className="curriculum-add-lesson"
                           type="button"
                           onClick={() => {
                             setQuickLessonUnitId(position.unit.id);
+                            setLessonGeneratorUnitId(null);
                             setQuickLessonTitle('');
                           }}
                         >
-                          + Lesson
+                          + Add lesson
                         </button>
-                      )}
+                        <button
+                          className="curriculum-generate-lessons"
+                          type="button"
+                          onClick={() => {
+                            setLessonGeneratorUnitId((id) =>
+                              id === position.unit.id ? null : position.unit.id
+                            );
+                            setQuickLessonUnitId(null);
+                            setGeneratedLessonDraft(null);
+                          }}
+                        >
+                          ✦ Generate lessons
+                        </button>
+                      </div>
+                      {lessonGeneratorUnitId === position.unit.id ? (
+                        <div className="curriculum-lesson-generator">
+                          <input
+                            className="curriculum-inline-input"
+                            value={lessonGeneratorPrompt}
+                            onChange={(event) => setLessonGeneratorPrompt(event.target.value)}
+                            placeholder="Topic or learning goal"
+                            aria-label={`Lesson generation topic for ${position.unit.title}`}
+                          />
+                          <label>
+                            <span>Meetings</span>
+                            <input
+                              className="curriculum-inline-input"
+                              type="number"
+                              min="2"
+                              max="30"
+                              value={lessonGeneratorCount}
+                              onChange={(event) => setLessonGeneratorCount(event.target.value)}
+                            />
+                          </label>
+                          {generatedLessonDraft?.unitId === position.unit.id ? (
+                            <div className="curriculum-generated-lessons">
+                              <span>AI draft · not added yet</span>
+                              <ol>
+                                {generatedLessonDraft.draft.unit.lessons.map((lesson) => (
+                                  <li key={lesson.title}>{lesson.title}</li>
+                                ))}
+                              </ol>
+                              <div>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => void acceptGeneratedLessons(position.unit)}
+                                >
+                                  Add generated lessons
+                                </button>
+                                <button
+                                  className="secondary"
+                                  type="button"
+                                  onClick={() => setGeneratedLessonDraft(null)}
+                                >
+                                  Discard
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isGeneratingUnit || lessonGeneratorPrompt.trim().length < 8}
+                              onClick={() => void createGeneratedLessonDraft(position.unit)}
+                            >
+                              {isGeneratingUnit ? 'Generating…' : 'Generate lesson draft'}
+                            </button>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -1689,77 +1932,78 @@ export function CurriculumTimeline({
               );
               const expanded = expandedUnitIds.includes(position.unit.id);
               return (
-                <div
-                  key={position.unit.id}
-                  className="curriculum-track-row"
-                  onPointerDown={(event) => {
-                    if ((event.target as HTMLElement).closest('button, article')) return;
-                    beginRangeDrag(event, position.unit.id);
-                  }}
-                  onPointerMove={updateRangeDrag}
-                  onPointerUp={finishRangeDrag}
-                  onPointerCancel={() => {
-                    setRangeDrag(null);
-                    setRangePreview(null);
-                  }}
-                >
-                  <article
-                    className={[
-                      'curriculum-unit-bar',
-                      selected ? 'selected' : '',
-                      isDragging ? 'dragging' : '',
-                      hasConflict ? 'conflict' : ''
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    style={{
-                      gridColumn: `${start + 1} / span ${Math.min(span, visibleMeetings - start)}`
+                <div key={position.unit.id} className="curriculum-track-group">
+                  <div
+                    className="curriculum-track-row"
+                    onPointerDown={(event) => {
+                      if ((event.target as HTMLElement).closest('button, article')) return;
+                      beginRangeDrag(event, position.unit.id);
                     }}
-                    aria-label={`Unit ${position.unit.title}, meetings ${start + 1} through ${start + span}`}
+                    onPointerMove={updateRangeDrag}
+                    onPointerUp={finishRangeDrag}
+                    onPointerCancel={() => {
+                      setRangeDrag(null);
+                      setRangePreview(null);
+                    }}
                   >
-                    <button
-                      className="curriculum-unit-grab"
-                      type="button"
-                      aria-label={`Move ${position.unit.title}`}
-                      disabled={!canEditSharedPlan}
-                      onPointerDown={(event) => beginUnitDrag(event, position, 'move')}
-                      onPointerMove={updateUnitDrag}
-                      onPointerUp={finishUnitDrag}
-                      onPointerCancel={() => {
-                        setDrag(null);
-                        setDragPreview(null);
+                    <article
+                      className={[
+                        'curriculum-unit-bar',
+                        selected ? 'selected' : '',
+                        isDragging ? 'dragging' : '',
+                        hasConflict ? 'conflict' : ''
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      style={{
+                        gridColumn: `${start + 1} / span ${Math.min(span, visibleMeetings - start)}`
                       }}
+                      aria-label={`Unit ${position.unit.title}, meetings ${start + 1} through ${start + span}`}
                     >
-                      ⠿
-                    </button>
-                    <button
-                      className="curriculum-unit-content"
-                      type="button"
-                      onClick={() => {
-                        selectUnit(position.unit);
-                        toggleExpanded(position.unit.id);
-                      }}
-                    >
-                      <strong>{position.unit.title}</strong>
-                      <span>
-                        {position.unit.lessons.length} lessons · {span} meetings
-                      </span>
-                    </button>
-                    <button
-                      className="curriculum-unit-resize"
-                      type="button"
-                      aria-label={`Resize ${position.unit.title}`}
-                      disabled={!canEditSharedPlan}
-                      onPointerDown={(event) => beginUnitDrag(event, position, 'resize')}
-                      onPointerMove={updateUnitDrag}
-                      onPointerUp={finishUnitDrag}
-                      onPointerCancel={() => {
-                        setDrag(null);
-                        setDragPreview(null);
-                      }}
-                    />
-                  </article>
-                  {expanded && zoom !== 'year'
+                      <button
+                        className="curriculum-unit-grab"
+                        type="button"
+                        aria-label={`Move ${position.unit.title}`}
+                        disabled={!canEditSharedPlan}
+                        onPointerDown={(event) => beginUnitDrag(event, position, 'move')}
+                        onPointerMove={updateUnitDrag}
+                        onPointerUp={finishUnitDrag}
+                        onPointerCancel={() => {
+                          setDrag(null);
+                          setDragPreview(null);
+                        }}
+                      >
+                        ⠿
+                      </button>
+                      <button
+                        className="curriculum-unit-content"
+                        type="button"
+                        onClick={() => {
+                          selectUnit(position.unit);
+                          toggleExpanded(position.unit.id);
+                        }}
+                      >
+                        <strong>{position.unit.title}</strong>
+                        <span>
+                          {position.unit.lessons.length} lessons · {span} meetings
+                        </span>
+                      </button>
+                      <button
+                        className="curriculum-unit-resize"
+                        type="button"
+                        aria-label={`Resize ${position.unit.title}`}
+                        disabled={!canEditSharedPlan}
+                        onPointerDown={(event) => beginUnitDrag(event, position, 'resize')}
+                        onPointerMove={updateUnitDrag}
+                        onPointerUp={finishUnitDrag}
+                        onPointerCancel={() => {
+                          setDrag(null);
+                          setDragPreview(null);
+                        }}
+                      />
+                    </article>
+                  </div>
+                  {expanded
                     ? position.unit.lessons.map((lesson, index) => {
                         const defaultLessonSpan = Math.max(
                           1,
@@ -1772,27 +2016,84 @@ export function CurriculumTimeline({
                         const active = currentLessonId === lesson.id;
                         const selectedLesson =
                           selection?.type === 'lesson' && selection.id === lesson.id;
+                        const isLessonDragging = lessonDrag?.lesson.id === lesson.id;
+                        const displayStart =
+                          isLessonDragging && lessonDragPreview
+                            ? lessonDragPreview.start
+                            : lessonStart;
+                        const displaySpan =
+                          isLessonDragging && lessonDragPreview
+                            ? lessonDragPreview.span
+                            : lessonSpan;
                         return (
-                          <button
+                          <div
                             key={lesson.id}
-                            className={[
-                              'curriculum-lesson-bar',
-                              active ? 'current' : '',
-                              selectedLesson ? 'selected' : ''
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            style={{
-                              gridColumn: `${lessonStart + 1} / span ${Math.max(1, Math.min(lessonSpan, visibleMeetings - lessonStart))}`
-                            }}
-                            type="button"
-                            onClick={() => selectLesson(lesson)}
+                            className="curriculum-track-row curriculum-lesson-track-row"
                           >
-                            {lesson.title}
-                          </button>
+                            <article
+                              className={[
+                                'curriculum-lesson-bar',
+                                active ? 'current' : '',
+                                selectedLesson ? 'selected' : '',
+                                isLessonDragging ? 'dragging' : ''
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                              style={{
+                                gridColumn: `${displayStart + 1} / span ${Math.max(1, Math.min(displaySpan, visibleMeetings - displayStart))}`
+                              }}
+                              aria-label={`${lesson.title}, ${displaySpan} ${displaySpan === 1 ? 'meeting' : 'meetings'}`}
+                            >
+                              <button
+                                className="curriculum-lesson-grab"
+                                type="button"
+                                aria-label={`Move ${lesson.title} on timeline`}
+                                onPointerDown={(event) =>
+                                  beginLessonDrag(event, lesson, 'move', lessonStart, lessonSpan)
+                                }
+                                onPointerMove={updateLessonDrag}
+                                onPointerUp={() => void finishLessonDrag()}
+                                onPointerCancel={() => {
+                                  setLessonDrag(null);
+                                  setLessonDragPreview(null);
+                                }}
+                              >
+                                ⠿
+                              </button>
+                              <button
+                                className="curriculum-lesson-content"
+                                type="button"
+                                onClick={() => selectLesson(lesson)}
+                              >
+                                <span>{lesson.title}</span>
+                                <small>{displaySpan} mtg</small>
+                              </button>
+                              <button
+                                className="curriculum-lesson-resize"
+                                type="button"
+                                aria-label={`Resize ${lesson.title}`}
+                                onPointerDown={(event) =>
+                                  beginLessonDrag(event, lesson, 'resize', lessonStart, lessonSpan)
+                                }
+                                onPointerMove={updateLessonDrag}
+                                onPointerUp={() => void finishLessonDrag()}
+                                onPointerCancel={() => {
+                                  setLessonDrag(null);
+                                  setLessonDragPreview(null);
+                                }}
+                              />
+                            </article>
+                          </div>
                         );
                       })
                     : null}
+                  {expanded ? (
+                    <div
+                      className={`curriculum-lesson-action-track ${
+                        lessonGeneratorUnitId === position.unit.id ? 'is-generator-open' : ''
+                      } ${quickLessonUnitId === position.unit.id ? 'is-add-open' : ''}`}
+                    />
+                  ) : null}
                 </div>
               );
             })}
