@@ -299,6 +299,13 @@ a {
   gap: 2px;
 }
 
+.brand-copy span {
+  font-family: 'Snell Roundhand', 'Brush Script MT', cursive;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .sidebar-collapse-toggle {
   flex: 0 0 auto;
   width: 30px;
