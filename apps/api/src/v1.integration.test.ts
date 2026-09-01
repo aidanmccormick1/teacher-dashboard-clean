@@ -201,6 +201,198 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       ]);
     });
 
+    it('copies independent curriculum into an existing scheduled empty course without replacing its Class Group', async () => {
+      await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: onboardingBody
+      });
+      const sourceResponse = await app.inject({
+        method: 'POST',
+        url: '/v1/courses',
+        headers: teacherHeaders,
+        payload: { name: 'Spanish 5', subject: 'Spanish', gradeLevel: '5' }
+      });
+      const sourceCourseId = sourceResponse.json<{ course: { id: string } }>().course.id;
+      const sourceWithUnit = await app.inject({
+        method: 'POST',
+        url: `/v1/courses/${sourceCourseId}/units`,
+        headers: teacherHeaders,
+        payload: {
+          title: 'Introductions',
+          description: 'Greeting and introductions',
+          orderIndex: 0,
+          plannedStartMeeting: 2,
+          plannedMeetingCount: 4
+        }
+      });
+      const sourceUnitId = sourceWithUnit.json<{
+        course: { units: Array<{ id: string }> };
+      }>().course.units[0]!.id;
+      const sourceWithLesson = await app.inject({
+        method: 'POST',
+        url: `/v1/units/${sourceUnitId}/lessons`,
+        headers: teacherHeaders,
+        payload: {
+          title: 'Hello and goodbye',
+          description: 'Core greetings',
+          estimatedDurationMinutes: 45,
+          plannedStartMeeting: 2,
+          plannedMeetingCount: 1
+        }
+      });
+      const sourceLessonId = sourceWithLesson.json<{
+        course: { units: Array<{ lessons: Array<{ id: string }> }> };
+      }>().course.units[0]!.lessons[0]!.id;
+      const sourceWithStep = await app.inject({
+        method: 'POST',
+        url: `/v1/lessons/${sourceLessonId}/segments`,
+        headers: teacherHeaders,
+        payload: {
+          title: 'Warm-up',
+          description: 'Practice greetings',
+          durationMinutes: 8,
+          stepType: 'warm_up'
+        }
+      });
+      const sourceStepId = sourceWithStep.json<{
+        course: { units: Array<{ lessons: Array<{ segments: Array<{ id: string }> }> }> };
+      }>().course.units[0]!.lessons[0]!.segments[0]!.id;
+
+      const imported = await app.inject({
+        method: 'POST',
+        url: '/v1/schedule/import/apply',
+        headers: teacherHeaders,
+        payload: {
+          classes: [
+            {
+              name: 'Spanish 6',
+              period: 'Group A',
+              days: ['Monday', 'Wednesday'],
+              time: '12:50',
+              endTime: '13:40',
+              room: '12',
+              subject: 'Spanish',
+              grade: '6'
+            }
+          ]
+        }
+      });
+      const importedSection = imported
+        .json<{
+          sections: Array<{
+            courseId: string;
+            courseName: string;
+            sectionId: string;
+            meetings: Array<{ day: string; time: string | null }>;
+          }>;
+        }>()
+        .sections.find((section) => section.courseName === 'Spanish 6')!;
+      const destinationCourseId = importedSection.courseId;
+      const sectionIdBefore = importedSection.sectionId;
+      const meetingsBefore = importedSection.meetings;
+
+      const copied = await app.inject({
+        method: 'POST',
+        url: `/v1/courses/${destinationCourseId}/curriculum/copy`,
+        headers: teacherHeaders,
+        payload: { sourceCourseId }
+      });
+      expect(copied.statusCode).toBe(200);
+      const destination = copied.json<{
+        course: {
+          id: string;
+          units: Array<{
+            id: string;
+            title: string;
+            plannedStartMeeting: number | null;
+            lessons: Array<{
+              id: string;
+              plannedStartMeeting: number | null;
+              segments: Array<{ id: string }>;
+            }>;
+          }>;
+        };
+      }>().course;
+      expect(destination.id).toBe(destinationCourseId);
+      expect(destination.units[0]).toMatchObject({
+        title: 'Introductions',
+        plannedStartMeeting: 2
+      });
+      expect(destination.units[0]!.id).not.toBe(sourceUnitId);
+      expect(destination.units[0]!.lessons[0]!.id).not.toBe(sourceLessonId);
+      expect(destination.units[0]!.lessons[0]!.segments[0]!.id).not.toBe(sourceStepId);
+
+      const scheduleAfterCopy = await app.inject({
+        method: 'GET',
+        url: '/v1/schedule',
+        headers: teacherHeaders
+      });
+      const destinationSectionAfter = scheduleAfterCopy
+        .json<{
+          sections: Array<{
+            courseId: string;
+            sectionId: string;
+            meetings: Array<{ day: string; time: string | null }>;
+          }>;
+        }>()
+        .sections.find((section) => section.courseId === destinationCourseId)!;
+      expect(destinationSectionAfter.sectionId).toBe(sectionIdBefore);
+      expect(destinationSectionAfter.meetings).toEqual(meetingsBefore);
+
+      await app.inject({
+        method: 'PATCH',
+        url: `/v1/units/${destination.units[0]!.id}`,
+        headers: teacherHeaders,
+        payload: { title: 'Spanish 6 introductions' }
+      });
+      const sourceAfterEdit = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${sourceCourseId}`,
+        headers: teacherHeaders
+      });
+      expect(
+        sourceAfterEdit.json<{ course: { units: Array<{ title: string }> } }>().course.units[0]!
+          .title
+      ).toBe('Introductions');
+
+      const reimported = await app.inject({
+        method: 'POST',
+        url: '/v1/schedule/import/apply',
+        headers: teacherHeaders,
+        payload: {
+          classes: [
+            {
+              name: 'Spanish 6',
+              period: 'Group A',
+              days: ['Monday', 'Thursday'],
+              time: '12:50',
+              endTime: '13:40',
+              room: '12',
+              subject: 'Spanish',
+              grade: '6'
+            }
+          ]
+        }
+      });
+      const reimportedSection = reimported
+        .json<{
+          sections: Array<{ courseId: string; sectionId: string }>;
+        }>()
+        .sections.find((section) => section.courseId === destinationCourseId)!;
+      expect(reimportedSection.sectionId).toBe(sectionIdBefore);
+      const destinationAfterReimport = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${destinationCourseId}`,
+        headers: teacherHeaders
+      });
+      expect(
+        destinationAfterReimport.json<{ course: { units: Array<{ title: string }> } }>().course
+          .units[0]!.title
+      ).toBe('Spanish 6 introductions');
+    });
+
     it('creates a confirmed Year Plan range transactionally at effective meeting indices', async () => {
       await app.inject({
         method: 'POST',

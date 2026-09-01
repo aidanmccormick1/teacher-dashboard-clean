@@ -643,6 +643,7 @@ export const CourseCreateRequestSchema = z.object({
 });
 
 export const CourseDuplicateRequestSchema = z.object({ name: z.string().min(1) });
+export const CourseCurriculumCopyRequestSchema = z.object({ sourceCourseId: UuidSchema });
 export const CourseShareUpdateRequestSchema = z.object({ enabled: z.boolean() });
 export const CourseShareResponseSchema = z.object({
   enabled: z.boolean(),
@@ -969,6 +970,7 @@ export type CourseListResponse = z.infer<typeof CourseListResponseSchema>;
 export type CourseDetailResponse = z.infer<typeof CourseDetailResponseSchema>;
 export type CourseCreateRequest = z.infer<typeof CourseCreateRequestSchema>;
 export type CourseDuplicateRequest = z.infer<typeof CourseDuplicateRequestSchema>;
+export type CourseCurriculumCopyRequest = z.infer<typeof CourseCurriculumCopyRequestSchema>;
 export type CourseShareResponse = z.infer<typeof CourseShareResponseSchema>;
 export type CourseUpdateRequest = z.infer<typeof CourseUpdateRequestSchema>;
 export type CourseOrderUpdateRequest = z.infer<typeof CourseOrderUpdateRequestSchema>;

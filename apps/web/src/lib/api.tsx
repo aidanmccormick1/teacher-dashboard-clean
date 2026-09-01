@@ -16,6 +16,7 @@ import type {
   ClassNotesUpsertResponse,
   ClassroomResumeResponse,
   CourseCreateRequest,
+  CourseCurriculumCopyRequest,
   CourseDetailResponse,
   CourseListResponse,
   CourseShareResponse,
@@ -340,6 +341,12 @@ export function useApiClient() {
         request<CourseDetailResponse>(
           `/v1/courses/${courseId}/duplicate`,
           { method: 'POST', body: JSON.stringify({ name }) },
+          auth
+        ),
+      copyCurriculumIntoCourse: (courseId: string, body: CourseCurriculumCopyRequest) =>
+        request<CourseDetailResponse>(
+          `/v1/courses/${courseId}/curriculum/copy`,
+          { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
       archiveCourse: (courseId: string) =>

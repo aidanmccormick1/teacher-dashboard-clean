@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type {
   CourseDetailResponse,
   GetScheduleResponse,
@@ -111,8 +111,8 @@ function ScheduleImportPanel({
         <p className="eyebrow">Import</p>
         <h2>Import course and class schedule</h2>
         <p className="muted">
-          Read the schedule, review the result, then apply it. Existing class groups are updated in
-          place so their progress and history stay intact.
+          Import creates courses and class groups, not curriculum. Existing groups are updated in
+          place so their curriculum, progress, and history stay intact.
         </p>
       </div>
       <textarea
@@ -161,7 +161,9 @@ function ScheduleImportPanel({
                     {item.endTime ? `–${item.endTime}` : ''}
                   </small>
                   <em className={updatesExisting ? 'schedule-import-match' : 'schedule-import-new'}>
-                    {updatesExisting ? 'Updates existing class group' : 'New class group'}
+                    {updatesExisting
+                      ? 'Updates class group · curriculum preserved'
+                      : 'New class group · curriculum stays separate'}
                   </em>
                 </article>
               );
@@ -204,14 +206,18 @@ function ScheduleImportPanel({
 
 export function CoursesPage() {
   const api = useApiClient();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [courses, setCourses] = useState<Course[]>([]);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [grade, setGrade] = useState('');
-  const [createMode, setCreateMode] = useState<'blank' | 'pull'>('blank');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createMode, setCreateMode] = useState<'blank' | 'copy'>('blank');
   const [sourceCourseId, setSourceCourseId] = useState('');
+  const [curriculumTargetId, setCurriculumTargetId] = useState<string | null>(null);
+  const [targetSourceCourseId, setTargetSourceCourseId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -250,13 +256,14 @@ export function CoursesPage() {
         name: name.trim(),
         subject: subject.trim() || null,
         gradeLevel: grade.trim() || null,
-        sourceCourseId: createMode === 'pull' && sourceCourseId ? sourceCourseId : undefined
+        sourceCourseId: createMode === 'copy' && sourceCourseId ? sourceCourseId : undefined
       });
       setName('');
       setSubject('');
       setGrade('');
       setSourceCourseId('');
       setCreateMode('blank');
+      setCreateOpen(false);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create course.');
@@ -294,6 +301,24 @@ export function CoursesPage() {
     }
   };
 
+  const copyIntoExistingCourse = async () => {
+    if (!curriculumTargetId || !targetSourceCourseId) return;
+    try {
+      setSaving(true);
+      setError(null);
+      await api.copyCurriculumIntoCourse(curriculumTargetId, {
+        sourceCourseId: targetSourceCourseId
+      });
+      setCurriculumTargetId(null);
+      setTargetSourceCourseId('');
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not copy this curriculum.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const renderCourse = (course: Course) => {
     const sections = schedule?.sections.filter((section) => section.courseId === course.id) ?? [];
     const lessonCount = course.units.reduce((count, unit) => count + unit.lessons.length, 0);
@@ -309,11 +334,19 @@ export function CoursesPage() {
             {course.archivedAt
               ? 'Archived'
               : sections.length
-                ? sections.map((section) => section.sectionName).join(' · ')
+                ? `${sections.length} ${sections.length === 1 ? 'class group' : 'class groups'} · ${sections
+                    .map((section) => section.sectionName)
+                    .join(' · ')}`
                 : 'No class groups yet'}
-            {' · '}
-            {course.units.length} {course.units.length === 1 ? 'unit' : 'units'} · {lessonCount}{' '}
-            {lessonCount === 1 ? 'lesson' : 'lessons'}
+          </span>
+          <span
+            className={
+              course.units.length ? 'course-curriculum-status' : 'course-curriculum-status is-empty'
+            }
+          >
+            {course.units.length
+              ? `Curriculum · ${course.units.length} ${course.units.length === 1 ? 'unit' : 'units'} · ${lessonCount} ${lessonCount === 1 ? 'lesson' : 'lessons'}`
+              : 'Curriculum not added'}
           </span>
         </div>
         <div className="course-row-actions">
@@ -322,9 +355,21 @@ export function CoursesPage() {
               <Link className="button-link secondary" to={`/courses/${course.id}`}>
                 Open course
               </Link>
-              <Link className="button-link" to={`/year-plan?course=${course.id}`}>
-                Year Plan
-              </Link>
+              {course.units.length ? (
+                <Link className="button-link" to={`/year-plan?course=${course.id}`}>
+                  Year Plan
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurriculumTargetId(course.id);
+                    setTargetSourceCourseId('');
+                  }}
+                >
+                  Add curriculum
+                </button>
+              )}
             </>
           ) : null}
           <details className="course-actions-menu">
@@ -354,6 +399,61 @@ export function CoursesPage() {
             </div>
           </details>
         </div>
+        {curriculumTargetId === course.id ? (
+          <section
+            className="course-add-curriculum"
+            aria-label={`Add curriculum to ${course.name}`}
+          >
+            <div>
+              <strong>Add curriculum</strong>
+              <span>Keep this course and all of its existing Class Groups and schedules.</span>
+            </div>
+            <div className="course-add-curriculum-options">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => navigate(`/year-plan?course=${course.id}`)}
+              >
+                Start blank
+              </button>
+              <select
+                className="input"
+                aria-label="Curriculum to copy"
+                value={targetSourceCourseId}
+                onChange={(event) => setTargetSourceCourseId(event.target.value)}
+              >
+                <option value="">Copy existing curriculum…</option>
+                {courses
+                  .filter((source) => source.id !== course.id && source.units.length)
+                  .map((source) => {
+                    const sourceLessonCount = source.units.reduce(
+                      (count, unit) => count + unit.lessons.length,
+                      0
+                    );
+                    return (
+                      <option key={source.id} value={source.id}>
+                        {source.name} · {source.units.length} units · {sourceLessonCount} lessons
+                      </option>
+                    );
+                  })}
+              </select>
+              <button
+                type="button"
+                disabled={saving || !targetSourceCourseId}
+                onClick={() => void copyIntoExistingCourse()}
+              >
+                {saving ? 'Copying…' : 'Copy curriculum'}
+              </button>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => setCurriculumTargetId(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </section>
+        ) : null}
       </article>
     );
   };
@@ -368,79 +468,133 @@ export function CoursesPage() {
             Courses hold shared curriculum. Class groups hold meetings and progress.
           </p>
         </div>
-        <button
-          className="secondary"
-          type="button"
-          onClick={() => setParams(importOpen ? {} : { import: 'schedule' })}
-        >
-          {importOpen ? 'Close import' : 'Import schedule'}
-        </button>
+        <div className="courses-header-actions">
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => setParams(importOpen ? {} : { import: 'schedule' })}
+          >
+            {importOpen ? 'Close import' : 'Import schedule'}
+          </button>
+          <button type="button" onClick={() => setCreateOpen((open) => !open)}>
+            {createOpen ? 'Close' : '+ New course'}
+          </button>
+        </div>
       </header>
       {error ? <p className="notice warning">{error}</p> : null}
       {importOpen ? (
         <ScheduleImportPanel existingSections={schedule?.sections ?? []} onApplied={load} />
       ) : null}
-      <section className="courses-create-row">
-        <div className="course-create-mode" role="group" aria-label="Curriculum source">
-          <button
-            className={createMode === 'blank' ? '' : 'secondary'}
-            type="button"
-            onClick={() => setCreateMode('blank')}
-          >
-            Start blank
-          </button>
-          <button
-            className={createMode === 'pull' ? '' : 'secondary'}
-            type="button"
-            onClick={() => setCreateMode('pull')}
-          >
-            Pull curriculum
-          </button>
-        </div>
-        <input
-          className="input"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="New course name"
-        />
-        <input
-          className="input"
-          value={subject}
-          onChange={(event) => setSubject(event.target.value)}
-          placeholder="Subject"
-        />
-        <input
-          className="input"
-          value={grade}
-          onChange={(event) => setGrade(event.target.value)}
-          placeholder="Grade"
-        />
-        {createMode === 'pull' ? (
-          <select
-            className="input"
-            aria-label="Curriculum to pull"
-            value={sourceCourseId}
-            onChange={(event) => setSourceCourseId(event.target.value)}
-          >
-            <option value="">Choose My Curriculum…</option>
-            {courses.map((course) => {
-              const lessons = course.units.reduce((sum, unit) => sum + unit.lessons.length, 0);
-              return (
-                <option key={course.id} value={course.id}>
-                  {course.name} · {course.units.length} units · {lessons} lessons
-                </option>
-              );
-            })}
-          </select>
-        ) : null}
-        <button
-          type="button"
-          disabled={saving || !name.trim() || (createMode === 'pull' && !sourceCourseId)}
-          onClick={() => void createCourse()}
-        >
-          Create course
-        </button>
-      </section>
+      {createOpen ? (
+        <section className="courses-create-panel" aria-labelledby="create-course-heading">
+          <div className="courses-create-heading">
+            <div>
+              <p className="eyebrow">New course</p>
+              <h2 id="create-course-heading">Create course</h2>
+            </div>
+            <p className="muted">Class groups and schedules can be added separately.</p>
+          </div>
+          <div className="courses-create-fields">
+            <label>
+              <span>Course name</span>
+              <input
+                className="input"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Spanish 5"
+                autoFocus
+              />
+            </label>
+            <label>
+              <span>Subject</span>
+              <input
+                className="input"
+                value={subject}
+                onChange={(event) => setSubject(event.target.value)}
+                placeholder="Spanish"
+              />
+            </label>
+            <label>
+              <span>Grade</span>
+              <input
+                className="input"
+                value={grade}
+                onChange={(event) => setGrade(event.target.value)}
+                placeholder="5"
+              />
+            </label>
+          </div>
+          <fieldset className="course-curriculum-choice">
+            <legend>Curriculum</legend>
+            <label className={createMode === 'blank' ? 'selected' : ''}>
+              <input
+                type="radio"
+                name="curriculum-source"
+                checked={createMode === 'blank'}
+                onChange={() => setCreateMode('blank')}
+              />
+              <span>
+                <strong>Start blank</strong>
+                <small>Build a new curriculum for this course.</small>
+              </span>
+            </label>
+            <label className={createMode === 'copy' ? 'selected' : ''}>
+              <input
+                type="radio"
+                name="curriculum-source"
+                checked={createMode === 'copy'}
+                onChange={() => setCreateMode('copy')}
+              />
+              <span>
+                <strong>Copy existing curriculum</strong>
+                <small>Make an independent editable copy from My Curriculum.</small>
+              </span>
+            </label>
+          </fieldset>
+          {createMode === 'copy' ? (
+            <label className="course-curriculum-source">
+              <span>My Curriculum</span>
+              <select
+                className="input"
+                value={sourceCourseId}
+                onChange={(event) => setSourceCourseId(event.target.value)}
+              >
+                <option value="">Choose curriculum…</option>
+                {!courses.some((course) => course.units.length) ? (
+                  <option value="" disabled>
+                    No existing curriculum yet
+                  </option>
+                ) : null}
+                {courses
+                  .filter((course) => course.units.length)
+                  .map((course) => {
+                    const lessons = course.units.reduce(
+                      (sum, unit) => sum + unit.lessons.length,
+                      0
+                    );
+                    return (
+                      <option key={course.id} value={course.id}>
+                        {course.name} · {course.units.length} units · {lessons} lessons
+                      </option>
+                    );
+                  })}
+              </select>
+            </label>
+          ) : null}
+          <div className="courses-create-actions">
+            <button className="secondary" type="button" onClick={() => setCreateOpen(false)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={saving || !name.trim() || (createMode === 'copy' && !sourceCourseId)}
+              onClick={() => void createCourse()}
+            >
+              {saving ? 'Creating…' : 'Create course'}
+            </button>
+          </div>
+        </section>
+      ) : null}
       {loading ? (
         <section className="courses-loading" aria-busy="true" aria-label="Loading courses">
           <div className="workspace-skeleton workspace-skeleton-row" />

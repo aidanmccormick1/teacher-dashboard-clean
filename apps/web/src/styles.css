@@ -5587,6 +5587,21 @@ button,
   min-width: min(210px, 29vw);
 }
 
+.year-plan-section-context {
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.year-plan-schedule-status {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid rgba(57, 104, 140, 0.42);
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .year-plan-canvas-page .curriculum-workspace {
   min-width: 0;
   padding: 12px 0 0;
@@ -5626,7 +5641,6 @@ button,
 
 .courses-page-header,
 .course-hub-row,
-.courses-create-row,
 .courses-import-panel,
 .section-meeting-editor {
   display: flex;
@@ -5652,6 +5666,7 @@ button,
 }
 
 .course-hub-row {
+  flex-wrap: wrap;
   padding: 18px 0;
   border-bottom: 1px solid var(--line);
 }
@@ -5665,23 +5680,133 @@ button,
   display: grid;
 }
 
-.courses-create-row {
+.courses-header-actions,
+.courses-create-heading,
+.courses-create-actions {
+  display: flex;
   align-items: center;
-  padding: 12px 0;
-  border-top: 1px solid var(--line);
+  gap: 10px;
+}
+
+.courses-create-panel {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface, #fff);
+}
+
+.courses-create-heading {
+  justify-content: space-between;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
 
-.courses-create-row .input {
-  min-width: 0;
+.courses-create-heading h2,
+.courses-create-heading p {
+  margin: 0;
 }
 
-.courses-create-row .input:first-child {
-  flex: 1.6;
+.courses-create-fields {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(150px, 1fr) minmax(100px, 0.55fr);
+  gap: 12px;
 }
 
-.courses-create-row .input:not(:first-child) {
-  flex: 0.8;
+.courses-create-fields label,
+.course-curriculum-source {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.course-curriculum-choice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.course-curriculum-choice legend {
+  grid-column: 1 / -1;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.course-curriculum-choice > label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 8px);
+  cursor: pointer;
+}
+
+.course-curriculum-choice > label:hover,
+.course-curriculum-choice > label.selected {
+  border-color: rgba(57, 104, 140, 0.5);
+  background: #f7faf9;
+}
+
+.course-curriculum-choice input {
+  margin-top: 3px;
+}
+
+.course-curriculum-choice span {
+  display: grid;
+  gap: 3px;
+}
+
+.course-curriculum-choice small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.course-curriculum-source {
+  max-width: 540px;
+}
+
+.courses-create-actions {
+  justify-content: flex-end;
+}
+
+.course-curriculum-status {
+  color: var(--accent-dark, #355f4c) !important;
+}
+
+.course-curriculum-status.is-empty {
+  color: #986b28 !important;
+}
+
+.course-add-curriculum {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.75fr) minmax(0, 1.5fr);
+  gap: 16px;
+  width: 100%;
+  padding: 14px 0 2px;
+  border-top: 1px solid var(--line);
+}
+
+.course-add-curriculum > div:first-child {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.course-add-curriculum span {
+  font-weight: 400;
+}
+
+.course-add-curriculum-options {
+  display: grid;
+  grid-template-columns: auto minmax(210px, 1fr) auto auto;
+  gap: 8px;
 }
 
 .courses-import-panel,
@@ -5767,14 +5892,22 @@ button,
 
 @media (max-width: 760px) {
   .courses-page-header,
-  .course-hub-row,
-  .courses-create-row {
+  .course-hub-row {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .courses-create-row .input {
-    flex: auto !important;
+  .courses-create-heading,
+  .courses-create-fields,
+  .course-curriculum-choice,
+  .course-add-curriculum,
+  .course-add-curriculum-options {
+    grid-template-columns: 1fr;
+  }
+
+  .courses-create-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .schedule-import-review-list article,

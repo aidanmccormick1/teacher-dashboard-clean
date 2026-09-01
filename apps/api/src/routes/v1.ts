@@ -24,6 +24,7 @@ import {
   CreateUploadUrlRequestSchema,
   CreateUploadUrlResponseSchema,
   CourseCreateRequestSchema,
+  CourseCurriculumCopyRequestSchema,
   CourseDuplicateRequestSchema,
   CourseDetailResponseSchema,
   CourseListResponseSchema,
@@ -2608,6 +2609,52 @@ export async function v1Routes(app: FastifyInstance) {
 
       const detail = await buildCourseDetail(user.id, course.id);
       if (!detail) throw new Error('Failed to load course detail');
+      return detail;
+    }
+  );
+
+  app.post(
+    '/v1/courses/:courseId/curriculum/copy',
+    {
+      schema: {
+        params: CourseParamsSchema,
+        body: CourseCurriculumCopyRequestSchema,
+        response: { 200: CourseDetailResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { courseId } = CourseParamsSchema.parse(request.params);
+      const body = CourseCurriculumCopyRequestSchema.parse(request.body);
+      const [target, source] = await Promise.all([
+        findOwnedCourse(user.id, courseId),
+        findOwnedCourse(user.id, body.sourceCourseId)
+      ]);
+      if (!target || !source) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+      if (courseId === body.sourceCourseId) {
+        (reply as any).code(400);
+        return { error: 'Choose a different source course', requestId: request.id };
+      }
+      const [existingUnit] = await db
+        .select({ id: units.id })
+        .from(units)
+        .where(eq(units.courseId, courseId))
+        .limit(1);
+      if (existingUnit) {
+        (reply as any).code(409);
+        return {
+          error: 'Curriculum can only be copied into an empty course',
+          requestId: request.id
+        };
+      }
+      await copyCourseCurriculum(user.id, body.sourceCourseId, courseId);
+      const detail = await buildCourseDetail(user.id, courseId);
+      if (!detail) throw new Error('Failed to load copied curriculum');
       return detail;
     }
   );

@@ -24,6 +24,7 @@ import {
   planningRangeLabel,
   type PlanningRange
 } from '../lib/year-plan-range.js';
+import { projectMeetingsForSection } from '../lib/year-plan-projection.js';
 import './CurriculumTimeline.css';
 
 type Course = CourseDetailResponse['course'];
@@ -131,6 +132,7 @@ function nextOrder(items: Array<{ orderIndex: number }>) {
 export function CurriculumTimeline({
   course,
   selectedSection,
+  dateProjectionOnly = false,
   schoolYearSettings,
   currentLessonId,
   onCourseChange,
@@ -143,6 +145,7 @@ export function CurriculumTimeline({
 }: {
   course: Course;
   selectedSection: Section | null;
+  dateProjectionOnly?: boolean;
   holidays: string[];
   schoolYearSettings: SchoolYearSettings | null;
   currentLessonId: string | null;
@@ -255,7 +258,7 @@ export function CurriculumTimeline({
   }, [api]);
 
   useEffect(() => {
-    if (!selectedSection) {
+    if (!selectedSection || dateProjectionOnly) {
       setSectionPlans([]);
       setLastSectionPlanOperation(null);
       setEditingSharedPlan(false);
@@ -277,7 +280,7 @@ export function CurriculumTimeline({
     return () => {
       active = false;
     };
-  }, [api, selectedSection?.sectionId]);
+  }, [api, dateProjectionOnly, selectedSection?.sectionId]);
 
   useEffect(() => {
     if (!initialLessonId) return;
@@ -311,10 +314,7 @@ export function CurriculumTimeline({
     [course.units, selection]
   );
   const sectionMeetings = useMemo(
-    () =>
-      meetingData && selectedSection
-        ? meetingData.meetings.filter((meeting) => meeting.sectionId === selectedSection.sectionId)
-        : [],
+    () => projectMeetingsForSection(meetingData, selectedSection?.sectionId ?? null),
     [meetingData, selectedSection]
   );
   const meetings = useMemo(
@@ -368,7 +368,7 @@ export function CurriculumTimeline({
     ? Math.min(100, Math.round((plannedMeetings / planningBase) * 100))
     : 0;
   const unplannedMeetings = Math.max(0, planningBase - plannedMeetings);
-  const canEditSharedPlan = !selectedSection || editingSharedPlan;
+  const canEditSharedPlan = dateProjectionOnly || !selectedSection || editingSharedPlan;
   const rangeOverlapsExistingPlan = (range: RangeDraft) =>
     !range.unitId &&
     planningRangeIntersects(
@@ -1383,17 +1383,21 @@ export function CurriculumTimeline({
         {selectedSection ? (
           <div className="curriculum-scope-control">
             <span>
-              {editingSharedPlan
-                ? 'Editing shared course timing'
-                : `Planning ${selectedSection.sectionName}`}
+              {dateProjectionOnly
+                ? `Showing ${selectedSection.sectionName} meeting dates`
+                : editingSharedPlan
+                  ? 'Editing shared course timing'
+                  : `Planning ${selectedSection.sectionName}`}
             </span>
-            <button
-              className="secondary"
-              type="button"
-              onClick={() => setEditingSharedPlan((value) => !value)}
-            >
-              {editingSharedPlan ? 'Return to section planning' : 'Edit shared course plan'}
-            </button>
+            {!dateProjectionOnly ? (
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => setEditingSharedPlan((value) => !value)}
+              >
+                {editingSharedPlan ? 'Return to section planning' : 'Edit shared course plan'}
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1580,7 +1584,7 @@ export function CurriculumTimeline({
                     })()
                   : 'Shared lesson content'}
               </span>
-              {selectedSection ? (
+              {selectedSection && !dateProjectionOnly ? (
                 <div className="lesson-plan-context-actions">
                   <button
                     className="secondary"

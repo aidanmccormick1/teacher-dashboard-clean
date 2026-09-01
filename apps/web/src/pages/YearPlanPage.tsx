@@ -67,10 +67,23 @@ export function YearPlanPage() {
   }, [api]);
 
   const context = useMemo(
-    () => resolveYearPlanContext(params, courses, [], remembered),
-    [courses, params, remembered]
+    () =>
+      resolveYearPlanContext(
+        params,
+        courses,
+        (schedule?.sections ?? []).map((section) => ({
+          id: section.sectionId,
+          courseId: section.courseId
+        })),
+        remembered
+      ),
+    [courses, params, remembered, schedule?.sections]
   );
   const selectedCourse = courses.find((course) => course.id === context.courseId) ?? null;
+  const courseSections =
+    schedule?.sections.filter((section) => section.courseId === selectedCourse?.id) ?? [];
+  const selectedSection =
+    courseSections.find((section) => section.sectionId === context.sectionId) ?? null;
 
   useEffect(() => {
     if (loading) return;
@@ -85,7 +98,7 @@ export function YearPlanPage() {
 
   const updateContext = (patch: Partial<YearPlanContext>) => {
     const next = { ...context, ...patch };
-    next.sectionId = null;
+    if (patch.courseId && patch.courseId !== context.courseId) next.sectionId = null;
     setParams(yearPlanSearch(next));
   };
   const updateCourse = (detail: CourseDetailResponse) => {
@@ -148,6 +161,25 @@ export function YearPlanPage() {
               ))}
             </select>
           </label>
+          {courseSections.length > 1 ? (
+            <label>
+              <span className="visually-hidden">Class Group date projection</span>
+              <select
+                className="input"
+                value={selectedSection?.sectionId ?? ''}
+                onChange={(event) => updateContext({ sectionId: event.target.value || null })}
+              >
+                <option value="">Choose Class Group…</option>
+                {courseSections.map((section) => (
+                  <option key={section.sectionId} value={section.sectionId}>
+                    {section.sectionName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : courseSections.length === 1 && selectedSection ? (
+            <span className="year-plan-section-context">{selectedSection.sectionName}</span>
+          ) : null}
           <div className="year-plan-view-toggle small-tabs" aria-label="Year plan view">
             <button
               className={context.view === 'outline' ? 'active' : ''}
@@ -166,9 +198,20 @@ export function YearPlanPage() {
           </div>
         </div>
       </header>
+      {!courseSections.length ? (
+        <p className="year-plan-schedule-status">
+          No Class Group schedule is attached. You can plan the shared curriculum by meeting
+          sequence until a schedule is added.
+        </p>
+      ) : courseSections.length > 1 && !selectedSection ? (
+        <p className="year-plan-schedule-status">
+          Choose a Class Group to project this curriculum onto its actual meeting dates.
+        </p>
+      ) : null}
       <CurriculumTimeline
         course={selectedCourse}
-        selectedSection={null}
+        selectedSection={selectedSection}
+        dateProjectionOnly
         holidays={(schedule?.holidays ?? []).map((holiday) => holiday.date)}
         schoolYearSettings={
           calendar?.schoolYear

@@ -13,7 +13,7 @@ export const yearPlanContextStorageKey = 'teacheros_year_plan_context_v1';
 export function resolveYearPlanContext(
   search: URLSearchParams,
   courses: YearPlanOption[],
-  _sections: YearPlanOption[],
+  sections: YearPlanOption[],
   remembered: YearPlanContext | null
 ): YearPlanContext {
   const requestedCourse = search.get('course');
@@ -25,13 +25,24 @@ export function resolveYearPlanContext(
       : courses.length === 1
         ? courses[0]!.id
         : null;
-  // Year Plan owns one shared curriculum per course. Section schedules and
-  // actual pacing remain execution data and never enter the planning URL.
-  return { courseId, sectionId: null, view: requestedView === 'outline' ? 'outline' : 'timeline' };
+  const courseSections = courseId
+    ? sections.filter((section) => section.courseId === courseId)
+    : [];
+  const requestedSection = search.get('section');
+  const sectionId = courseSections.some((section) => section.id === requestedSection)
+    ? requestedSection
+    : remembered?.courseId === courseId &&
+        courseSections.some((section) => section.id === remembered.sectionId)
+      ? remembered.sectionId
+      : courseSections.length === 1
+        ? courseSections[0]!.id
+        : null;
+  return { courseId, sectionId, view: requestedView === 'outline' ? 'outline' : 'timeline' };
 }
 
 export function yearPlanSearch(context: YearPlanContext): string {
   const params = new URLSearchParams({ view: context.view });
   if (context.courseId) params.set('course', context.courseId);
+  if (context.sectionId) params.set('section', context.sectionId);
   return params.toString();
 }

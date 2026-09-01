@@ -8,7 +8,7 @@ const sections = [
 ];
 
 describe('Year Plan URL context', () => {
-  it('keeps valid course context while dropping section planning context', () => {
+  it('keeps a valid Class Group as durable date-projection context', () => {
     expect(
       resolveYearPlanContext(
         new URLSearchParams('course=spanish&section=5c&view=outline'),
@@ -16,7 +16,7 @@ describe('Year Plan URL context', () => {
         sections,
         null
       )
-    ).toEqual({ courseId: 'spanish', sectionId: null, view: 'outline' });
+    ).toEqual({ courseId: 'spanish', sectionId: '5c', view: 'outline' });
   });
   it('does not arbitrarily choose among multiple valid courses or sections', () => {
     expect(resolveYearPlanContext(new URLSearchParams(), courses, sections, null)).toEqual({
@@ -25,13 +25,28 @@ describe('Year Plan URL context', () => {
       view: 'timeline'
     });
   });
-  it('restores a remembered course but defaults to shared course planning', () => {
+  it('restores the remembered Class Group for the same course', () => {
     const context = resolveYearPlanContext(new URLSearchParams(), courses, sections, {
       courseId: 'spanish',
       sectionId: '5b',
       view: 'timeline'
     });
-    expect(context).toEqual({ courseId: 'spanish', sectionId: null, view: 'timeline' });
-    expect(yearPlanSearch(context)).toBe('view=timeline&course=spanish');
+    expect(context).toEqual({ courseId: 'spanish', sectionId: '5b', view: 'timeline' });
+    expect(yearPlanSearch(context)).toBe('view=timeline&course=spanish&section=5b');
+  });
+  it('automatically selects the only Class Group', () => {
+    expect(
+      resolveYearPlanContext(
+        new URLSearchParams('course=history'),
+        courses,
+        [{ id: 'history-a', courseId: 'history' }],
+        null
+      )
+    ).toEqual({ courseId: 'history', sectionId: 'history-a', view: 'timeline' });
+  });
+  it('keeps curriculum-only planning valid when a course has no Class Groups', () => {
+    expect(
+      resolveYearPlanContext(new URLSearchParams('course=history'), courses, sections, null)
+    ).toEqual({ courseId: 'history', sectionId: null, view: 'timeline' });
   });
 });
