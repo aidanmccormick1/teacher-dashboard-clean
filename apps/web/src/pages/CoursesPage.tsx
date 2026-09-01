@@ -15,7 +15,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Could not read that file.'));
-    reader.onload = () => resolve(String(reader.result));
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
     reader.readAsDataURL(file);
   });
 }
@@ -210,6 +210,8 @@ export function CoursesPage() {
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [grade, setGrade] = useState('');
+  const [createMode, setCreateMode] = useState<'blank' | 'pull'>('blank');
+  const [sourceCourseId, setSourceCourseId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -219,7 +221,7 @@ export function CoursesPage() {
     try {
       setLoading(true);
       const [courseResult, scheduleResult] = await Promise.all([
-        api.listCourses(),
+        api.listCourses('all'),
         api.getSchedule()
       ]);
       setCourses(
@@ -247,17 +249,113 @@ export function CoursesPage() {
       await api.createCourse({
         name: name.trim(),
         subject: subject.trim() || null,
-        gradeLevel: grade.trim() || null
+        gradeLevel: grade.trim() || null,
+        sourceCourseId: createMode === 'pull' && sourceCourseId ? sourceCourseId : undefined
       });
       setName('');
       setSubject('');
       setGrade('');
+      setSourceCourseId('');
+      setCreateMode('blank');
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create course.');
     } finally {
       setSaving(false);
     }
+  };
+
+  const runCourseAction = async (
+    course: Course,
+    action: 'share' | 'duplicate' | 'archive' | 'restore'
+  ) => {
+    try {
+      setSaving(true);
+      if (action === 'share') {
+        const share = await api.updateCourseShare(course.id, true);
+        if (share.token)
+          await navigator.clipboard?.writeText(
+            `${location.origin}/shared/curriculum/${share.token}`
+          );
+      } else if (action === 'duplicate') {
+        const nextName = window.prompt('New course name', `${course.name} copy`)?.trim();
+        if (!nextName) return;
+        await api.duplicateCourse(course.id, nextName);
+      } else if (action === 'archive') {
+        await api.archiveCourse(course.id);
+      } else {
+        await api.restoreCourse(course.id);
+      }
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not update this course.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const renderCourse = (course: Course) => {
+    const sections = schedule?.sections.filter((section) => section.courseId === course.id) ?? [];
+    const lessonCount = course.units.reduce((count, unit) => count + unit.lessons.length, 0);
+    return (
+      <article
+        key={course.id}
+        className={`course-hub-row ${course.archivedAt ? 'is-archived' : ''}`}
+      >
+        <div>
+          <h2>{course.name}</h2>
+          <p>{[course.subject, course.gradeLevel].filter(Boolean).join(' · ') || 'Course'}</p>
+          <span>
+            {course.archivedAt
+              ? 'Archived'
+              : sections.length
+                ? sections.map((section) => section.sectionName).join(' · ')
+                : 'No class groups yet'}
+            {' · '}
+            {course.units.length} {course.units.length === 1 ? 'unit' : 'units'} · {lessonCount}{' '}
+            {lessonCount === 1 ? 'lesson' : 'lessons'}
+          </span>
+        </div>
+        <div className="course-row-actions">
+          {!course.archivedAt ? (
+            <>
+              <Link className="button-link secondary" to={`/courses/${course.id}`}>
+                Open course
+              </Link>
+              <Link className="button-link" to={`/year-plan?course=${course.id}`}>
+                Year Plan
+              </Link>
+            </>
+          ) : null}
+          <details className="course-actions-menu">
+            <summary aria-label={`Actions for ${course.name}`}>•••</summary>
+            <div>
+              {course.archivedAt ? (
+                <button type="button" onClick={() => void runCourseAction(course, 'restore')}>
+                  Restore course
+                </button>
+              ) : (
+                <>
+                  <button type="button" onClick={() => void runCourseAction(course, 'share')}>
+                    Share curriculum
+                  </button>
+                  <button type="button" onClick={() => void runCourseAction(course, 'duplicate')}>
+                    Duplicate curriculum
+                  </button>
+                  <button
+                    className="danger"
+                    type="button"
+                    onClick={() => void runCourseAction(course, 'archive')}
+                  >
+                    Archive course
+                  </button>
+                </>
+              )}
+            </div>
+          </details>
+        </div>
+      </article>
+    );
   };
 
   return (
@@ -283,6 +381,22 @@ export function CoursesPage() {
         <ScheduleImportPanel existingSections={schedule?.sections ?? []} onApplied={load} />
       ) : null}
       <section className="courses-create-row">
+        <div className="course-create-mode" role="group" aria-label="Curriculum source">
+          <button
+            className={createMode === 'blank' ? '' : 'secondary'}
+            type="button"
+            onClick={() => setCreateMode('blank')}
+          >
+            Start blank
+          </button>
+          <button
+            className={createMode === 'pull' ? '' : 'secondary'}
+            type="button"
+            onClick={() => setCreateMode('pull')}
+          >
+            Pull curriculum
+          </button>
+        </div>
         <input
           className="input"
           value={name}
@@ -301,7 +415,29 @@ export function CoursesPage() {
           onChange={(event) => setGrade(event.target.value)}
           placeholder="Grade"
         />
-        <button type="button" disabled={saving || !name.trim()} onClick={() => void createCourse()}>
+        {createMode === 'pull' ? (
+          <select
+            className="input"
+            aria-label="Curriculum to pull"
+            value={sourceCourseId}
+            onChange={(event) => setSourceCourseId(event.target.value)}
+          >
+            <option value="">Choose My Curriculum…</option>
+            {courses.map((course) => {
+              const lessons = course.units.reduce((sum, unit) => sum + unit.lessons.length, 0);
+              return (
+                <option key={course.id} value={course.id}>
+                  {course.name} · {course.units.length} units · {lessons} lessons
+                </option>
+              );
+            })}
+          </select>
+        ) : null}
+        <button
+          type="button"
+          disabled={saving || !name.trim() || (createMode === 'pull' && !sourceCourseId)}
+          onClick={() => void createCourse()}
+        >
           Create course
         </button>
       </section>
@@ -319,36 +455,16 @@ export function CoursesPage() {
         </section>
       ) : null}
       <section className="course-hub-list">
-        {courses.map((course) => {
-          const sections =
-            schedule?.sections.filter((section) => section.courseId === course.id) ?? [];
-          const lessonCount = course.units.reduce((count, unit) => count + unit.lessons.length, 0);
-          return (
-            <article key={course.id} className="course-hub-row">
-              <div>
-                <h2>{course.name}</h2>
-                <p>{[course.subject, course.gradeLevel].filter(Boolean).join(' · ') || 'Course'}</p>
-                <span>
-                  {sections.length
-                    ? sections.map((section) => section.sectionName).join(' · ')
-                    : 'No class groups yet'}
-                  {' · '}
-                  {course.units.length} {course.units.length === 1 ? 'unit' : 'units'} ·{' '}
-                  {lessonCount} {lessonCount === 1 ? 'lesson' : 'lessons'}
-                </span>
-              </div>
-              <div className="profile-actions">
-                <Link className="button-link secondary" to={`/courses/${course.id}`}>
-                  Open course
-                </Link>
-                <Link className="button-link" to={`/year-plan?course=${course.id}`}>
-                  Year Plan
-                </Link>
-              </div>
-            </article>
-          );
-        })}
+        {courses.filter((course) => !course.archivedAt).map(renderCourse)}
       </section>
+      {courses.some((course) => course.archivedAt) ? (
+        <section className="courses-archived">
+          <h2>Archived courses</h2>
+          <div className="course-hub-list">
+            {courses.filter((course) => course.archivedAt).map(renderCourse)}
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }

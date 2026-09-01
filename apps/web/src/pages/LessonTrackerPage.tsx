@@ -217,6 +217,7 @@ export function LessonTrackerPage() {
         meetingDate,
         scheduledStartTime,
         scheduledEndTime,
+        origin: 'scheduled',
         completedStepIds: nextCompletedSegmentIds,
         rawNote: nextNote,
         endClass: allDone,

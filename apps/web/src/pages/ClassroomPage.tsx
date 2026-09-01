@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type {
   ClassroomResumeResponse,
+  CourseDetailResponse,
   DashboardTodayResponse,
   GetScheduleResponse
 } from '@teacheros/contracts';
@@ -16,6 +17,7 @@ export function ClassroomPage() {
   const [dashboard, setDashboard] = useState<DashboardTodayResponse | null>(null);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
   const [resume, setResume] = useState<ClassroomResumeResponse | null>(null);
+  const [course, setCourse] = useState<CourseDetailResponse['course'] | null>(null);
   const [checks, setChecks] = useState<string[]>([]);
   const [historicalChecks, setHistoricalChecks] = useState<string[]>([]);
   const [ending, setEnding] = useState(false);
@@ -31,6 +33,8 @@ export function ClassroomPage() {
   const chain = useRef<Promise<void>>(Promise.resolve());
   const requested = params.get('section');
   const requestedMeetingTime = params.get('meetingTime');
+  const requestedLessonId = params.get('lesson');
+  const manual = params.get('manual') === '1';
   const detected = dashboard?.currentClass ?? dashboard?.nextClass ?? null;
   const sectionId = requested ?? detected?.sectionId ?? '';
   const selected = schedule?.sections.find((item) => item.sectionId === sectionId);
@@ -45,7 +49,7 @@ export function ClassroomPage() {
     (sectionTodayMeetings.length === 1 ? sectionTodayMeetings[0] : null) ??
     null;
   const requiresMeetingChoice = Boolean(
-    selected && sectionTodayMeetings.length > 1 && !selectedTodayMeeting
+    !manual && selected && sectionTodayMeetings.length > 1 && !selectedTodayMeeting
   );
   const context =
     selected && !requiresMeetingChoice
@@ -56,11 +60,17 @@ export function ClassroomPage() {
           // Dashboard's schedule projection is authoritative. A manually
           // selected class gets its actual scheduled occurrence too, rather
           // than falling back to a date-only meeting identity.
-          meetingTime: selectedTodayMeeting?.meetingTime ?? null,
-          endTime: selectedTodayMeeting?.endTime ?? null
+          meetingTime: manual ? null : (selectedTodayMeeting?.meetingTime ?? null),
+          endTime: manual ? null : (selectedTodayMeeting?.endTime ?? null)
         }
       : detected;
-  const lesson = resume?.lesson;
+  const requestedLesson = course?.units
+    .flatMap((unit) => unit.lessons)
+    .find((item) => item.id === requestedLessonId);
+  const lesson = requestedLesson ?? resume?.lesson;
+  const selectedUnit = course?.units.find((unit) =>
+    unit.lessons.some((item) => item.id === lesson?.id)
+  );
   // Current occurrence edits must remain reversible. Only earlier meeting
   // history is locked; checks saved for this live occurrence can be unchecked.
   const prior = historicalChecks;
@@ -99,13 +109,26 @@ export function ClassroomPage() {
       );
   }, [api, sectionId]);
   useEffect(() => {
+    if (!selected?.courseId) {
+      setCourse(null);
+      return;
+    }
+    void api
+      .getCourseDetail(selected.courseId)
+      .then((detail) => setCourse(detail.course))
+      .catch((err) =>
+        setError(err instanceof ApiError ? err.message : 'Could not load curriculum.')
+      );
+  }, [api, selected?.courseId]);
+  useEffect(() => {
     if (!lesson || !context || !dashboard) return;
     let cancelled = false;
     void api
       .getClassMeeting(context.sectionId, {
         lessonId: lesson.id,
         meetingDate: dashboard.date,
-        scheduledStartTime: context.meetingTime
+        scheduledStartTime: context.meetingTime,
+        origin: manual ? 'manual' : 'scheduled'
       })
       .then((value) => {
         if (cancelled) return;
@@ -143,6 +166,7 @@ export function ClassroomPage() {
     context?.sectionId,
     dashboard?.date,
     lesson?.id,
+    manual,
     resume?.lastNote?.content,
     resume?.state?.carryOverNote,
     draftStorageKey
@@ -159,6 +183,7 @@ export function ClassroomPage() {
           meetingDate: dashboard.date,
           scheduledStartTime: context.meetingTime,
           scheduledEndTime: context.endTime,
+          origin: manual ? 'manual' : 'scheduled',
           completedStepIds: current.checks,
           // Preserve exact teacher text, including intentional whitespace and
           // an empty string. Null is the only explicit clear operation.
@@ -212,7 +237,8 @@ export function ClassroomPage() {
             const remote = await api.getClassMeeting(context.sectionId, {
               lessonId: lesson.id,
               meetingDate: dashboard.date,
-              scheduledStartTime: context.meetingTime
+              scheduledStartTime: context.meetingTime,
+              origin: manual ? 'manual' : 'scheduled'
             });
             const remoteChecks = remote.meeting?.completedStepIds ?? [];
             const remoteNote = remote.meeting?.rawNote ?? '';
@@ -265,14 +291,34 @@ export function ClassroomPage() {
   );
   const changeSection = (id: string) => {
     const next = new URLSearchParams(params);
-    id ? next.set('section', id) : next.delete('section');
+    if (id) next.set('section', id);
+    else next.delete('section');
     next.delete('meetingTime');
+    next.delete('lesson');
+    next.delete('manual');
     setParams(next);
   };
   const changeMeetingTime = (meetingTime: string) => {
     const next = new URLSearchParams(params);
-    meetingTime ? next.set('meetingTime', meetingTime) : next.delete('meetingTime');
+    if (meetingTime) next.set('meetingTime', meetingTime);
+    else next.delete('meetingTime');
     setParams(next);
+  };
+  const changeLesson = (lessonId: string) => {
+    const next = new URLSearchParams(params);
+    if (lessonId) next.set('lesson', lessonId);
+    else next.delete('lesson');
+    setParams(next);
+  };
+  const changeUnit = (unitId: string) => {
+    const unit = course?.units.find((item) => item.id === unitId);
+    if (!unit) return;
+    const progress = new Map(resume?.progress.map((item) => [item.lessonId, item.status]));
+    const nextLesson =
+      unit.lessons.find(
+        (item) => !['completed', 'skipped'].includes(progress.get(item.id) ?? 'not_started')
+      ) ?? unit.lessons[0];
+    if (nextLesson) changeLesson(nextLesson.id);
   };
   const nextClass =
     dashboard?.nextClass && dashboard.nextClass.sectionId !== sectionId
@@ -305,7 +351,7 @@ export function ClassroomPage() {
             </option>
           ))}
         </select>
-        {selected && sectionTodayMeetings.length > 1 ? (
+        {!manual && selected && sectionTodayMeetings.length > 1 ? (
           <select
             aria-label="Choose meeting time"
             className="input classroom-switcher"
@@ -325,6 +371,48 @@ export function ClassroomPage() {
         ) : null}
       </header>
       {error ? <p className="notice warning">{error}</p> : null}
+      {context && course ? (
+        <section className="classroom-curriculum-picker" aria-label="Curriculum position">
+          <strong>
+            {course.name} · {context.sectionName}
+          </strong>
+          <label>
+            <span>Unit</span>
+            <select
+              className="input"
+              value={selectedUnit?.id ?? ''}
+              onChange={(event) => changeUnit(event.target.value)}
+            >
+              {course.units.map((unit, index) => (
+                <option key={unit.id} value={unit.id}>
+                  Unit {index + 1}: {unit.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Lesson</span>
+            <select
+              className="input"
+              value={lesson?.id ?? ''}
+              onChange={(event) => changeLesson(event.target.value)}
+            >
+              {selectedUnit?.lessons.map((item, index) => {
+                const status = resume?.progress.find(
+                  (progress) => progress.lessonId === item.id
+                )?.status;
+                const marker =
+                  status === 'completed' ? '✓' : item.id === resume?.lesson?.id ? '●' : '○';
+                return (
+                  <option key={item.id} value={item.id}>
+                    {marker} Lesson {index + 1}: {item.title}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+        </section>
+      ) : null}
       {requiresMeetingChoice ? (
         <section className="live-empty">
           <h2>Choose the class period</h2>

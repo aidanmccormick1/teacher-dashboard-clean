@@ -23,17 +23,43 @@ const blurOnEscape = (event: KeyboardEvent<HTMLElement>) => {
 };
 
 function RichField({
+  fieldId,
   value,
   onChange,
-  placeholder
+  placeholder,
+  activeFieldId,
+  setActiveFieldId
 }: {
+  fieldId: string;
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
+  activeFieldId: string | null;
+  setActiveFieldId: (fieldId: string | null) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const focused = useRef(false);
-  const [active, setActive] = useState(false);
+  const selection = useRef<Range | null>(null);
+  const active = activeFieldId === fieldId;
+  const rememberSelection = () => {
+    const current = window.getSelection();
+    if (!current?.rangeCount || !ref.current?.contains(current.anchorNode)) return;
+    selection.current = current.getRangeAt(0).cloneRange();
+  };
+  const runCommand = (command: string, value?: string) => {
+    const editor = ref.current;
+    if (!editor) return;
+    editor.focus({ preventScroll: true });
+    const current = window.getSelection();
+    if (current && selection.current) {
+      current.removeAllRanges();
+      current.addRange(selection.current);
+    }
+    document.execCommand(command, false, value);
+    rememberSelection();
+    onChange(editor.innerHTML);
+  };
   useEffect(() => {
     // Parent autosave state updates on every edit. Never replace the DOM while
     // the teacher is typing or the browser loses the caret and the first click
@@ -43,59 +69,71 @@ function RichField({
     }
   }, [value]);
   return (
-    <div className="rich-field-wrap">
+    <div className="rich-field-wrap" ref={wrapRef}>
       <div className="rich-toolbar" aria-label="Formatting" aria-hidden={!active} hidden={!active}>
         <button
           type="button"
-          onMouseDown={(e) => {
+          tabIndex={-1}
+          onPointerDown={(e) => {
             e.preventDefault();
-            document.execCommand('bold');
+            e.stopPropagation();
+            runCommand('bold');
           }}
         >
           B
         </button>
         <button
           type="button"
-          onMouseDown={(e) => {
+          tabIndex={-1}
+          onPointerDown={(e) => {
             e.preventDefault();
-            document.execCommand('italic');
+            e.stopPropagation();
+            runCommand('italic');
           }}
         >
           <em>I</em>
         </button>
         <button
           type="button"
-          onMouseDown={(e) => {
+          tabIndex={-1}
+          onPointerDown={(e) => {
             e.preventDefault();
-            document.execCommand('insertUnorderedList');
+            e.stopPropagation();
+            runCommand('insertUnorderedList');
           }}
         >
           • List
         </button>
         <button
           type="button"
-          onMouseDown={(e) => {
+          tabIndex={-1}
+          onPointerDown={(e) => {
             e.preventDefault();
-            document.execCommand('insertOrderedList');
+            e.stopPropagation();
+            runCommand('insertOrderedList');
           }}
         >
           1. List
         </button>
         <button
           type="button"
-          onMouseDown={(e) => {
+          tabIndex={-1}
+          onPointerDown={(e) => {
             e.preventDefault();
-            document.execCommand('formatBlock', false, 'h3');
+            e.stopPropagation();
+            runCommand('formatBlock', 'h3');
           }}
         >
           Heading
         </button>
         <button
           type="button"
-          onMouseDown={(e) => {
+          tabIndex={-1}
+          onPointerDown={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             const href = window.prompt('Link URL (https://)');
-            if (href && /^https?:\/\//i.test(href)) document.execCommand('createLink', false, href);
+            if (href && /^https?:\/\//i.test(href)) runCommand('createLink', href);
           }}
         >
           Link
@@ -113,14 +151,22 @@ function RichField({
         onPointerDown={(event) => event.stopPropagation()}
         onFocus={() => {
           focused.current = true;
-          setActive(true);
+          setActiveFieldId(fieldId);
         }}
         onBlur={(event) => {
           focused.current = false;
-          setActive(false);
           onChange(event.currentTarget.innerHTML);
+          if (!wrapRef.current?.contains(event.relatedTarget)) {
+            setActiveFieldId(null);
+          }
         }}
-        onInput={(e) => onChange(e.currentTarget.innerHTML)}
+        onInput={(e) => {
+          rememberSelection();
+          onChange(e.currentTarget.innerHTML);
+        }}
+        onSelect={rememberSelection}
+        onKeyUp={rememberSelection}
+        onPointerUp={rememberSelection}
         onKeyDown={(event) => {
           if (event.key === 'Escape') event.currentTarget.blur();
         }}
@@ -152,6 +198,7 @@ export function LessonWorkspacePage() {
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [activeRichFieldId, setActiveRichFieldId] = useState<string | null>(null);
   const draftVersion = useRef(0);
   const retryTimer = useRef<number | null>(null);
   useEffect(() => {
@@ -512,21 +559,27 @@ export function LessonWorkspacePage() {
             <label className="workspace-label">
               Objective
               <RichField
+                fieldId="objective"
                 value={rich(data.lesson.lessonPlan.objective)}
                 onChange={(objective) =>
                   updateLesson({ lessonPlan: { ...data.lesson.lessonPlan, objective } })
                 }
                 placeholder="What will students be able to do?"
+                activeFieldId={activeRichFieldId}
+                setActiveFieldId={setActiveRichFieldId}
               />
             </label>
             <label className="workspace-label">
               Materials
               <RichField
+                fieldId="materials"
                 value={rich(data.lesson.lessonPlan.materials)}
                 onChange={(materials) =>
                   updateLesson({ lessonPlan: { ...data.lesson.lessonPlan, materials } })
                 }
                 placeholder="Worksheets, slides, resources…"
+                activeFieldId={activeRichFieldId}
+                setActiveFieldId={setActiveRichFieldId}
               />
             </label>
           </div>
@@ -534,9 +587,12 @@ export function LessonWorkspacePage() {
             <label className="workspace-label">
               Lesson notes
               <RichField
+                fieldId="lesson-notes"
                 value={rich(data.lesson.description)}
                 onChange={(description) => updateLesson({ description })}
                 placeholder="Add an overview or teacher notes…"
+                activeFieldId={activeRichFieldId}
+                setActiveFieldId={setActiveRichFieldId}
               />
             </label>
           </aside>
@@ -703,9 +759,12 @@ export function LessonWorkspacePage() {
                   </div>
                 </div>
                 <RichField
+                  fieldId={`step-${step.id}`}
                   value={rich(step.description)}
                   onChange={(description) => updateStep(step.id, { description })}
                   placeholder="Describe this step…"
+                  activeFieldId={activeRichFieldId}
+                  setActiveFieldId={setActiveRichFieldId}
                 />
               </div>
               <details className="step-actions">

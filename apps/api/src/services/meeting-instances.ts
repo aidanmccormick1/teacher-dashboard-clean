@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
 import type { MeetingInstancesResponse } from '@teacheros/contracts';
 import { meetingOccursOn } from './weekly-meetings.js';
@@ -72,6 +72,7 @@ export async function buildMeetingInstances(
     .where(
       and(
         eq(courses.teacherId, userId),
+        isNull(courses.archivedAt),
         ...(options.sectionId ? [eq(sections.id, options.sectionId)] : [])
       )
     );

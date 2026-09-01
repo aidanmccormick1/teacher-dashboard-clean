@@ -117,6 +117,7 @@ export const courses = pgTable(
     subject: text('subject'),
     gradeLevel: text('grade_level'),
     sortIndex: integer('sort_index').notNull().default(0),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
@@ -351,6 +352,20 @@ export const lessonShares = pgTable(
   (table) => [unique('uniq_lesson_share_lesson').on(table.lessonId)]
 );
 
+export const courseShares = pgTable(
+  'course_shares',
+  {
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'cascade' }),
+    publicToken: uuid('public_token').defaultRandom().primaryKey(),
+    enabled: boolean('enabled').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [unique('uniq_course_share_course').on(table.courseId)]
+);
+
 export const sectionLessonState = pgTable(
   'section_lesson_state',
   {
@@ -455,6 +470,7 @@ export const classMeetings = pgTable(
     occurrenceKey: text('occurrence_key').notNull().default('legacy'),
     scheduledStartTime: time('scheduled_start_time'),
     scheduledEndTime: time('scheduled_end_time'),
+    origin: text('origin').notNull().default('scheduled'),
     completedStepIds: jsonb('completed_step_ids').$type<string[]>().notNull().default([]),
     // Immutable-on-write historical rendering data. It deliberately has no FK
     // because current curriculum steps may later be renamed or deleted.

@@ -150,6 +150,32 @@ export function CoursePage() {
     setCopyStatus('Course outline copied.');
     window.setTimeout(() => setCopyStatus(null), 1800);
   };
+  const courseAction = async (action: 'share' | 'duplicate' | 'archive') => {
+    if (!course) return;
+    try {
+      setSaving(true);
+      if (action === 'share') {
+        const share = await api.updateCourseShare(course.id, true);
+        if (share.token)
+          await navigator.clipboard?.writeText(
+            `${location.origin}/shared/curriculum/${share.token}`
+          );
+        setCopyStatus('Secure curriculum link copied.');
+      } else if (action === 'duplicate') {
+        const name = window.prompt('New course name', `${course.name} copy`)?.trim();
+        if (!name) return;
+        const duplicate = await api.duplicateCourse(course.id, name);
+        navigate(`/courses/${duplicate.course.id}`);
+      } else {
+        await api.archiveCourse(course.id);
+        navigate('/courses');
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not update this course.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (!courseId) {
     return (
@@ -191,6 +217,20 @@ export function CoursePage() {
           <Link className="button-link" to={`/year-plan?course=${courseId}`}>
             Open Year Plan
           </Link>
+          <details className="course-actions-menu">
+            <summary aria-label="Course actions">•••</summary>
+            <div>
+              <button type="button" onClick={() => void courseAction('share')}>
+                Share curriculum
+              </button>
+              <button type="button" onClick={() => void courseAction('duplicate')}>
+                Duplicate curriculum
+              </button>
+              <button className="danger" type="button" onClick={() => void courseAction('archive')}>
+                Archive course
+              </button>
+            </div>
+          </details>
         </div>
       </div>
       {error ? <p className="notice warning">{error}</p> : null}
@@ -241,26 +281,6 @@ export function CoursePage() {
                 }}
               >
                 Save course
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const confirmDelete = window.confirm(
-                    'Delete this course and all nested curriculum items?'
-                  );
-                  if (!confirmDelete) return;
-                  try {
-                    setSaving(true);
-                    await api.deleteCourse(course.id);
-                    navigate('/courses');
-                  } catch (err) {
-                    setError(err instanceof ApiError ? err.message : 'Failed to delete course');
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-              >
-                Delete course
               </button>
             </div>
           </div>

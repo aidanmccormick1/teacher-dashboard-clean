@@ -18,6 +18,7 @@ import type {
   CourseCreateRequest,
   CourseDetailResponse,
   CourseListResponse,
+  CourseShareResponse,
   CourseOrderUpdateRequest,
   CourseUpdateRequest,
   CurriculumRangeCreateRequest,
@@ -41,6 +42,7 @@ import type {
   LessonShareResponse,
   LessonWorkspaceResponse,
   PublicLessonResponse,
+  PublicCurriculumResponse,
   MeetingInstancesResponse,
   OnboardingRequest,
   OnboardingResponse,
@@ -91,6 +93,12 @@ export async function getPublicLesson(token: string): Promise<PublicLessonRespon
   const response = await fetch(`${API_BASE_URL}/v1/public/lessons/${encodeURIComponent(token)}`);
   if (!response.ok) throw new ApiError('This lesson link is unavailable.', response.status);
   return response.json() as Promise<PublicLessonResponse>;
+}
+
+export async function getPublicCurriculum(token: string): Promise<PublicCurriculumResponse> {
+  const response = await fetch(`${API_BASE_URL}/v1/public/curriculum/${encodeURIComponent(token)}`);
+  if (!response.ok) throw new ApiError('This curriculum link is unavailable.', response.status);
+  return response.json() as Promise<PublicCurriculumResponse>;
 }
 
 async function request<TResponse>(
@@ -279,7 +287,12 @@ export function useApiClient() {
         ),
       getClassMeeting: (
         sectionId: string,
-        query: { lessonId: string; meetingDate: string; scheduledStartTime: string | null }
+        query: {
+          lessonId: string;
+          meetingDate: string;
+          scheduledStartTime: string | null;
+          origin?: 'scheduled' | 'manual';
+        }
       ) =>
         request<ClassMeetingLookupResponse>(
           `/v1/sections/${sectionId}/class-meeting?${new URLSearchParams({
@@ -287,12 +300,14 @@ export function useApiClient() {
             meetingDate: query.meetingDate,
             ...(query.scheduledStartTime === null
               ? {}
-              : { scheduledStartTime: query.scheduledStartTime })
+              : { scheduledStartTime: query.scheduledStartTime }),
+            origin: query.origin ?? 'scheduled'
           }).toString()}`,
           { method: 'GET' },
           auth
         ),
-      listCourses: () => request<CourseListResponse>('/v1/courses', { method: 'GET' }, auth),
+      listCourses: (status: 'active' | 'archived' | 'all' = 'active') =>
+        request<CourseListResponse>(`/v1/courses?status=${status}`, { method: 'GET' }, auth),
       getCourseDetail: (courseId: string) =>
         request<CourseDetailResponse>(`/v1/courses/${courseId}`, { method: 'GET' }, auth),
       createCourse: (body: CourseCreateRequest) =>
@@ -321,6 +336,30 @@ export function useApiClient() {
         ),
       deleteCourse: (courseId: string) =>
         request<DeleteEntityResponse>(`/v1/courses/${courseId}`, { method: 'DELETE' }, auth),
+      duplicateCourse: (courseId: string, name: string) =>
+        request<CourseDetailResponse>(
+          `/v1/courses/${courseId}/duplicate`,
+          { method: 'POST', body: JSON.stringify({ name }) },
+          auth
+        ),
+      archiveCourse: (courseId: string) =>
+        request<{ archived: boolean }>(
+          `/v1/courses/${courseId}/archive`,
+          { method: 'PATCH' },
+          auth
+        ),
+      restoreCourse: (courseId: string) =>
+        request<{ archived: boolean }>(
+          `/v1/courses/${courseId}/restore`,
+          { method: 'PATCH' },
+          auth
+        ),
+      updateCourseShare: (courseId: string, enabled: boolean) =>
+        request<CourseShareResponse>(
+          `/v1/courses/${courseId}/share`,
+          { method: 'PATCH', body: JSON.stringify({ enabled }) },
+          auth
+        ),
       createUnit: (courseId: string, body: UnitCreateRequest) =>
         request<CourseDetailResponse>(
           `/v1/courses/${courseId}/units`,

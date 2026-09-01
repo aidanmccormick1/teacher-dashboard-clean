@@ -5858,6 +5858,134 @@ button,
   box-shadow: 0 5px 15px rgba(43, 57, 66, 0.1);
 }
 
+.rich-toolbar[hidden] {
+  display: none !important;
+}
+
+.course-create-mode {
+  display: flex;
+  gap: 0.35rem;
+  grid-column: 1 / -1;
+}
+
+.course-row-actions,
+.today-manual-fields,
+.classroom-curriculum-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.course-actions-menu {
+  position: relative;
+}
+
+.course-actions-menu summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-control, 8px);
+}
+
+.course-actions-menu > div {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  top: calc(100% + 0.3rem);
+  min-width: 12rem;
+  padding: 0.35rem;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #dfe4e7);
+  border-radius: 0.6rem;
+  box-shadow: 0 10px 30px rgb(29 45 55 / 12%);
+}
+
+.course-actions-menu button {
+  width: 100%;
+  justify-content: flex-start;
+  background: transparent;
+  color: inherit;
+  border: 0;
+}
+
+.course-actions-menu button.danger {
+  color: var(--danger, #a53b36);
+}
+.course-hub-row.is-archived {
+  opacity: 0.78;
+}
+.courses-archived {
+  margin-top: 2rem;
+}
+
+.today-manual-class {
+  padding: 1rem 0;
+  border-block: 1px solid var(--border, #dfe4e7);
+}
+
+.today-manual-fields {
+  align-items: stretch;
+}
+.today-manual-fields .input {
+  min-width: 0;
+  flex: 1;
+}
+
+.classroom-curriculum-picker {
+  padding: 0.8rem 0;
+  border-block: 1px solid var(--border, #dfe4e7);
+}
+
+.classroom-curriculum-picker > strong {
+  margin-right: auto;
+}
+.classroom-curriculum-picker label {
+  display: grid;
+  gap: 0.2rem;
+}
+.classroom-curriculum-picker label > span {
+  font-size: 0.72rem;
+  color: var(--muted, #66727a);
+}
+
+.shared-curriculum {
+  max-width: 850px;
+}
+.shared-curriculum-unit {
+  margin-block: 2.5rem;
+}
+.shared-curriculum-lesson {
+  padding-block: 1.2rem;
+  border-top: 1px solid var(--border, #dfe4e7);
+}
+.shared-curriculum-lesson header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.shared-curriculum-steps {
+  padding-left: 0;
+  list-style: none;
+}
+.shared-curriculum-steps label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .today-manual-fields,
+  .classroom-curriculum-picker {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .classroom-curriculum-picker > strong {
+    margin-right: 0;
+  }
+}
+
 .rich-toolbar button {
   min-height: 28px;
   padding: 3px 7px;

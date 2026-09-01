@@ -427,6 +427,7 @@ export const ClassMeetingUpsertRequestSchema = z.object({
   meetingDate: IsoDateSchema,
   scheduledStartTime: z.string().nullable(),
   scheduledEndTime: z.string().nullable(),
+  origin: z.enum(['scheduled', 'manual']).default('scheduled'),
   completedStepIds: z.array(UuidSchema),
   rawNote: z.string().nullable(),
   endClass: z.boolean().default(false),
@@ -450,6 +451,7 @@ export const ClassMeetingResponseSchema = z.object({
   scheduledStartTime: IsoTimeSchema.nullable(),
   scheduledEndTime: IsoTimeSchema.nullable(),
   occurrenceKey: z.string(),
+  origin: z.enum(['scheduled', 'manual']),
   revision: z.number().int().positive(),
   stepSnapshot: z.array(ClassMeetingStepSnapshotSchema).nullable(),
   stoppingPointStepId: UuidSchema.nullable(),
@@ -461,7 +463,8 @@ export const ClassMeetingResponseSchema = z.object({
 export const ClassMeetingLookupQuerySchema = z.object({
   lessonId: UuidSchema,
   meetingDate: IsoDateSchema,
-  scheduledStartTime: IsoTimeSchema.nullable().optional()
+  scheduledStartTime: IsoTimeSchema.nullable().optional(),
+  origin: z.enum(['scheduled', 'manual']).default('scheduled')
 });
 export const ClassMeetingLookupResponseSchema = z.object({
   meeting: ClassMeetingResponseSchema.nullable(),
@@ -624,6 +627,7 @@ export const CourseSummarySchema = z.object({
   subject: z.string().nullable(),
   gradeLevel: z.string().nullable(),
   sortIndex: z.number().int(),
+  archivedAt: z.string().nullable(),
   createdAt: z.string()
 });
 
@@ -634,7 +638,15 @@ export const CourseListResponseSchema = z.object({
 export const CourseCreateRequestSchema = z.object({
   name: z.string().min(1),
   subject: z.string().nullable(),
-  gradeLevel: z.string().nullable()
+  gradeLevel: z.string().nullable(),
+  sourceCourseId: UuidSchema.optional()
+});
+
+export const CourseDuplicateRequestSchema = z.object({ name: z.string().min(1) });
+export const CourseShareUpdateRequestSchema = z.object({ enabled: z.boolean() });
+export const CourseShareResponseSchema = z.object({
+  enabled: z.boolean(),
+  token: z.string().uuid().nullable()
 });
 
 export const CourseUpdateRequestSchema = z.object({
@@ -823,6 +835,38 @@ export const PublicLessonResponseSchema = z.object({
   })
 });
 
+export const PublicCurriculumResponseSchema = z.object({
+  course: z.object({
+    name: z.string(),
+    subject: z.string().nullable(),
+    gradeLevel: z.string().nullable(),
+    units: z.array(
+      z.object({
+        title: z.string(),
+        description: z.string().nullable(),
+        lessons: z.array(
+          z.object({
+            title: z.string(),
+            description: z.string().nullable(),
+            objective: z.string().nullable(),
+            materials: z.string().nullable(),
+            studentDirections: z.string().nullable(),
+            estimatedDurationMinutes: z.number().int().positive().nullable(),
+            steps: z.array(
+              z.object({
+                title: z.string(),
+                description: z.string().nullable(),
+                durationMinutes: z.number().int().positive().nullable(),
+                stepType: z.string().nullable()
+              })
+            )
+          })
+        )
+      })
+    )
+  })
+});
+
 export const ClassroomResumeResponseSchema = z.object({
   section: z.object({
     sectionId: UuidSchema,
@@ -844,6 +888,7 @@ export const ClassroomResumeResponseSchema = z.object({
       updatedAt: z.string()
     })
     .nullable(),
+  progress: z.array(z.object({ lessonId: UuidSchema, status: LessonProgressStatusSchema })),
   lastNote: z
     .object({
       noteId: UuidSchema,
@@ -923,6 +968,8 @@ export type AiJobControlResponse = z.infer<typeof AiJobControlResponseSchema>;
 export type CourseListResponse = z.infer<typeof CourseListResponseSchema>;
 export type CourseDetailResponse = z.infer<typeof CourseDetailResponseSchema>;
 export type CourseCreateRequest = z.infer<typeof CourseCreateRequestSchema>;
+export type CourseDuplicateRequest = z.infer<typeof CourseDuplicateRequestSchema>;
+export type CourseShareResponse = z.infer<typeof CourseShareResponseSchema>;
 export type CourseUpdateRequest = z.infer<typeof CourseUpdateRequestSchema>;
 export type CourseOrderUpdateRequest = z.infer<typeof CourseOrderUpdateRequestSchema>;
 export type UnitCreateRequest = z.infer<typeof UnitCreateRequestSchema>;
@@ -933,6 +980,7 @@ export type CurriculumRangeCreateRequest = z.infer<typeof CurriculumRangeCreateR
 export type LessonWorkspaceResponse = z.infer<typeof LessonWorkspaceResponseSchema>;
 export type LessonShareResponse = z.infer<typeof LessonShareResponseSchema>;
 export type PublicLessonResponse = z.infer<typeof PublicLessonResponseSchema>;
+export type PublicCurriculumResponse = z.infer<typeof PublicCurriculumResponseSchema>;
 export type SegmentCreateRequest = z.infer<typeof SegmentCreateRequestSchema>;
 export type SegmentUpdateRequest = z.infer<typeof SegmentUpdateRequestSchema>;
 export type SegmentReorderRequest = z.infer<typeof SegmentReorderRequestSchema>;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type {
   ClassroomResumeResponse,
+  CourseDetailResponse,
   DashboardTodayResponse,
   GetScheduleResponse,
   MeetingInstancesResponse,
@@ -61,6 +62,12 @@ export function TodayPage() {
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualCourses, setManualCourses] = useState<CourseDetailResponse['course'][]>([]);
+  const [manualCourseId, setManualCourseId] = useState('');
+  const [manualSectionId, setManualSectionId] = useState('');
+  const [manualUnitId, setManualUnitId] = useState('');
+  const [manualLessonId, setManualLessonId] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -143,6 +150,41 @@ export function TodayPage() {
         : 'Today',
     [data.today?.date]
   );
+  const manualCourse = manualCourses.find((course) => course.id === manualCourseId);
+  const manualUnit = manualCourse?.units.find((unit) => unit.id === manualUnitId);
+  const openManual = async () => {
+    setManualOpen(true);
+    if (manualCourses.length) return;
+    try {
+      const listed = await api.listCourses();
+      const details = await Promise.all(
+        listed.courses.map((course) => api.getCourseDetail(course.id))
+      );
+      setManualCourses(details.map((detail) => detail.course));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not load classes.');
+    }
+  };
+  useEffect(() => {
+    if (!manualSectionId) return;
+    void (async () => {
+      try {
+        const sectionResume =
+          data.resumes[manualSectionId] ?? (await api.getClassroomResume(manualSectionId));
+        const current = sectionResume.lesson;
+        if (!current) return;
+        const unit = manualCourse?.units.find((candidate) =>
+          candidate.lessons.some((lesson) => lesson.id === current.id)
+        );
+        if (unit) {
+          setManualUnitId(unit.id);
+          setManualLessonId(current.id);
+        }
+      } catch {
+        /* The teacher can still choose a lesson explicitly. */
+      }
+    })();
+  }, [api, manualSectionId, manualCourse, data.resumes]);
 
   if (loading) return <TodayLoading />;
   if (error)
@@ -163,10 +205,106 @@ export function TodayPage() {
           <p className="eyebrow">{dateLabel}</p>
           <h1>Today</h1>
         </div>
-        <Link className="button-link secondary" to="/year-plan">
-          Open Year Plan
-        </Link>
+        <div className="profile-actions">
+          <button className="secondary" type="button" onClick={() => void openManual()}>
+            + Teach another class
+          </button>
+          <Link className="button-link secondary" to="/year-plan">
+            Open Year Plan
+          </Link>
+        </div>
       </header>
+      {manualOpen ? (
+        <section className="today-manual-class" aria-label="Teach another class">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Manual class</p>
+              <h2>Teach another class</h2>
+            </div>
+            <button className="secondary" type="button" onClick={() => setManualOpen(false)}>
+              Close
+            </button>
+          </div>
+          <div className="today-manual-fields">
+            <select
+              className="input"
+              value={manualCourseId}
+              onChange={(event) => {
+                setManualCourseId(event.target.value);
+                setManualSectionId('');
+                setManualUnitId('');
+                setManualLessonId('');
+              }}
+            >
+              <option value="">Select course</option>
+              {manualCourses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="input"
+              value={manualSectionId}
+              disabled={!manualCourseId}
+              onChange={(event) => setManualSectionId(event.target.value)}
+            >
+              <option value="">Select class group</option>
+              {data.schedule?.sections
+                .filter((section) => section.courseId === manualCourseId)
+                .map((section) => (
+                  <option key={section.sectionId} value={section.sectionId}>
+                    {section.sectionName}
+                  </option>
+                ))}
+            </select>
+            <select
+              className="input"
+              value={manualUnitId}
+              disabled={!manualCourseId}
+              onChange={(event) => {
+                setManualUnitId(event.target.value);
+                setManualLessonId('');
+              }}
+            >
+              <option value="">Select unit</option>
+              {manualCourse?.units.map((unit) => (
+                <option key={unit.id} value={unit.id}>
+                  {unit.title}
+                </option>
+              ))}
+            </select>
+            <select
+              className="input"
+              value={manualLessonId}
+              disabled={!manualUnitId}
+              onChange={(event) => setManualLessonId(event.target.value)}
+            >
+              <option value="">Select lesson</option>
+              {manualUnit?.lessons.map((lesson) => (
+                <option key={lesson.id} value={lesson.id}>
+                  {lesson.title}
+                </option>
+              ))}
+            </select>
+            {manualSectionId && manualLessonId ? (
+              <Link
+                className="button-link"
+                to={`/classroom?section=${manualSectionId}&lesson=${manualLessonId}&manual=1`}
+              >
+                Start class
+              </Link>
+            ) : (
+              <button type="button" disabled>
+                Start class
+              </button>
+            )}
+          </div>
+          <p className="muted">
+            This starts one real class meeting without changing the recurring schedule.
+          </p>
+        </section>
+      ) : null}
       {data.today?.holiday ? (
         <section className="today-empty">
           <p className="eyebrow">No school</p>

@@ -184,7 +184,7 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
             schemaName: 'generate_segments',
             schema: GenerateSegmentsResponseSchema,
             systemPrompt:
-              'Generate practical, classroom-ready lesson segments with realistic durations and concise descriptions.',
+              'Generate practical, classroom-ready lesson segments with realistic durations and concise descriptions. Write the lesson plan and teacher-facing directions in English, even when the course teaches another language such as Spanish. Use target-language words or examples only where instruction requires them.',
             userPrompt: `Lesson title: ${input.lessonTitle}\nObjective: ${input.objective ?? 'None'}\nTotal minutes: ${input.durationMinutes}`
           });
         } else if (aiJob.type === 'generate_continuity') {
@@ -200,7 +200,7 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
             schemaName: 'generate_continuity',
             schema: GenerateContinuityResponseSchema,
             systemPrompt:
-              'You are helping a teacher continue the next class smoothly. Keep output concise and practical.',
+              'You are helping a teacher continue the next class smoothly. Keep output concise and practical. Write all teacher-facing guidance in English, even when the course teaches another language such as Spanish.',
             userPrompt: `Lesson: ${input.lessonTitle}\nLast segment: ${input.lastSegmentTitle ?? 'Unknown'}\nLast note: ${input.lastNote ?? 'None'}\nPrevious summary: ${input.previousLessonSummary ?? 'None'}`
           });
         } else {

@@ -24,8 +24,11 @@ import {
   CreateUploadUrlRequestSchema,
   CreateUploadUrlResponseSchema,
   CourseCreateRequestSchema,
+  CourseDuplicateRequestSchema,
   CourseDetailResponseSchema,
   CourseListResponseSchema,
+  CourseShareResponseSchema,
+  CourseShareUpdateRequestSchema,
   CourseOrderUpdateRequestSchema,
   CourseUpdateRequestSchema,
   CurriculumRangeCreateRequestSchema,
@@ -67,6 +70,7 @@ import {
   LessonShareUpdateRequestSchema,
   LessonWorkspaceResponseSchema,
   PublicLessonResponseSchema,
+  PublicCurriculumResponseSchema,
   MeetingInstancesQuerySchema,
   MeetingInstancesResponseSchema,
   SchoolCalendarResponseSchema,
@@ -88,6 +92,7 @@ import {
   classNotes,
   classMeetings,
   courses,
+  courseShares,
   db,
   lessonSegments,
   lessonShares,
@@ -515,10 +520,12 @@ async function findOwnedCourse(userId: string, courseId: string) {
   const [course] = await db
     .select({
       id: courses.id,
+      schoolId: courses.schoolId,
       name: courses.name,
       subject: courses.subject,
       gradeLevel: courses.gradeLevel,
       sortIndex: courses.sortIndex,
+      archivedAt: courses.archivedAt,
       createdAt: courses.createdAt
     })
     .from(courses)
@@ -579,7 +586,13 @@ async function findOwnedSection(userId: string, sectionId: string) {
     })
     .from(sections)
     .innerJoin(courses, eq(sections.courseId, courses.id))
-    .where(and(eq(sections.id, sectionId), eq(courses.teacherId, userId)))
+    .where(
+      and(
+        eq(sections.id, sectionId),
+        eq(courses.teacherId, userId),
+        sql`${courses.archivedAt} is null`
+      )
+    )
     .limit(1);
 
   return row ?? null;
@@ -686,7 +699,7 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
     .from(sections)
     .innerJoin(courses, eq(sections.courseId, courses.id))
     .leftJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
-    .where(eq(courses.teacherId, userId));
+    .where(and(eq(courses.teacherId, userId), sql`${courses.archivedAt} is null`));
 
   const holidayRows = await db
     .select({
@@ -825,6 +838,7 @@ async function buildCourseDetail(userId: string, courseId: string) {
       subject: course.subject,
       gradeLevel: course.gradeLevel,
       sortIndex: course.sortIndex,
+      archivedAt: course.archivedAt?.toISOString() ?? null,
       createdAt: course.createdAt.toISOString(),
       units: unitRows.map((unit) => ({
         id: unit.id,
@@ -854,6 +868,60 @@ async function buildCourseDetail(userId: string, courseId: string) {
       }))
     }
   });
+}
+
+async function copyCourseCurriculum(
+  userId: string,
+  sourceCourseId: string,
+  targetCourseId: string
+) {
+  const source = await buildCourseDetail(userId, sourceCourseId);
+  if (!source) return false;
+  await db.transaction(async (tx) => {
+    for (const unit of source.course.units) {
+      const [createdUnit] = await tx
+        .insert(units)
+        .values({
+          courseId: targetCourseId,
+          title: unit.title,
+          description: unit.description,
+          orderIndex: unit.orderIndex,
+          plannedStartMeeting: unit.plannedStartMeeting,
+          plannedMeetingCount: unit.plannedMeetingCount
+        })
+        .returning({ id: units.id });
+      if (!createdUnit) throw new Error('Failed to copy unit');
+      for (const lesson of unit.lessons) {
+        const [createdLesson] = await tx
+          .insert(lessons)
+          .values({
+            unitId: createdUnit.id,
+            title: lesson.title,
+            description: lesson.description,
+            lessonPlan: lesson.lessonPlan,
+            orderIndex: lesson.orderIndex,
+            estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+            plannedStartMeeting: lesson.plannedStartMeeting,
+            plannedMeetingCount: lesson.plannedMeetingCount
+          })
+          .returning({ id: lessons.id });
+        if (!createdLesson) throw new Error('Failed to copy lesson');
+        if (lesson.segments.length) {
+          await tx.insert(lessonSegments).values(
+            lesson.segments.map((step) => ({
+              lessonId: createdLesson.id,
+              title: step.title,
+              description: step.description,
+              durationMinutes: step.durationMinutes,
+              stepType: step.stepType,
+              orderIndex: step.orderIndex
+            }))
+          );
+        }
+      }
+    }
+  });
+  return true;
 }
 
 function normalizeProgressPercent(progress: unknown): number | null {
@@ -2250,21 +2318,19 @@ export async function v1Routes(app: FastifyInstance) {
         .orderBy(desc(sectionLessonState.updatedAt))
         .limit(1);
 
-      const orderedLessons = !activeState
-        ? await db
-            .select({ id: lessons.id, status: sectionLessonState.status })
-            .from(lessons)
-            .innerJoin(units, eq(lessons.unitId, units.id))
-            .leftJoin(
-              sectionLessonState,
-              and(
-                eq(sectionLessonState.lessonId, lessons.id),
-                eq(sectionLessonState.sectionId, params.sectionId)
-              )
-            )
-            .where(eq(units.courseId, ownedSection.courseId))
-            .orderBy(asc(units.orderIndex), asc(lessons.orderIndex), asc(lessons.createdAt))
-        : [];
+      const orderedLessons = await db
+        .select({ id: lessons.id, status: sectionLessonState.status })
+        .from(lessons)
+        .innerJoin(units, eq(lessons.unitId, units.id))
+        .leftJoin(
+          sectionLessonState,
+          and(
+            eq(sectionLessonState.lessonId, lessons.id),
+            eq(sectionLessonState.sectionId, params.sectionId)
+          )
+        )
+        .where(eq(units.courseId, ownedSection.courseId))
+        .orderBy(asc(units.orderIndex), asc(lessons.orderIndex), asc(lessons.createdAt));
 
       const firstLesson = orderedLessons.find(
         (candidate) => candidate.status !== 'completed' && candidate.status !== 'skipped'
@@ -2358,6 +2424,9 @@ export async function v1Routes(app: FastifyInstance) {
               updatedAt: activeState.updatedAt.toISOString()
             }
           : null,
+        progress: orderedLessons
+          .filter((item) => item.status !== null)
+          .map((item) => ({ lessonId: item.id, status: item.status! })),
         lastNote:
           (lastMeetingNote ?? lastLegacyNote)
             ? {
@@ -2384,6 +2453,9 @@ export async function v1Routes(app: FastifyInstance) {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
+      const status = z
+        .object({ status: z.enum(['active', 'archived', 'all']).default('active') })
+        .parse(request.query).status;
 
       const courseRows = await db
         .select({
@@ -2392,10 +2464,20 @@ export async function v1Routes(app: FastifyInstance) {
           subject: courses.subject,
           gradeLevel: courses.gradeLevel,
           sortIndex: courses.sortIndex,
+          archivedAt: courses.archivedAt,
           createdAt: courses.createdAt
         })
         .from(courses)
-        .where(eq(courses.teacherId, user.id))
+        .where(
+          and(
+            eq(courses.teacherId, user.id),
+            status === 'active'
+              ? sql`${courses.archivedAt} is null`
+              : status === 'archived'
+                ? sql`${courses.archivedAt} is not null`
+                : undefined
+          )
+        )
         .orderBy(asc(courses.sortIndex), asc(courses.name), asc(courses.createdAt));
 
       return {
@@ -2405,6 +2487,7 @@ export async function v1Routes(app: FastifyInstance) {
           subject: course.subject,
           gradeLevel: course.gradeLevel,
           sortIndex: course.sortIndex,
+          archivedAt: course.archivedAt?.toISOString() ?? null,
           createdAt: course.createdAt.toISOString()
         }))
       };
@@ -2458,13 +2541,18 @@ export async function v1Routes(app: FastifyInstance) {
           subject: courses.subject,
           gradeLevel: courses.gradeLevel,
           sortIndex: courses.sortIndex,
+          archivedAt: courses.archivedAt,
           createdAt: courses.createdAt
         })
         .from(courses)
         .where(eq(courses.teacherId, user.id))
         .orderBy(asc(courses.sortIndex), asc(courses.name), asc(courses.createdAt));
       return {
-        courses: ordered.map((course) => ({ ...course, createdAt: course.createdAt.toISOString() }))
+        courses: ordered.map((course) => ({
+          ...course,
+          archivedAt: course.archivedAt?.toISOString() ?? null,
+          createdAt: course.createdAt.toISOString()
+        }))
       };
     }
   );
@@ -2485,6 +2573,10 @@ export async function v1Routes(app: FastifyInstance) {
       const body = CourseCreateRequestSchema.parse(request.body);
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
+      if (body.sourceCourseId && !(await findOwnedCourse(user.id, body.sourceCourseId))) {
+        (reply as any).code(404);
+        return { error: 'Source course not found', requestId: request.id };
+      }
       const [lastCourse] = await db
         .select({ sortIndex: courses.sortIndex })
         .from(courses)
@@ -2506,11 +2598,94 @@ export async function v1Routes(app: FastifyInstance) {
 
       if (!course) throw new Error('Failed to create course');
 
+      if (body.sourceCourseId) {
+        await copyCourseCurriculum(user.id, body.sourceCourseId, course.id);
+      }
+
       const detail = await buildCourseDetail(user.id, course.id);
       if (!detail) throw new Error('Failed to load course detail');
       return detail;
     }
   );
+
+  app.post(
+    '/v1/courses/:courseId/duplicate',
+    {
+      schema: {
+        params: CourseParamsSchema,
+        body: CourseDuplicateRequestSchema,
+        response: { 200: CourseDetailResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { courseId } = CourseParamsSchema.parse(request.params);
+      const body = CourseDuplicateRequestSchema.parse(request.body);
+      const source = await findOwnedCourse(user.id, courseId);
+      if (!source) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+      const [lastCourse] = await db
+        .select({ sortIndex: courses.sortIndex })
+        .from(courses)
+        .where(eq(courses.teacherId, user.id))
+        .orderBy(desc(courses.sortIndex))
+        .limit(1);
+      const [created] = await db
+        .insert(courses)
+        .values({
+          teacherId: user.id,
+          schoolId: source.schoolId,
+          name: body.name,
+          subject: source.subject,
+          gradeLevel: source.gradeLevel,
+          sortIndex: (lastCourse?.sortIndex ?? -1) + 1
+        })
+        .returning({ id: courses.id });
+      if (!created) throw new Error('Failed to duplicate course');
+      await copyCourseCurriculum(user.id, source.id, created.id);
+      const detail = await buildCourseDetail(user.id, created.id);
+      if (!detail) throw new Error('Failed to load duplicated course');
+      return detail;
+    }
+  );
+
+  app.patch('/v1/courses/:courseId/archive', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const { courseId } = CourseParamsSchema.parse(request.params);
+    const [course] = await db
+      .update(courses)
+      .set({ archivedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(courses.id, courseId), eq(courses.teacherId, user.id)))
+      .returning({ id: courses.id });
+    if (!course) {
+      (reply as any).code(404);
+      return { error: 'Course not found', requestId: request.id };
+    }
+    return { archived: true };
+  });
+
+  app.patch('/v1/courses/:courseId/restore', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const { courseId } = CourseParamsSchema.parse(request.params);
+    const [course] = await db
+      .update(courses)
+      .set({ archivedAt: null, updatedAt: new Date() })
+      .where(and(eq(courses.id, courseId), eq(courses.teacherId, user.id)))
+      .returning({ id: courses.id });
+    if (!course) {
+      (reply as any).code(404);
+      return { error: 'Course not found', requestId: request.id };
+    }
+    return { archived: false };
+  });
 
   app.get(
     '/v1/courses/:courseId',
@@ -2892,6 +3067,104 @@ export async function v1Routes(app: FastifyInstance) {
       return LessonShareResponseSchema.parse({
         enabled: share?.enabled ?? false,
         token: share?.publicToken ?? null
+      });
+    }
+  );
+
+  app.patch(
+    '/v1/courses/:courseId/share',
+    {
+      schema: {
+        params: CourseParamsSchema,
+        body: CourseShareUpdateRequestSchema,
+        response: { 200: CourseShareResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { courseId } = CourseParamsSchema.parse(request.params);
+      const body = CourseShareUpdateRequestSchema.parse(request.body);
+      if (!(await findOwnedCourse(user.id, courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+      const [existing] = await db
+        .select()
+        .from(courseShares)
+        .where(eq(courseShares.courseId, courseId))
+        .limit(1);
+      if (existing) {
+        await db
+          .update(courseShares)
+          .set({ enabled: body.enabled, updatedAt: new Date() })
+          .where(eq(courseShares.courseId, courseId));
+      } else {
+        await db.insert(courseShares).values({ courseId, enabled: body.enabled });
+      }
+      const [share] = await db
+        .select()
+        .from(courseShares)
+        .where(eq(courseShares.courseId, courseId))
+        .limit(1);
+      return CourseShareResponseSchema.parse({
+        enabled: share?.enabled ?? false,
+        token: share?.publicToken ?? null
+      });
+    }
+  );
+
+  app.get(
+    '/v1/public/curriculum/:token',
+    {
+      schema: {
+        params: z.object({ token: z.string().uuid() }),
+        response: { 200: PublicCurriculumResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const token = z.object({ token: z.string().uuid() }).parse(request.params).token;
+      const [shared] = await db
+        .select({ courseId: courses.id, teacherId: courses.teacherId })
+        .from(courseShares)
+        .innerJoin(courses, eq(courseShares.courseId, courses.id))
+        .where(and(eq(courseShares.publicToken, token), eq(courseShares.enabled, true)))
+        .limit(1);
+      if (!shared) {
+        (reply as any).code(404);
+        return { error: 'Curriculum not found', requestId: request.id };
+      }
+      const detail = await buildCourseDetail(shared.teacherId, shared.courseId);
+      if (!detail) {
+        (reply as any).code(404);
+        return { error: 'Curriculum not found', requestId: request.id };
+      }
+      reply.header('Cache-Control', 'no-store');
+      return PublicCurriculumResponseSchema.parse({
+        course: {
+          name: detail.course.name,
+          subject: detail.course.subject,
+          gradeLevel: detail.course.gradeLevel,
+          units: detail.course.units.map((unit) => ({
+            title: unit.title,
+            description: unit.description,
+            lessons: unit.lessons.map((lesson) => ({
+              title: lesson.title,
+              description: lesson.description,
+              objective: lesson.lessonPlan.objective,
+              materials: lesson.lessonPlan.materials,
+              studentDirections: lesson.lessonPlan.studentDirections,
+              estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+              steps: lesson.segments.map((step) => ({
+                title: step.title,
+                description: step.description,
+                durationMinutes: step.durationMinutes,
+                stepType: step.stepType ?? null
+              }))
+            }))
+          }))
+        }
       });
     }
   );
@@ -3472,7 +3745,10 @@ export async function v1Routes(app: FastifyInstance) {
         (reply as any).code(404);
         return { error: 'Section or lesson not found', requestId: request.id };
       }
-      const requestedOccurrenceKey = meetingOccurrenceKey(body.scheduledStartTime);
+      const requestedOccurrenceKey =
+        body.origin === 'manual'
+          ? `manual:${body.lessonId}`
+          : meetingOccurrenceKey(body.scheduledStartTime);
       try {
         const response = await db.transaction(async (tx) => {
           // State and cumulative history are shared by all occurrences of one
@@ -3587,6 +3863,7 @@ export async function v1Routes(app: FastifyInstance) {
                 occurrenceKey: requestedOccurrenceKey,
                 scheduledStartTime: body.scheduledStartTime,
                 scheduledEndTime: body.scheduledEndTime,
+                origin: body.origin,
                 completedStepIds,
                 stepSnapshot: snapshot,
                 rawNote: body.rawNote,
@@ -3708,6 +3985,7 @@ export async function v1Routes(app: FastifyInstance) {
             scheduledStartTime: meeting.scheduledStartTime?.slice(0, 5) ?? null,
             scheduledEndTime: meeting.scheduledEndTime?.slice(0, 5) ?? null,
             occurrenceKey: meeting.occurrenceKey,
+            origin: meeting.origin === 'manual' ? 'manual' : 'scheduled',
             revision: meeting.revision,
             stepSnapshot: snapshot,
             stoppingPointStepId,
@@ -3746,7 +4024,10 @@ export async function v1Routes(app: FastifyInstance) {
         (reply as any).code(404);
         return { error: 'Section or lesson not found', requestId: request.id };
       }
-      const key = meetingOccurrenceKey(query.scheduledStartTime);
+      const key =
+        query.origin === 'manual'
+          ? `manual:${query.lessonId}`
+          : meetingOccurrenceKey(query.scheduledStartTime);
       const lookupKeys = key === 'legacy' ? ['legacy'] : [key];
       const candidates = await db
         .select()
@@ -3820,6 +4101,7 @@ export async function v1Routes(app: FastifyInstance) {
               scheduledStartTime: meeting.scheduledStartTime?.slice(0, 5) ?? null,
               scheduledEndTime: meeting.scheduledEndTime?.slice(0, 5) ?? null,
               occurrenceKey: meeting.occurrenceKey,
+              origin: meeting.origin === 'manual' ? 'manual' : 'scheduled',
               revision: meeting.revision,
               stepSnapshot: meeting.stepSnapshot ?? null,
               stoppingPointStepId: meeting.stoppingPointStepId,
@@ -4487,7 +4769,7 @@ export async function v1Routes(app: FastifyInstance) {
           schemaName: 'generate_unit_draft',
           schema: GenerateUnitDraftResponseSchema,
           systemPrompt:
-            'Create one concise, classroom-ready curriculum unit. Return a practical sequence of lessons, each with a clear objective, materials, and three to six ordered lesson steps. This is a draft for a teacher to review, never an instruction to alter stored curriculum.',
+            'Create one concise, classroom-ready curriculum unit. Return a practical sequence of lessons, each with a clear objective, materials, and three to six ordered lesson steps. Write all teacher-facing plans, titles, objectives, descriptions, materials, directions, and steps in English, even when the course teaches another language such as Spanish. Use target-language words or examples only where instruction requires them. This is a draft for a teacher to review, never an instruction to alter stored curriculum.',
           userPrompt: `Course: ${body.courseName}\nGrade: ${body.gradeLevel ?? 'Not specified'}\nInstructional meetings: ${body.meetingCount}\nTeacher request: ${body.prompt}`
         });
         await db
@@ -4552,7 +4834,7 @@ export async function v1Routes(app: FastifyInstance) {
           schemaName: 'generate_segments',
           schema: GenerateSegmentsResponseSchema,
           systemPrompt:
-            'Generate practical, classroom-ready lesson segments with realistic durations and concise descriptions.',
+            'Generate practical, classroom-ready lesson segments with realistic durations and concise descriptions. Write the lesson plan and teacher-facing directions in English, even when the course teaches another language such as Spanish. Use target-language words or examples only where instruction requires them.',
           userPrompt: `Lesson title: ${body.lessonTitle}\nObjective: ${body.objective ?? 'None'}\nTotal minutes: ${body.durationMinutes}`
         });
 
@@ -4620,7 +4902,7 @@ export async function v1Routes(app: FastifyInstance) {
           schemaName: 'generate_continuity',
           schema: GenerateContinuityResponseSchema,
           systemPrompt:
-            'You are helping a teacher continue the next class smoothly. Keep output concise and practical.',
+            'You are helping a teacher continue the next class smoothly. Keep output concise and practical. Write all teacher-facing guidance in English, even when the course teaches another language such as Spanish.',
           userPrompt: `Lesson: ${body.lessonTitle}\nLast segment: ${body.lastSegmentTitle ?? 'Unknown'}\nLast note: ${body.lastNote ?? 'None'}\nPrevious summary: ${body.previousLessonSummary ?? 'None'}`
         });
 
