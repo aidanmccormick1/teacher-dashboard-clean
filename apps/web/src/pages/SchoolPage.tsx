@@ -5,6 +5,17 @@ import { ApiError, useApiClient } from '../lib/api.js';
 
 type ManualDayOff = { title: string; startDate: string; endDate: string };
 
+const schoolTimezones = [
+  ['America/Los_Angeles', 'Pacific Time'],
+  ['America/Denver', 'Mountain Time'],
+  ['America/Phoenix', 'Arizona Time'],
+  ['America/Chicago', 'Central Time'],
+  ['America/New_York', 'Eastern Time'],
+  ['America/Anchorage', 'Alaska Time'],
+  ['Pacific/Honolulu', 'Hawaii Time'],
+  ['UTC', 'UTC']
+] as const;
+
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -264,13 +275,18 @@ export function SchoolPage() {
           <h2>School timezone</h2>
         </div>
         <div className="profile-actions">
-          <input
+          <select
             className="input"
             value={timezone}
             onChange={(event) => setTimezone(event.target.value)}
-            placeholder="America/Los_Angeles"
             aria-label="School timezone"
-          />
+          >
+            {schoolTimezones.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             disabled={busy || !timezone.trim()}

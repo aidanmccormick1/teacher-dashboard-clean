@@ -203,10 +203,6 @@ export function YearPlanPage() {
           No Class Group schedule is attached. You can plan the shared curriculum by meeting
           sequence until a schedule is added.
         </p>
-      ) : courseSections.length > 1 && !selectedSection ? (
-        <p className="year-plan-schedule-status">
-          Choose a Class Group to project this curriculum onto its actual meeting dates.
-        </p>
       ) : null}
       <CurriculumTimeline
         course={selectedCourse}
