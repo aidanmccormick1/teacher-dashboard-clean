@@ -349,10 +349,7 @@ export function CurriculumTimeline({
     () =>
       Array.from(
         { length: Math.max(80, visibleMeetings, furthestMeeting) },
-        () =>
-          ({}) as {
-            date?: string;
-          }
+        () => ({}),
       ),
     [furthestMeeting, visibleMeetings]
   );
@@ -1201,7 +1198,7 @@ export function CurriculumTimeline({
         });
         const createdUnit = detail.course.units.find((item) => item.id === unit.id);
         const createdLesson = createdUnit?.lessons.find((item) => item.orderIndex === index);
-        if (!createdLesson) throw new Error(`Draft lesson \"${lesson.title}\" was not created`);
+        if (!createdLesson) throw new Error(`Draft lesson "${lesson.title}" was not created`);
         for (const [stepIndex, step] of lesson.steps.entries()) {
           detail = await api.createSegment(createdLesson.id, {
             title: step.title,

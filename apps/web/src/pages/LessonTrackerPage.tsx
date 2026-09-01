@@ -200,9 +200,6 @@ export function LessonTrackerPage() {
     const nextCompletedSegmentIds = options?.completeLesson
       ? lesson.segments.map((segment) => segment.id)
       : completedSegmentIds;
-    const nextStoppedAtSegmentId = options?.completeLesson
-      ? null
-      : (options?.stoppedAtSegmentId ?? stoppedAtSegmentId);
     const nextNote = options?.carryOverNote ?? note;
 
     try {
@@ -251,7 +248,8 @@ export function LessonTrackerPage() {
 
   const changeMeetingTime = (meetingTime: string) => {
     const next = new URLSearchParams(params);
-    meetingTime ? next.set('meetingTime', meetingTime) : next.delete('meetingTime');
+    if (meetingTime) next.set('meetingTime', meetingTime);
+    else next.delete('meetingTime');
     setParams(next);
   };
 

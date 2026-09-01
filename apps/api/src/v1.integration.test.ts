@@ -1579,13 +1579,13 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         headers: teacherHeaders
       });
       expect(lookup.statusCode).toBe(200);
-      expect(lookup.json<{ meeting: unknown | null }>().meeting).toBeNull();
+      expect(lookup.json<{ meeting: null }>().meeting).toBeNull();
       const resume = await app.inject({
         method: 'GET',
         url: `/v1/sections/${data.sectionOneId}/resume`,
         headers: teacherHeaders
       });
-      expect(resume.json<{ state: unknown | null }>().state).toBeNull();
+      expect(resume.json<{ state: null }>().state).toBeNull();
     });
 
     it('carries legacy progress forward as a baseline without allowing it to overwrite history', async () => {
