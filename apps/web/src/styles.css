@@ -8868,6 +8868,362 @@ button:disabled,
   }
 }
 
+/* Full-screen lesson editor: use the same calm, card-based language as the
+   public lesson view while keeping every teacher control available. */
+.lesson-document-page {
+  max-width: 1240px;
+  margin-inline: auto;
+  padding: 6px clamp(12px, 2vw, 28px) 48px;
+}
+
+.lesson-document-page .lesson-workspace-header {
+  position: relative;
+  margin: 0 0 18px;
+  padding: 18px 22px;
+  border: 1px solid rgba(41, 68, 90, 0.11);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 28px rgba(31, 42, 52, 0.055);
+}
+
+.lesson-document-page .lesson-workspace-header > div:first-child {
+  min-width: 0;
+}
+
+.lesson-document-page .lesson-return {
+  margin-bottom: 9px;
+  color: var(--green);
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
+}
+
+.lesson-document-page .lesson-workspace-header .eyebrow {
+  margin: 0;
+  overflow: hidden;
+  color: var(--green);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lesson-document-page .lesson-title-input {
+  margin-top: 6px;
+  padding: 0 4px 4px;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 1.03;
+}
+
+.lesson-document-page .lesson-document {
+  width: 100%;
+  max-width: none;
+  gap: 16px;
+}
+
+.lesson-document-page .lesson-meta {
+  min-height: 42px;
+  margin: 0;
+  padding: 9px 14px;
+  border: 1px solid rgba(41, 68, 90, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.lesson-document-page .lesson-writing-grid.lesson-plan-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 0;
+  border: 0;
+}
+
+.lesson-field-card {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 176px;
+  padding: 19px 20px;
+  border: 1px solid rgba(41, 68, 90, 0.11);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 20px rgba(31, 42, 52, 0.035);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.lesson-field-card:hover,
+.lesson-field-card:focus-within {
+  border-color: rgba(70, 114, 93, 0.25);
+  box-shadow: 0 12px 24px rgba(31, 42, 52, 0.06);
+  transform: translateY(-1px);
+}
+
+.lesson-field-card-wide {
+  grid-column: 1 / -1;
+}
+
+.lesson-field-card-heading {
+  display: grid;
+  gap: 3px;
+}
+
+.lesson-field-card-heading .eyebrow {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.7rem;
+}
+
+.lesson-field-card-heading > span {
+  color: var(--muted);
+  font-size: 0.77rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.lesson-field-card .rich-field-wrap {
+  min-height: 66px;
+}
+
+.lesson-field-card .rich-field {
+  min-height: 66px;
+  padding: 10px 11px;
+  border: 1px solid rgba(41, 68, 90, 0.1);
+  border-radius: 10px;
+  background: rgba(249, 251, 249, 0.7);
+  font-size: 0.92rem;
+}
+
+.lesson-field-card .rich-field:focus {
+  border-color: rgba(70, 114, 93, 0.4);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(70, 114, 93, 0.1);
+}
+
+.lesson-field-card .rich-field-wrap.is-active {
+  padding-top: 38px;
+}
+
+.lesson-field-card .rich-toolbar {
+  top: 0;
+  left: 0;
+}
+
+.lesson-resource-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.75fr) minmax(220px, 1.25fr) auto;
+  gap: 8px;
+}
+
+.lesson-resource-form label,
+.lesson-resource-form .input {
+  min-width: 0;
+  width: 100%;
+}
+
+.lesson-resource-form .input {
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.lesson-resource-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lesson-resource-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border: 1px solid rgba(62, 97, 122, 0.12);
+  border-radius: 10px;
+  background: #f8fbfc;
+}
+
+.lesson-resource-list li > a {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.lesson-resource-list strong,
+.lesson-resource-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lesson-resource-list strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.lesson-resource-list small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.lesson-resource-list .button-link {
+  flex: 0 0 auto;
+  padding: 4px 0;
+  color: var(--red);
+  font-size: 0.75rem;
+}
+
+.lesson-empty-state {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed rgba(41, 68, 90, 0.17);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.lesson-document-page .lesson-steps-section {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid rgba(41, 68, 90, 0.11);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 20px rgba(31, 42, 52, 0.035);
+}
+
+.lesson-document-page .lesson-steps-heading {
+  align-items: end;
+  padding: 0 0 14px;
+  border-bottom: 1px solid rgba(41, 68, 90, 0.1);
+}
+
+.lesson-document-page .lesson-steps-heading > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.lesson-document-page .lesson-steps-heading .eyebrow {
+  margin: 0;
+}
+
+.lesson-document-page .lesson-steps-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.25rem, 2.4vw, 1.65rem);
+  letter-spacing: -0.035em;
+}
+
+.lesson-document-page .lesson-sequence {
+  gap: 8px;
+}
+
+.lesson-document-page .lesson-sequence::before {
+  top: 28px;
+  bottom: 28px;
+  left: 27px;
+}
+
+.lesson-document-page .lesson-step {
+  min-width: 0;
+  padding: 15px 12px;
+  border: 1px solid rgba(41, 68, 90, 0.1);
+  border-radius: 14px;
+  background: #fdfefd;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.lesson-document-page .lesson-step:hover,
+.lesson-document-page .lesson-step.is-selected {
+  border-color: rgba(70, 114, 93, 0.27);
+  background: #f8fbf8;
+  box-shadow: 0 8px 18px rgba(31, 42, 52, 0.05);
+}
+
+.lesson-document-page .step-number {
+  width: 28px;
+  height: 28px;
+  border-color: rgba(70, 114, 93, 0.22);
+  color: var(--green);
+}
+
+.lesson-document-page .section-context {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 17px 19px;
+  border: 1px solid rgba(41, 68, 90, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.lesson-document-page .section-context strong {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lesson-document-page .section-context span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 820px) {
+  .lesson-document-page .lesson-workspace-header {
+    align-items: stretch;
+  }
+
+  .lesson-document-page .lesson-writing-grid.lesson-plan-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lesson-field-card-wide {
+    grid-column: auto;
+  }
+
+  .lesson-resource-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .lesson-document-page {
+    padding-inline: 10px;
+  }
+
+  .lesson-document-page .lesson-workspace-header {
+    padding: 15px;
+    border-radius: 16px;
+  }
+
+  .lesson-document-page .lesson-title-input {
+    font-size: clamp(1.8rem, 10vw, 2.7rem);
+  }
+
+  .lesson-document-page .lesson-steps-section {
+    padding: 15px;
+  }
+
+  .lesson-document-page .lesson-steps-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lesson-document-page .lesson-steps-heading .profile-actions {
+    justify-content: flex-start;
+  }
+
+  .lesson-resource-list li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 /* Keep the public share treatment ahead of the older generic shared-page rules. */
 .shared-lesson-page {
   width: min(100% - 40px, 1080px);

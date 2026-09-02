@@ -144,11 +144,14 @@ function RichField({
         className="rich-field"
         contentEditable
         role="textbox"
+        aria-label={placeholder}
         aria-multiline="true"
         spellCheck
         suppressContentEditableWarning
         data-placeholder={placeholder}
+        onMouseDown={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
         onFocus={() => {
           focused.current = true;
           setActiveFieldId(fieldId);
@@ -196,6 +199,9 @@ export function LessonWorkspacePage() {
     durationMinutes: number;
   }> | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [resourceTitle, setResourceTitle] = useState('');
+  const [resourceUrl, setResourceUrl] = useState('');
+  const [resourceError, setResourceError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [activeRichFieldId, setActiveRichFieldId] = useState<string | null>(null);
@@ -290,6 +296,8 @@ export function LessonWorkspacePage() {
     : `/year-plan?course=${data.course.id}`;
   const updateLesson = (patch: Partial<Workspace['lesson']>) =>
     queue({ ...data, lesson: { ...data.lesson, ...patch } });
+  const updateLessonPlan = (patch: Partial<Workspace['lesson']['lessonPlan']>) =>
+    updateLesson({ lessonPlan: { ...data.lesson.lessonPlan, ...patch } });
   const updateStep = (id: string, patch: Partial<Step>) => {
     const currentStep = data.lesson.segments.find((step) => step.id === id);
     const durationDelta =
@@ -407,6 +415,32 @@ export function LessonWorkspacePage() {
     } catch {
       setStatus('error');
     }
+  };
+  const addResource = () => {
+    const title = resourceTitle.trim();
+    const url = resourceUrl.trim();
+    if (!title || !url) {
+      setResourceError('Add a name and URL for this resource.');
+      return;
+    }
+    try {
+      const parsed = new URL(url);
+      if (!/^https?:$/i.test(parsed.protocol)) throw new Error('Unsupported protocol');
+    } catch {
+      setResourceError('Use a complete resource URL, including https://.');
+      return;
+    }
+    updateLessonPlan({
+      links: [...data.lesson.lessonPlan.links, { title, url }]
+    });
+    setResourceTitle('');
+    setResourceUrl('');
+    setResourceError(null);
+  };
+  const removeResource = (index: number) => {
+    updateLessonPlan({
+      links: data.lesson.lessonPlan.links.filter((_, linkIndex) => linkIndex !== index)
+    });
   };
   const generateStepDraft = async () => {
     try {
@@ -571,233 +605,324 @@ export function LessonWorkspacePage() {
             min
           </label>
         </div>
-        <div className="lesson-writing-grid">
-          <div className="lesson-primary-fields">
-            <label className="workspace-label">
-              Objective
-              <RichField
-                fieldId="objective"
-                value={rich(data.lesson.lessonPlan.objective)}
-                onChange={(objective) =>
-                  updateLesson({ lessonPlan: { ...data.lesson.lessonPlan, objective } })
-                }
-                placeholder="What will students be able to do?"
-                activeFieldId={activeRichFieldId}
-                setActiveFieldId={setActiveRichFieldId}
-              />
-            </label>
-            <label className="workspace-label">
-              Materials
-              <RichField
-                fieldId="materials"
-                value={rich(data.lesson.lessonPlan.materials)}
-                onChange={(materials) =>
-                  updateLesson({ lessonPlan: { ...data.lesson.lessonPlan, materials } })
-                }
-                placeholder="Worksheets, slides, resources…"
-                activeFieldId={activeRichFieldId}
-                setActiveFieldId={setActiveRichFieldId}
-              />
-            </label>
-          </div>
-          <aside className="lesson-notes-panel">
-            <label className="workspace-label">
-              Lesson notes
-              <RichField
-                fieldId="lesson-notes"
-                value={rich(data.lesson.description)}
-                onChange={(description) => updateLesson({ description })}
-                placeholder="Add an overview or teacher notes…"
-                activeFieldId={activeRichFieldId}
-                setActiveFieldId={setActiveRichFieldId}
-              />
-            </label>
-          </aside>
-        </div>
-        <div className="lesson-steps-heading">
-          <h2>Lesson steps</h2>
-          <div className="profile-actions">
-            <button
-              className="secondary"
-              type="button"
-              onClick={() => setGenerationOpen((open) => !open)}
-            >
-              Generate draft
-            </button>
-            <button className="add-step" type="button" onClick={() => void addStep()}>
-              + Add step
-            </button>
-          </div>
-        </div>
-        {generationOpen ? (
-          <aside className="lesson-generation-draft">
-            <strong>Review-first lesson draft</strong>
-            <p>Nothing changes until you explicitly add the proposed steps.</p>
-            {!generatedSteps ? (
-              <button
-                type="button"
-                disabled={isGeneratingSteps}
-                aria-busy={isGeneratingSteps}
-                onClick={() => void generateStepDraft()}
-              >
-                {isGeneratingSteps ? 'Generating…' : 'Generate steps'}
-              </button>
-            ) : (
-              <>
-                <ol>
-                  {generatedSteps.map((step) => (
-                    <li key={`${step.title}-${step.durationMinutes}`}>
-                      <strong>{step.title}</strong> · {step.durationMinutes} min
-                      <span>{step.description}</span>
-                    </li>
-                  ))}
-                </ol>
-                <div className="profile-actions">
-                  <button type="button" onClick={() => void acceptGeneratedSteps()}>
-                    Add approved steps
-                  </button>
-                  <button
-                    className="secondary"
-                    type="button"
-                    onClick={() => setGeneratedSteps(null)}
-                  >
-                    Discard draft
-                  </button>
-                </div>
-              </>
-            )}
-            {isGeneratingSteps ? (
-              <p className="lesson-generation-status" role="status">
-                Generating a lesson-step draft…
-              </p>
-            ) : null}
-            {generationError ? <p className="notice warning">{generationError}</p> : null}
-          </aside>
-        ) : null}
-        <div className="lesson-sequence" aria-label="Lesson sequence">
-          {data.lesson.segments.map((step, index) => (
-            <article
-              className={`lesson-step ${selectedStepId === step.id ? 'is-selected' : ''} ${dragged === step.id ? 'is-dragging' : ''} ${
-                dragOver === step.id && dragged !== step.id ? 'is-drag-target' : ''
-              }`}
-              key={step.id}
-              onPointerDown={(event) => {
-                if (
-                  !(event.target as HTMLElement).closest(
-                    'button, input, select, [contenteditable="true"], summary'
-                  )
-                ) {
-                  setSelectedStepId(step.id);
-                }
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-                if (dragged && dragged !== step.id) setDragOver(step.id);
-              }}
-              onDragLeave={() => {
-                if (dragOver === step.id) setDragOver(null);
-              }}
-              onDrop={() => {
-                if (!dragged || dragged === step.id) return;
-                const items = [...data.lesson.segments];
-                const from = items.findIndex((s) => s.id === dragged);
-                const [moving] = items.splice(from, 1);
-                const targetIndex = items.findIndex((s) => s.id === step.id);
-                if (!moving || targetIndex < 0) return;
-                items.splice(targetIndex, 0, moving);
-                updateLesson({ segments: items });
-                setDragged(null);
-                setDragOver(null);
-              }}
-            >
-              <div className="step-sequence-rail">
-                <span className="step-number" aria-hidden="true">
-                  {index + 1}
-                </span>
-                <button
-                  className="drag-handle"
-                  draggable
-                  type="button"
-                  aria-label={`Drag to reorder ${step.title}`}
-                  onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = 'move';
-                    setDragged(step.id);
-                  }}
-                  onDragEnd={() => {
-                    setDragged(null);
-                    setDragOver(null);
-                  }}
-                >
-                  ⠿
-                </button>
-              </div>
-              <div className="step-main">
-                <div className="step-heading-row">
-                  <input
-                    className="step-title"
-                    value={step.title}
-                    aria-label={`Step ${index + 1} title`}
-                    onFocus={() => setSelectedStepId(step.id)}
-                    onChange={(e) => updateStep(step.id, { title: e.target.value })}
-                    onKeyDown={blurOnEscape}
-                  />
-                  <div className="step-metadata">
-                    <select
-                      value={step.stepType ?? ''}
-                      aria-label={`Step ${index + 1} type`}
-                      onFocus={() => setSelectedStepId(step.id)}
-                      onChange={(e) => updateStep(step.id, { stepType: e.target.value || null })}
-                      onKeyDown={blurOnEscape}
-                    >
-                      <option value="">Add type</option>
-                      {types.map((type) => (
-                        <option key={type}>{type}</option>
-                      ))}
-                    </select>
-                    <label className="step-duration">
-                      <input
-                        className="step-minutes"
-                        type="number"
-                        min="1"
-                        value={step.durationMinutes ?? ''}
-                        aria-label={`Step ${index + 1} duration in minutes`}
-                        onFocus={() => setSelectedStepId(step.id)}
-                        onChange={(e) =>
-                          updateStep(step.id, {
-                            durationMinutes: e.target.value ? Number(e.target.value) : null
-                          })
-                        }
-                        onKeyDown={blurOnEscape}
-                        placeholder="—"
-                      />
-                      min
-                    </label>
-                  </div>
-                </div>
-                <RichField
-                  fieldId={`step-${step.id}`}
-                  value={rich(step.description)}
-                  onChange={(description) => updateStep(step.id, { description })}
-                  placeholder="Describe this step…"
-                  activeFieldId={activeRichFieldId}
-                  setActiveFieldId={setActiveRichFieldId}
+        <div className="lesson-writing-grid lesson-plan-card-grid">
+          <section className="lesson-field-card lesson-field-card-wide">
+            <div className="lesson-field-card-heading">
+              <p className="eyebrow">Overview</p>
+              <span>A short description of this lesson.</span>
+            </div>
+            <RichField
+              fieldId="overview"
+              value={rich(data.lesson.description)}
+              onChange={(description) => updateLesson({ description })}
+              placeholder="Add an overview of this lesson…"
+              activeFieldId={activeRichFieldId}
+              setActiveFieldId={setActiveRichFieldId}
+            />
+          </section>
+          <section className="lesson-field-card lesson-field-card-wide">
+            <div className="lesson-field-card-heading">
+              <p className="eyebrow">Learning objective</p>
+              <span>What will students be able to do?</span>
+            </div>
+            <RichField
+              fieldId="objective"
+              value={rich(data.lesson.lessonPlan.objective)}
+              onChange={(objective) => updateLessonPlan({ objective })}
+              placeholder="Students will be able to…"
+              activeFieldId={activeRichFieldId}
+              setActiveFieldId={setActiveRichFieldId}
+            />
+          </section>
+          <section className="lesson-field-card">
+            <div className="lesson-field-card-heading">
+              <p className="eyebrow">Materials</p>
+              <span>Handouts, supplies, technology…</span>
+            </div>
+            <RichField
+              fieldId="materials"
+              value={rich(data.lesson.lessonPlan.materials)}
+              onChange={(materials) => updateLessonPlan({ materials })}
+              placeholder="Add materials…"
+              activeFieldId={activeRichFieldId}
+              setActiveFieldId={setActiveRichFieldId}
+            />
+          </section>
+          <section className="lesson-field-card">
+            <div className="lesson-field-card-heading">
+              <p className="eyebrow">Student directions</p>
+              <span>What students should do, see, or submit.</span>
+            </div>
+            <RichField
+              fieldId="student-directions"
+              value={rich(data.lesson.lessonPlan.studentDirections)}
+              onChange={(studentDirections) => updateLessonPlan({ studentDirections })}
+              placeholder="Add student directions…"
+              activeFieldId={activeRichFieldId}
+              setActiveFieldId={setActiveRichFieldId}
+            />
+          </section>
+          <section className="lesson-field-card lesson-field-card-wide">
+            <div className="lesson-field-card-heading">
+              <p className="eyebrow">Teacher notes</p>
+              <span>Prompts, differentiation, checks for understanding, and reminders.</span>
+            </div>
+            <RichField
+              fieldId="teacher-notes"
+              value={rich(data.lesson.lessonPlan.teacherNotes)}
+              onChange={(teacherNotes) => updateLessonPlan({ teacherNotes })}
+              placeholder="Add teacher notes…"
+              activeFieldId={activeRichFieldId}
+              setActiveFieldId={setActiveRichFieldId}
+            />
+          </section>
+          <section className="lesson-field-card lesson-field-card-wide lesson-resources-card">
+            <div className="lesson-field-card-heading">
+              <p className="eyebrow">Resources</p>
+              <span>Links are saved with this lesson.</span>
+            </div>
+            <div className="lesson-resource-form">
+              <label>
+                <span className="visually-hidden">Resource label</span>
+                <input
+                  className="input"
+                  value={resourceTitle}
+                  onChange={(event) => setResourceTitle(event.target.value)}
+                  placeholder="Link label"
                 />
-              </div>
-              <details className="step-actions">
-                <summary aria-label={`Actions for ${step.title}`}>•••</summary>
-                <div className="step-actions-menu">
-                  <button type="button" onClick={() => void duplicate(step)}>
-                    Duplicate
-                  </button>
-                  <button className="danger" type="button" onClick={() => void remove(step.id)}>
-                    Delete
+              </label>
+              <label>
+                <span className="visually-hidden">Resource URL</span>
+                <input
+                  className="input"
+                  type="url"
+                  value={resourceUrl}
+                  onChange={(event) => setResourceUrl(event.target.value)}
+                  placeholder="https://…"
+                />
+              </label>
+              <button className="secondary" type="button" onClick={addResource}>
+                Add link
+              </button>
+            </div>
+            {resourceError ? <p className="notice warning">{resourceError}</p> : null}
+            {data.lesson.lessonPlan.links.length ? (
+              <ul className="lesson-resource-list">
+                {data.lesson.lessonPlan.links.map((link, index) => (
+                  <li key={`${link.url}-${index}`}>
+                    <a href={link.url} target="_blank" rel="noreferrer">
+                      <strong>{link.title}</strong>
+                      <small>{link.url}</small>
+                    </a>
+                    <button
+                      className="button-link"
+                      type="button"
+                      onClick={() => removeResource(index)}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="lesson-empty-state">No resources yet. Add a link when you have one.</p>
+            )}
+          </section>
+        </div>
+        <section className="lesson-steps-section" aria-labelledby="lesson-steps-heading">
+          <div className="lesson-steps-heading">
+            <div>
+              <p className="eyebrow">Lesson steps</p>
+              <h2 id="lesson-steps-heading">Build the sequence students will follow.</h2>
+            </div>
+            <div className="profile-actions">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => setGenerationOpen((open) => !open)}
+              >
+                Generate draft
+              </button>
+              <button className="add-step" type="button" onClick={() => void addStep()}>
+                + Add step
+              </button>
+            </div>
+          </div>
+          {generationOpen ? (
+            <aside className="lesson-generation-draft">
+              <strong>Review-first lesson draft</strong>
+              <p>Nothing changes until you explicitly add the proposed steps.</p>
+              {!generatedSteps ? (
+                <button
+                  type="button"
+                  disabled={isGeneratingSteps}
+                  aria-busy={isGeneratingSteps}
+                  onClick={() => void generateStepDraft()}
+                >
+                  {isGeneratingSteps ? 'Generating…' : 'Generate steps'}
+                </button>
+              ) : (
+                <>
+                  <ol>
+                    {generatedSteps.map((step) => (
+                      <li key={`${step.title}-${step.durationMinutes}`}>
+                        <strong>{step.title}</strong> · {step.durationMinutes} min
+                        <span>{step.description}</span>
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="profile-actions">
+                    <button type="button" onClick={() => void acceptGeneratedSteps()}>
+                      Add approved steps
+                    </button>
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => setGeneratedSteps(null)}
+                    >
+                      Discard draft
+                    </button>
+                  </div>
+                </>
+              )}
+              {isGeneratingSteps ? (
+                <p className="lesson-generation-status" role="status">
+                  Generating a lesson-step draft…
+                </p>
+              ) : null}
+              {generationError ? <p className="notice warning">{generationError}</p> : null}
+            </aside>
+          ) : null}
+          <div className="lesson-sequence" aria-label="Lesson sequence">
+            {data.lesson.segments.map((step, index) => (
+              <article
+                className={`lesson-step ${selectedStepId === step.id ? 'is-selected' : ''} ${dragged === step.id ? 'is-dragging' : ''} ${
+                  dragOver === step.id && dragged !== step.id ? 'is-drag-target' : ''
+                }`}
+                key={step.id}
+                onPointerDown={(event) => {
+                  if (
+                    !(event.target as HTMLElement).closest(
+                      'button, input, select, [contenteditable="true"], summary'
+                    )
+                  ) {
+                    setSelectedStepId(step.id);
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dragged && dragged !== step.id) setDragOver(step.id);
+                }}
+                onDragLeave={() => {
+                  if (dragOver === step.id) setDragOver(null);
+                }}
+                onDrop={() => {
+                  if (!dragged || dragged === step.id) return;
+                  const items = [...data.lesson.segments];
+                  const from = items.findIndex((s) => s.id === dragged);
+                  const [moving] = items.splice(from, 1);
+                  const targetIndex = items.findIndex((s) => s.id === step.id);
+                  if (!moving || targetIndex < 0) return;
+                  items.splice(targetIndex, 0, moving);
+                  updateLesson({ segments: items });
+                  setDragged(null);
+                  setDragOver(null);
+                }}
+              >
+                <div className="step-sequence-rail">
+                  <span className="step-number" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <button
+                    className="drag-handle"
+                    draggable
+                    type="button"
+                    aria-label={`Drag to reorder ${step.title}`}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = 'move';
+                      setDragged(step.id);
+                    }}
+                    onDragEnd={() => {
+                      setDragged(null);
+                      setDragOver(null);
+                    }}
+                  >
+                    ⠿
                   </button>
                 </div>
-              </details>
-            </article>
-          ))}
-        </div>
+                <div className="step-main">
+                  <div className="step-heading-row">
+                    <input
+                      className="step-title"
+                      value={step.title}
+                      aria-label={`Step ${index + 1} title`}
+                      onFocus={() => setSelectedStepId(step.id)}
+                      onChange={(e) => updateStep(step.id, { title: e.target.value })}
+                      onKeyDown={blurOnEscape}
+                    />
+                    <div className="step-metadata">
+                      <select
+                        value={step.stepType ?? ''}
+                        aria-label={`Step ${index + 1} type`}
+                        onFocus={() => setSelectedStepId(step.id)}
+                        onChange={(e) => updateStep(step.id, { stepType: e.target.value || null })}
+                        onKeyDown={blurOnEscape}
+                      >
+                        <option value="">Add type</option>
+                        {types.map((type) => (
+                          <option key={type}>{type}</option>
+                        ))}
+                      </select>
+                      <label className="step-duration">
+                        <input
+                          className="step-minutes"
+                          type="number"
+                          min="1"
+                          value={step.durationMinutes ?? ''}
+                          aria-label={`Step ${index + 1} duration in minutes`}
+                          onFocus={() => setSelectedStepId(step.id)}
+                          onChange={(e) =>
+                            updateStep(step.id, {
+                              durationMinutes: e.target.value ? Number(e.target.value) : null
+                            })
+                          }
+                          onKeyDown={blurOnEscape}
+                          placeholder="—"
+                        />
+                        min
+                      </label>
+                    </div>
+                  </div>
+                  <RichField
+                    fieldId={`step-${step.id}`}
+                    value={rich(step.description)}
+                    onChange={(description) => updateStep(step.id, { description })}
+                    placeholder="Describe this step…"
+                    activeFieldId={activeRichFieldId}
+                    setActiveFieldId={setActiveRichFieldId}
+                  />
+                </div>
+                <details className="step-actions">
+                  <summary aria-label={`Actions for ${step.title}`}>•••</summary>
+                  <div className="step-actions-menu">
+                    <button type="button" onClick={() => void duplicate(step)}>
+                      Duplicate
+                    </button>
+                    <button className="danger" type="button" onClick={() => void remove(step.id)}>
+                      Delete
+                    </button>
+                  </div>
+                </details>
+              </article>
+            ))}
+          </div>
+          {!data.lesson.segments.length ? (
+            <p className="lesson-empty-state">
+              No steps yet. Add one or generate a draft to begin.
+            </p>
+          ) : null}
+        </section>
         <aside className="section-context">
           <strong>Sections using this lesson</strong>
           {data.sections.map((section) => (

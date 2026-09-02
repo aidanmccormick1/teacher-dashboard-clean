@@ -153,12 +153,6 @@ export function SharedLessonPage() {
         </div>
       </section>
 
-      <nav className="shared-lesson-nav" aria-label="Lesson sections">
-        <a href="#overview">At a glance</a>
-        <a href="#lesson-flow">Steps</a>
-        <a href="#join-teacherdesk">TeacherDesk</a>
-      </nav>
-
       <section className="shared-overview" id="overview">
         <div className="shared-overview-grid">
           {lesson.objective ? (
