@@ -8,6 +8,7 @@ import type {
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { normalizeImportedCourseVariants } from '../lib/scheduleImport.js';
+import { timeRange } from '../lib/today.js';
 
 type Course = CourseDetailResponse['course'];
 
@@ -157,8 +158,7 @@ function ScheduleImportPanel({
                   <strong>{item.name}</strong>
                   <span>{item.period}</span>
                   <small>
-                    {item.days.join(', ')} · {item.time ?? 'time TBD'}
-                    {item.endTime ? `–${item.endTime}` : ''}
+                    {item.days.join(', ')} · {timeRange(item.time, item.endTime)}
                   </small>
                   <em className={updatesExisting ? 'schedule-import-match' : 'schedule-import-new'}>
                     {updatesExisting

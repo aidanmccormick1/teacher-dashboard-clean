@@ -129,6 +129,25 @@ function nextOrder(items: Array<{ orderIndex: number }>) {
   return items.reduce((largest, item) => Math.max(largest, item.orderIndex), -1) + 1;
 }
 
+function distributeMeetingSpans(start: number, meetingCount: number, lessonCount: number) {
+  if (lessonCount < 1) return [];
+  if (lessonCount > meetingCount) {
+    return Array.from({ length: lessonCount }, (_, index) => ({
+      start: start + Math.floor((index * meetingCount) / lessonCount),
+      span: 1
+    }));
+  }
+  const base = Math.floor(meetingCount / lessonCount);
+  const remainder = meetingCount % lessonCount;
+  let cursor = start;
+  return Array.from({ length: lessonCount }, (_, index) => {
+    const span = Math.max(1, base + (index < remainder ? 1 : 0));
+    const range = { start: cursor, span };
+    cursor += span;
+    return range;
+  });
+}
+
 export function CurriculumTimeline({
   course,
   selectedSection,
@@ -172,6 +191,8 @@ export function CurriculumTimeline({
   const [manualUnitTitle, setManualUnitTitle] = useState('');
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftMeetingCount, setDraftMeetingCount] = useState('');
+  const [draftMinutesPerMeeting, setDraftMinutesPerMeeting] = useState('');
+  const [unitGenerationAttempted, setUnitGenerationAttempted] = useState(false);
   const [lessonGeneratorUnitId, setLessonGeneratorUnitId] = useState<string | null>(null);
   const [lessonGeneratorPrompt, setLessonGeneratorPrompt] = useState('');
   const [lessonGeneratorCount, setLessonGeneratorCount] = useState('5');
@@ -336,20 +357,19 @@ export function CurriculumTimeline({
         ) + 1
       )
     : 52;
-  const visibleMeetings =
-    zoom === 'year'
-      ? Math.max(36, Math.min(furthestMeeting, 80))
-      : zoom === 'quarter'
-        ? Math.max(28, Math.min(furthestMeeting, 52))
-        : zoom === 'month'
-          ? Math.max(18, Math.min(furthestMeeting, 32))
-          : Math.max(schoolYearWeeks, furthestMeeting);
+  // Zoom changes density, never scope. Every view represents the complete
+  // instructional year so moving between Year, Quarter, Month, and Week cannot
+  // hide later meetings or change the meeting index beneath a lesson.
+  const visibleMeetings = Math.max(
+    furthestMeeting,
+    selectedSection ? sectionMeetings.length : schoolYearWeeks
+  );
   const slotWidth = zoom === 'year' ? 34 : zoom === 'quarter' ? 48 : zoom === 'month' ? 78 : 108;
   const courseMeetingSlots = useMemo(
     () =>
       Array.from(
         { length: Math.max(80, visibleMeetings, furthestMeeting) },
-        (): { date?: string } => ({}),
+        (): { date?: string } => ({})
       ),
     [furthestMeeting, visibleMeetings]
   );
@@ -618,6 +638,23 @@ export function CurriculumTimeline({
       setContextMenu(null);
     } catch (err) {
       setStatus(err instanceof ApiError ? err.message : 'Could not duplicate this item');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const renameUnit = async (unitId: string) => {
+    const unit = course.units.find((candidate) => candidate.id === unitId);
+    if (!unit || saving) return;
+    const title = window.prompt('Edit unit name', unit.title)?.trim();
+    setContextMenu(null);
+    if (!title || title === unit.title) return;
+    try {
+      setSaving(true);
+      onCourseChange(await api.updateUnit(unit.id, { title }));
+      setStatus('Unit name updated');
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not update the unit name');
     } finally {
       setSaving(false);
     }
@@ -1146,7 +1183,20 @@ export function CurriculumTimeline({
 
   const createDraft = async () => {
     const meetingCount = Number(draftMeetingCount);
-    if (draftPrompt.trim().length < 8 || !Number.isInteger(meetingCount)) return;
+    const minutesPerMeeting = Number(draftMinutesPerMeeting);
+    setUnitGenerationAttempted(true);
+    if (draftPrompt.trim().length < 8) {
+      setStatus('Describe what students should learn before generating the unit plan.');
+      return;
+    }
+    if (!Number.isInteger(meetingCount) || meetingCount < 2 || meetingCount > 30) {
+      setStatus('Add the number of class meetings for this unit (2–30).');
+      return;
+    }
+    if (!Number.isInteger(minutesPerMeeting) || minutesPerMeeting < 10 || minutesPerMeeting > 240) {
+      setStatus('Add the number of minutes in each class meeting (10–240).');
+      return;
+    }
     try {
       setSaving(true);
       setIsGeneratingUnit(true);
@@ -1154,7 +1204,7 @@ export function CurriculumTimeline({
         await api.generateUnitDraft({
           courseName: course.name,
           gradeLevel: course.gradeLevel,
-          prompt: draftPrompt.trim(),
+          prompt: `${draftPrompt.trim()} Each class meeting is ${minutesPerMeeting} minutes.`,
           meetingCount: clamp(meetingCount, 2, 30)
         })
       );
@@ -1182,12 +1232,20 @@ export function CurriculumTimeline({
       });
       const unit = detail.course.units.find((item) => item.title === draft.unit.title);
       if (!unit) throw new Error('Draft unit was not created');
+      const lessonRanges = distributeMeetingSpans(
+        unit.plannedStartMeeting ?? 0,
+        draft.unit.meetingCount,
+        draft.unit.lessons.length
+      );
       for (const [index, lesson] of draft.unit.lessons.entries()) {
+        const range = lessonRanges[index];
         detail = await api.createLesson(unit.id, {
           title: lesson.title,
           description: lesson.description,
           estimatedDurationMinutes: lesson.estimatedDurationMinutes,
           orderIndex: index,
+          plannedStartMeeting: range?.start ?? unit.plannedStartMeeting ?? 0,
+          plannedMeetingCount: range?.span ?? 1,
           lessonPlan: {
             objective: lesson.objective ?? null,
             teacherNotes: null,
@@ -1212,6 +1270,9 @@ export function CurriculumTimeline({
       onCourseChange(detail);
       setDraft(null);
       setDraftPrompt('');
+      setDraftMeetingCount('');
+      setDraftMinutesPerMeeting('');
+      setUnitGenerationAttempted(false);
       setStatus('Draft added to the timeline');
     } catch (err) {
       setStatus(err instanceof ApiError ? err.message : 'Could not add the draft');
@@ -1309,7 +1370,9 @@ export function CurriculumTimeline({
                   <label className="curriculum-meeting-count">
                     <span>Class meetings</span>
                     <input
-                      className="curriculum-meeting-input"
+                      className={`curriculum-meeting-input${
+                        unitGenerationAttempted && !draftMeetingCount.trim() ? ' is-missing' : ''
+                      }`}
                       type="number"
                       min="2"
                       max="30"
@@ -1317,24 +1380,36 @@ export function CurriculumTimeline({
                       onChange={(event) => setDraftMeetingCount(event.target.value)}
                       placeholder="e.g. 6"
                       aria-label="How many class meetings this unit should cover"
+                      aria-invalid={unitGenerationAttempted && !draftMeetingCount.trim()}
+                    />
+                  </label>
+                  <label className="curriculum-meeting-count">
+                    <span>Minutes per meeting</span>
+                    <input
+                      className={`curriculum-meeting-input${
+                        unitGenerationAttempted && !draftMinutesPerMeeting.trim()
+                          ? ' is-missing'
+                          : ''
+                      }`}
+                      type="number"
+                      min="10"
+                      max="240"
+                      value={draftMinutesPerMeeting}
+                      onChange={(event) => setDraftMinutesPerMeeting(event.target.value)}
+                      placeholder="e.g. 50"
+                      aria-label="How many minutes are in each class meeting"
+                      aria-invalid={unitGenerationAttempted && !draftMinutesPerMeeting.trim()}
                     />
                   </label>
                   <button
                     type="button"
-                    disabled={
-                      saving ||
-                      isGeneratingUnit ||
-                      draftPrompt.trim().length < 8 ||
-                      !Number.isInteger(Number(draftMeetingCount)) ||
-                      Number(draftMeetingCount) < 2 ||
-                      Number(draftMeetingCount) > 30
-                    }
+                    disabled={saving || isGeneratingUnit}
                     onClick={() => void createDraft()}
                   >
                     {isGeneratingUnit ? 'Generating plan…' : 'Generate plan'}
                   </button>
                 </div>
-                <small>Choose the number of times this course will meet for the unit.</small>
+                <small>Tell us how often the class meets and how long each meeting lasts.</small>
               </div>
             )
           ) : null}
@@ -1398,6 +1473,29 @@ export function CurriculumTimeline({
           </div>
         ) : null}
       </div>
+
+      {schoolYearSettings ? (
+        <div className="curriculum-year-range" aria-label="Instructional year range">
+          <span>
+            <strong>Start</strong>{' '}
+            {new Date(`${schoolYearSettings.startDate}T12:00:00`).toLocaleDateString(undefined, {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            })}
+          </span>
+          <span aria-hidden="true">→</span>
+          <span>
+            <strong>End</strong>{' '}
+            {new Date(`${schoolYearSettings.endDate}T12:00:00`).toLocaleDateString(undefined, {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            })}
+          </span>
+          {selectedSection ? <small>{sectionMeetings.length} class meetings</small> : null}
+        </div>
+      ) : null}
 
       {!meetings.length && selectedSection ? (
         <div className="curriculum-setup-callout">
@@ -1499,7 +1597,16 @@ export function CurriculumTimeline({
             >
               Open lesson
             </button>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={saving}
+              onClick={() => void renameUnit(contextMenu.id)}
+            >
+              Edit unit name
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -1678,7 +1785,8 @@ export function CurriculumTimeline({
                   {lessonPlanDraft.links.map((link, index) => (
                     <li key={`${link.url}-${index}`}>
                       <a href={link.url} target="_blank" rel="noreferrer">
-                        {link.title}
+                        <strong>{link.title}</strong>
+                        <small>{link.url}</small>
                       </a>
                       <button
                         className="button-link"
@@ -2162,6 +2270,7 @@ export function CurriculumTimeline({
                           <div
                             key={lesson.id}
                             className="curriculum-track-row curriculum-lesson-track-row"
+                            data-selected={selectedLesson ? 'true' : undefined}
                           >
                             <article
                               className={[

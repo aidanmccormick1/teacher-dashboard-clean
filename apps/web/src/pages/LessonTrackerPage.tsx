@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type { ClassroomResumeResponse, DashboardTodayResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { timeRange } from '../lib/today.js';
 
 type LessonTrackerDraft = {
   note: string;
@@ -288,8 +289,7 @@ export function LessonTrackerPage() {
                 key={`${meeting.sectionId}-${meeting.meetingTime ?? 'unscheduled'}`}
                 value={meeting.meetingTime ?? ''}
               >
-                {meeting.meetingTime ?? 'Time TBD'}
-                {meeting.endTime ? ` – ${meeting.endTime}` : ''}
+                {timeRange(meeting.meetingTime, meeting.endTime)}
               </option>
             ))}
           </select>

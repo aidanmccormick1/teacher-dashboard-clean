@@ -1100,21 +1100,28 @@ export async function v1Routes(app: FastifyInstance) {
           .where(eq(lessons.unitId, unitId))
           .orderBy(desc(lessons.orderIndex))
           .limit(1);
-        const span = Math.max(1, Math.floor(body.plannedMeetingCount / lessonTitles.length));
+        const baseSpan = Math.floor(body.plannedMeetingCount / lessonTitles.length);
+        const remainder = body.plannedMeetingCount % lessonTitles.length;
+        let meetingCursor = body.plannedStartMeeting;
         await tx.insert(lessons).values(
-          lessonTitles.map((title, index) => ({
-            unitId,
-            title,
-            description: null,
-            estimatedDurationMinutes: 45,
-            orderIndex: (lastLesson?.orderIndex ?? -1) + 1 + index,
-            plannedStartMeeting:
-              body.plannedStartMeeting + Math.min(body.plannedMeetingCount - 1, index * span),
-            plannedMeetingCount:
-              index === lessonTitles.length - 1
-                ? Math.max(1, body.plannedMeetingCount - span * index)
-                : span
-          }))
+          lessonTitles.map((title, index) => {
+            const span = Math.max(1, baseSpan + (index < remainder ? 1 : 0));
+            const plannedStartMeeting =
+              baseSpan === 0
+                ? body.plannedStartMeeting +
+                  Math.floor((index * body.plannedMeetingCount) / lessonTitles.length)
+                : meetingCursor;
+            if (baseSpan > 0) meetingCursor += span;
+            return {
+              unitId,
+              title,
+              description: null,
+              estimatedDurationMinutes: 45,
+              orderIndex: (lastLesson?.orderIndex ?? -1) + 1 + index,
+              plannedStartMeeting,
+              plannedMeetingCount: span
+            };
+          })
         );
       });
       const detail = await buildCourseDetail(user.id, params.courseId);
@@ -3413,6 +3420,7 @@ export async function v1Routes(app: FastifyInstance) {
           description: row.description,
           objective: row.lessonPlan.objective,
           materials: row.lessonPlan.materials,
+          links: row.lessonPlan.links,
           estimatedDurationMinutes: row.estimatedDurationMinutes,
           steps: segments.map((segment) => ({
             title: segment.title,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ClassroomResumeResponse, DashboardTodayResponse } from '@teacheros/contracts';
 
-import { classroomPath, lessonDisplay, priorityMeeting } from './today.js';
+import { classroomPath, formatTime, lessonDisplay, priorityMeeting, timeRange } from './today.js';
 
 const today = {
   date: '2026-09-14',
@@ -33,6 +33,13 @@ const today = {
 } satisfies DashboardTodayResponse;
 
 describe('Today helpers', () => {
+  it('formats meeting times with AM/PM instead of 24-hour time', () => {
+    expect(formatTime('08:00')).toBe('8 AM');
+    expect(formatTime('20:00')).toBe('8 PM');
+    expect(formatTime('13:35:00')).toBe('1:35 PM');
+    expect(timeRange('08:00', '09:15')).toBe('8 AM – 9:15 AM');
+  });
+
   it('prioritizes current, then next, from the centralized projection', () => {
     expect(priorityMeeting(today)?.sectionName).toBe('5C');
     expect(

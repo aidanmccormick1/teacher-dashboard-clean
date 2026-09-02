@@ -4,6 +4,12 @@ import type { CalendarImportResponse, SchoolCalendarResponse } from '@teacheros/
 import { ApiError, useApiClient } from '../lib/api.js';
 
 type ManualDayOff = { title: string; startDate: string; endDate: string };
+type SavedEventGroup = {
+  title: string;
+  type: SchoolCalendarResponse['events'][number]['type'];
+  startDate: string;
+  endDate: string;
+};
 
 const schoolTimezones = [
   ['America/Los_Angeles', 'Pacific Time'],
@@ -46,32 +52,24 @@ function savedEventGroups(events: SchoolCalendarResponse['events']) {
   const sorted = [...events].sort((a, b) =>
     `${a.type}:${a.label}:${a.date}`.localeCompare(`${b.type}:${b.label}:${b.date}`)
   );
-  return sorted.reduce<Array<{ title: string; type: string; startDate: string; endDate: string }>>(
-    (groups, event) => {
-      const previous = groups.at(-1);
-      const distance = previous
-        ? (new Date(`${event.date}T12:00:00Z`).getTime() -
-            new Date(`${previous.endDate}T12:00:00Z`).getTime()) /
-          86400000
-        : Infinity;
-      if (
-        previous &&
-        previous.title === event.label &&
-        previous.type === event.type &&
-        distance <= 3
-      )
-        previous.endDate = event.date;
-      else
-        groups.push({
-          title: event.label,
-          type: event.type,
-          startDate: event.date,
-          endDate: event.date
-        });
-      return groups;
-    },
-    []
-  );
+  return sorted.reduce<SavedEventGroup[]>((groups, event) => {
+    const previous = groups.at(-1);
+    const distance = previous
+      ? (new Date(`${event.date}T12:00:00Z`).getTime() -
+          new Date(`${previous.endDate}T12:00:00Z`).getTime()) /
+        86400000
+      : Infinity;
+    if (previous && previous.title === event.label && previous.type === event.type && distance <= 3)
+      previous.endDate = event.date;
+    else
+      groups.push({
+        title: event.label,
+        type: event.type,
+        startDate: event.date,
+        endDate: event.date
+      });
+    return groups;
+  }, []);
 }
 
 export function SchoolPage() {
@@ -94,6 +92,8 @@ export function SchoolPage() {
   const [manualDaysOff, setManualDaysOff] = useState<ManualDayOff[]>([
     { title: '', startDate: '', endDate: '' }
   ]);
+  const [editingCalendarEventKey, setEditingCalendarEventKey] = useState<string | null>(null);
+  const [savedEventDraft, setSavedEventDraft] = useState<SavedEventGroup | null>(null);
   const [timezone, setTimezone] = useState('');
 
   const load = useCallback(async () => {
@@ -242,6 +242,60 @@ export function SchoolPage() {
   const savedDaysOff = savedGroups.filter((event) => event.type === 'no_school');
   const savedSpecialDays = savedGroups.filter((event) => event.type !== 'no_school');
   const hasExistingCalendar = Boolean(calendar?.schoolYear || calendar?.events.length);
+  const beginEditingSavedEvent = (event: SavedEventGroup) => {
+    setEditingCalendarEventKey(`${event.type}:${event.title}:${event.startDate}:${event.endDate}`);
+    setSavedEventDraft({ ...event });
+    setError(null);
+    setSaved(null);
+  };
+  const saveEditedEvent = async () => {
+    if (!calendar?.schoolYear || !editingCalendarEventKey || !savedEventDraft) return;
+    if (!savedEventDraft.title.trim() || !savedEventDraft.startDate || !savedEventDraft.endDate) {
+      setError('Add a name, start date, and end date for this calendar event.');
+      return;
+    }
+    if (savedEventDraft.endDate < savedEventDraft.startDate) {
+      setError('The event end date must be on or after its start date.');
+      return;
+    }
+    const events: CalendarImportResponse['events'] = savedGroups.map((event) => {
+      const key = `${event.type}:${event.title}:${event.startDate}:${event.endDate}`;
+      const next = key === editingCalendarEventKey ? savedEventDraft : event;
+      return {
+        title: next.title.trim(),
+        startDate: next.startDate,
+        endDate: next.endDate,
+        type: next.type,
+        affectsInstruction: true,
+        scheduleKnown: next.type !== 'no_school',
+        confidence: 100,
+        sourceText: 'Edited in School Calendar',
+        needsReview: false
+      };
+    });
+    try {
+      setBusy(true);
+      setError(null);
+      setCalendar(
+        await api.commitSchoolCalendar({
+          mode: 'replace',
+          schoolYear: {
+            startDate: calendar.schoolYear.startDate,
+            endDate: calendar.schoolYear.endDate
+          },
+          events,
+          overrides: []
+        })
+      );
+      setEditingCalendarEventKey(null);
+      setSavedEventDraft(null);
+      setSaved('Calendar event updated.');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not update the calendar event');
+    } finally {
+      setBusy(false);
+    }
+  };
   const saveTimezone = async () => {
     try {
       setBusy(true);
@@ -502,7 +556,102 @@ export function SchoolPage() {
                     Schedule Days
                   </h2>
                 </div>
-                <span className="muted">Manage calendar details below.</span>
+                <div className="saved-calendar-event-groups">
+                  {[...savedDaysOff, ...savedSpecialDays].map((event) => {
+                    const key = `${event.type}:${event.title}:${event.startDate}:${event.endDate}`;
+                    const editing = editingCalendarEventKey === key ? savedEventDraft : null;
+                    return (
+                      <div className="saved-calendar-event" key={key}>
+                        {editing ? (
+                          <div className="saved-calendar-event-form">
+                            <label>
+                              Name
+                              <input
+                                className="input"
+                                value={editing.title}
+                                onChange={(input) =>
+                                  setSavedEventDraft({
+                                    ...editing,
+                                    title: input.target.value
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Starts
+                              <input
+                                className="input"
+                                type="date"
+                                value={editing.startDate}
+                                onChange={(input) =>
+                                  setSavedEventDraft({
+                                    ...editing,
+                                    startDate: input.target.value
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Ends
+                              <input
+                                className="input"
+                                type="date"
+                                value={editing.endDate}
+                                onChange={(input) =>
+                                  setSavedEventDraft({
+                                    ...editing,
+                                    endDate: input.target.value
+                                  })
+                                }
+                              />
+                            </label>
+                            <div className="profile-actions">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void saveEditedEvent()}
+                              >
+                                Save
+                              </button>
+                              <button
+                                className="secondary"
+                                type="button"
+                                onClick={() => {
+                                  setEditingCalendarEventKey(null);
+                                  setSavedEventDraft(null);
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div>
+                              <strong>{event.title}</strong>
+                              <span>{dateRange(event.startDate, event.endDate)}</span>
+                              <small>
+                                {event.type === 'no_school'
+                                  ? 'No school'
+                                  : event.type.replaceAll('_', ' ')}
+                              </small>
+                            </div>
+                            <button
+                              className="secondary"
+                              type="button"
+                              onClick={() => beginEditingSavedEvent(event)}
+                            >
+                              Edit
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {!savedGroups.length ? (
+                    <span className="muted">No breaks or special days have been added.</span>
+                  ) : null}
+                </div>
               </article>
             </section>
           ) : null}

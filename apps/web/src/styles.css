@@ -3919,6 +3919,53 @@ body.course-editor-open {
   margin: 4px 0 0;
 }
 
+.saved-calendar-event-groups {
+  display: grid;
+  gap: 8px;
+}
+
+.saved-calendar-event {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.saved-calendar-event > div:first-child:not(.saved-calendar-event-form) {
+  display: grid;
+  gap: 2px;
+}
+
+.saved-calendar-event span,
+.saved-calendar-event small {
+  color: var(--muted);
+}
+
+.saved-calendar-event small {
+  text-transform: capitalize;
+}
+
+.saved-calendar-event-form {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(140px, 1fr) repeat(2, minmax(130px, 0.65fr));
+  gap: 8px;
+}
+
+.saved-calendar-event-form label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.saved-calendar-event-form .profile-actions {
+  grid-column: 1 / -1;
+}
+
 .dashboard-grid {
   grid-template-columns: minmax(0, 1.38fr) minmax(330px, 0.82fr);
   align-items: start;
@@ -7152,6 +7199,29 @@ button,
 }
 .shared-lesson h3 {
   margin: 0 0 5px;
+}
+
+.shared-lesson-resources ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shared-lesson-resources a {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f9fcfb;
+  text-decoration: none;
+}
+
+.shared-lesson-resources a span {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .classroom-today {

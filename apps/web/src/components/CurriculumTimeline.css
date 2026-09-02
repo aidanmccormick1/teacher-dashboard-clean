@@ -68,12 +68,40 @@
   gap: 3px;
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 500;
 }
 
 .curriculum-meeting-input {
   width: 100%;
   min-width: 0;
+}
+
+.curriculum-meeting-input.is-missing {
+  border-color: #c96d56;
+  background: #fff5f1;
+  box-shadow: 0 0 0 2px rgba(201, 109, 86, 0.12);
+}
+
+.curriculum-year-range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfcfb;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.curriculum-year-range strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.curriculum-year-range small {
+  margin-left: auto;
 }
 
 .curriculum-pacing {
@@ -240,6 +268,16 @@
   gap: 8px;
 }
 
+.lesson-plan-link-form {
+  grid-template-columns: minmax(140px, 0.45fr) minmax(200px, 1fr) auto;
+  align-items: center;
+}
+
+.lesson-plan-link-form .input {
+  min-height: 34px;
+  padding-block: 6px;
+}
+
 .lesson-step-form {
   grid-template-columns: minmax(130px, 0.65fr) 95px minmax(180px, 1fr) auto;
 }
@@ -251,15 +289,38 @@
 
 .lesson-plan-resources ul {
   display: grid;
-  gap: 5px;
+  gap: 6px;
   margin: 0;
-  padding-left: 18px;
+  padding: 0;
+  list-style: none;
 }
 
 .lesson-plan-resources li {
   display: flex;
-  gap: 9px;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.lesson-plan-resources li a {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+
+.lesson-plan-resources li a small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lesson-plan-save {
@@ -485,6 +546,7 @@
 
 .curriculum-unit-bar {
   height: var(--timeline-block-height);
+  overflow: visible;
   border-radius: 7px;
   box-shadow: 0 1px 3px rgba(41, 68, 90, 0.08);
 }
@@ -492,8 +554,40 @@
 .curriculum-unit-content {
   align-content: center;
   gap: 2px;
+  overflow: hidden;
+  border-radius: inherit;
+  padding-inline: 10px;
   padding-block: 3px;
   line-height: 1.05;
+}
+
+.curriculum-unit-grab {
+  position: absolute;
+  top: 50%;
+  left: -27px;
+  z-index: 3;
+  width: 25px;
+  height: 30px;
+  padding: 0;
+  transform: translateY(-50%);
+  opacity: 0;
+}
+
+.curriculum-unit-bar:hover .curriculum-unit-grab,
+.curriculum-unit-grab:focus-visible,
+.curriculum-unit-bar.dragging .curriculum-unit-grab {
+  opacity: 1;
+}
+
+.curriculum-unit-resize {
+  position: absolute;
+  top: 50%;
+  right: -6px;
+  z-index: 3;
+  width: 12px;
+  height: 28px;
+  padding: 0;
+  transform: translateY(-50%);
 }
 
 .curriculum-unit-content strong {
@@ -626,14 +720,12 @@
 .curriculum-split-view {
   grid-template-columns: clamp(320px, 29vw, 440px) minmax(0, 1fr);
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: visible;
   align-items: start;
 }
 
 .year-plan-canvas-page .curriculum-split-view {
-  height: clamp(480px, calc(100vh - 190px), 720px);
   min-height: 480px;
-  max-height: 720px;
 }
 
 .curriculum-tree-scroll {
@@ -844,6 +936,13 @@
   min-height: var(--timeline-lesson-row-height);
   padding-block: 3px;
   border-top: 1px solid rgba(62, 97, 122, 0.055);
+}
+
+.curriculum-lesson-track-row[data-selected='true'] {
+  background: #edf4f7;
+  box-shadow:
+    inset 0 1px rgba(62, 97, 122, 0.08),
+    inset 0 -1px rgba(62, 97, 122, 0.08);
 }
 
 .curriculum-lesson-bar {

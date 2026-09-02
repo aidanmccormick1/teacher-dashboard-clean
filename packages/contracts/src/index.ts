@@ -824,6 +824,7 @@ export const PublicLessonResponseSchema = z.object({
     description: z.string().nullable(),
     objective: z.string().nullable(),
     materials: z.string().nullable(),
+    links: LessonPlanSchema.shape.links,
     estimatedDurationMinutes: z.number().int().positive().nullable(),
     steps: z.array(
       z.object({

@@ -7,9 +7,7 @@ import type {
   GetScheduleResponse
 } from '@teacheros/contracts';
 import { ApiError, useApiClient } from '../lib/api.js';
-
-const timeRange = (start: string | null, end: string | null) =>
-  start ? `${start} – ${end ?? 'end TBD'}` : 'Time TBD';
+import { timeRange } from '../lib/today.js';
 
 export function ClassroomPage() {
   const api = useApiClient();
@@ -576,7 +574,7 @@ export function ClassroomPage() {
           <strong>
             {nextClass.courseName} · {nextClass.sectionName}
           </strong>
-          <span>{nextClass.meetingTime ?? 'Time TBD'}</span>
+          <span>{timeRange(nextClass.meetingTime, nextClass.endTime)}</span>
         </section>
       ) : null}
     </main>

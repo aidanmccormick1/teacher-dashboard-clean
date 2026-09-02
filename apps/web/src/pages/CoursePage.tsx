@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { CourseDetailResponse, GetScheduleResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { timeRange } from '../lib/today.js';
 
 type LessonDraft = { title: string; description: string; duration: string };
 type SegmentDraft = { title: string; description: string; duration: string };
@@ -372,7 +373,7 @@ export function CoursePage() {
                           {section.meetings
                             .map(
                               (meeting) =>
-                                `${meeting.day} ${meeting.time ?? '—'}–${meeting.endTime ?? '—'}`
+                                `${meeting.day} ${timeRange(meeting.time, meeting.endTime)}`
                             )
                             .join(' · ') || 'No meeting times yet'}
                         </span>

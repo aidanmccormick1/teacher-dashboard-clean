@@ -49,6 +49,21 @@ export function SharedLessonPage() {
       <div dangerouslySetInnerHTML={{ __html: safeHtml(data.lesson.objective) }} />
       <h2>Materials</h2>
       <div dangerouslySetInnerHTML={{ __html: safeHtml(data.lesson.materials) }} />
+      {data.lesson.links.length ? (
+        <section className="shared-lesson-resources" aria-labelledby="shared-resources-heading">
+          <h2 id="shared-resources-heading">Resources</h2>
+          <ul>
+            {data.lesson.links.map((link) => (
+              <li key={link.url}>
+                <a href={link.url} target="_blank" rel="noreferrer">
+                  <strong>{link.title}</strong>
+                  <span>{new URL(link.url).hostname.replace(/^www\./, '')}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <h2>Lesson</h2>
       {data.lesson.steps.map((step, index) => (
         <section key={`${step.title}-${index}`}>

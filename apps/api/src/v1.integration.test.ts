@@ -622,13 +622,18 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       expect(publicLesson.statusCode).toBe(200);
       const sharePayload = publicLesson.json<{
         courseName: string;
-        lesson: { title: string; steps: Array<{ title: string }> };
+        lesson: {
+          title: string;
+          links: Array<{ title: string; url: string }>;
+          steps: Array<{ title: string }>;
+        };
       }>();
       expect(sharePayload).toEqual({
         courseName: 'Algebra I',
         unitTitle: 'Linear Equations',
         lesson: expect.objectContaining({
           title: 'Solving for X',
+          links: [],
           steps: expect.arrayContaining([expect.objectContaining({ title: 'Guided practice' })])
         })
       });

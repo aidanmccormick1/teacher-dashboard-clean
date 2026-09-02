@@ -42,7 +42,19 @@ export function lessonDisplay(
   };
 }
 
+export function formatTime(value: string | null): string {
+  if (!value) return 'Time TBD';
+  const match = /^(\d{1,2}):(\d{2})/.exec(value);
+  if (!match) return value;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return value;
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}${minutes ? `:${String(minutes).padStart(2, '0')}` : ''} ${period}`;
+}
+
 export function timeRange(start: string | null, end: string | null): string {
   if (!start) return 'Time TBD';
-  return `${start} – ${end ?? 'end TBD'}`;
+  return `${formatTime(start)} – ${end ? formatTime(end) : 'end TBD'}`;
 }
