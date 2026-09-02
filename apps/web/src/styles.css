@@ -7792,6 +7792,15 @@ button:disabled,
   padding: 10px 12px;
 }
 
+.lesson-document-page .rich-field-wrap.is-active {
+  padding-top: 38px;
+}
+
+.lesson-document-page .rich-field-wrap .rich-toolbar {
+  top: 0;
+  left: 4px;
+}
+
 @media (max-width: 760px) {
   .lesson-document-page .lesson-workspace-header {
     gap: 10px;

@@ -69,7 +69,7 @@ function RichField({
     }
   }, [value]);
   return (
-    <div className="rich-field-wrap" ref={wrapRef}>
+    <div className={`rich-field-wrap${active ? ' is-active' : ''}`} ref={wrapRef}>
       <div className="rich-toolbar" aria-label="Formatting" aria-hidden={!active} hidden={!active}>
         <button
           type="button"

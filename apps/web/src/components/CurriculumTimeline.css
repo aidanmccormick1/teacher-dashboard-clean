@@ -43,17 +43,55 @@
 
 .curriculum-unit-generator {
   display: grid;
-  gap: 8px;
-  max-width: 860px;
-  padding: 12px;
+  gap: 12px;
+  max-width: 1080px;
+  padding: 16px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: #fbfcfb;
+  border-radius: 10px;
+  background: #f8fbf9;
 }
 
 .curriculum-unit-generator > div:first-child {
   display: grid;
-  gap: 2px;
+  gap: 4px;
+}
+
+.curriculum-unit-generator > div:first-child strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.curriculum-unit-generator .curriculum-unit-composer {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 132px 156px auto;
+  align-items: end;
+  width: 100%;
+  max-width: none;
+  gap: 12px;
+}
+
+.curriculum-generator-prompt,
+.curriculum-unit-generator .curriculum-meeting-count {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.curriculum-unit-generator .input,
+.curriculum-unit-generator .curriculum-meeting-input {
+  box-sizing: border-box;
+  min-height: 42px;
+  border-color: #c9d6ce;
+  background: #fff;
+}
+
+.curriculum-unit-generator .curriculum-unit-composer > button {
+  min-height: 42px;
+  padding: 10px 15px;
+  white-space: nowrap;
 }
 
 .curriculum-unit-generator span,
@@ -360,6 +398,10 @@
 
   .curriculum-unit-composer {
     display: grid;
+  }
+
+  .curriculum-unit-generator .curriculum-unit-composer {
+    grid-template-columns: 1fr;
   }
 
   .curriculum-meeting-count {

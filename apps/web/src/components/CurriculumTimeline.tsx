@@ -814,7 +814,7 @@ export function CurriculumTimeline({
   };
 
   const finishUnitDrag = () => {
-    if (!drag || dragPreview === null) return;
+    if (!drag || dragPreview === null) return false;
     const delta = dragPreview - (drag.mode === 'move' ? drag.unit.start : drag.unit.span);
     if (delta) {
       const change: PendingChange =
@@ -840,6 +840,7 @@ export function CurriculumTimeline({
     }
     setDrag(null);
     setDragPreview(null);
+    return Boolean(delta);
   };
 
   const beginLessonDrag = (
@@ -891,7 +892,7 @@ export function CurriculumTimeline({
   };
 
   const finishLessonDrag = async () => {
-    if (!lessonDrag || !lessonDragPreview) return;
+    if (!lessonDrag || !lessonDragPreview) return false;
     const patch =
       lessonDrag.mode === 'move'
         ? { plannedStartMeeting: lessonDragPreview.start }
@@ -903,7 +904,7 @@ export function CurriculumTimeline({
     setLessonDrag(null);
     setLessonDragPreview(null);
     setLessonDragRemainder(0);
-    if (!changed) return;
+    if (!changed) return false;
     try {
       setSaving(true);
       onCourseChange(await api.updateLesson(lessonDrag.lesson.id, patch));
@@ -917,6 +918,7 @@ export function CurriculumTimeline({
     } finally {
       setSaving(false);
     }
+    return true;
   };
 
   const createQuickLesson = async (unit: Unit) => {
@@ -1440,14 +1442,17 @@ export function CurriculumTimeline({
                   <span>Drafts a unit, lesson sequence, and lesson steps for your review.</span>
                 </div>
                 <div className="curriculum-unit-composer">
-                  <input
-                    className="input"
-                    autoFocus
-                    value={draftPrompt}
-                    onChange={(event) => setDraftPrompt(event.target.value)}
-                    placeholder="What should students learn?"
-                    aria-label="What students should learn"
-                  />
+                  <label className="curriculum-generator-prompt">
+                    <span>Learning goal</span>
+                    <input
+                      className="input"
+                      autoFocus
+                      value={draftPrompt}
+                      onChange={(event) => setDraftPrompt(event.target.value)}
+                      placeholder="What should students learn?"
+                      aria-label="What students should learn"
+                    />
+                  </label>
                   <label className="curriculum-meeting-count">
                     <span>Class meetings</span>
                     <input
@@ -2381,12 +2386,15 @@ export function CurriculumTimeline({
                       }}
                       aria-label={`Unit ${position.unit.title}, meetings ${start + 1} through ${start + span}`}
                       onContextMenu={(event) => openContextMenu(event, 'unit', position.unit.id)}
-                      onPointerDown={(event) => {
-                        selectUnit(position.unit);
-                        beginUnitDrag(event, position, 'move');
-                      }}
+                      onPointerDown={(event) => beginUnitDrag(event, position, 'move')}
                       onPointerMove={updateUnitDrag}
-                      onPointerUp={finishUnitDrag}
+                      onPointerUp={() => {
+                        const moved = finishUnitDrag();
+                        if (!moved) {
+                          selectUnit(position.unit);
+                          toggleExpanded(position.unit.id);
+                        }
+                      }}
                       onPointerCancel={() => {
                         setDrag(null);
                         setDragPreview(null);
@@ -2473,8 +2481,7 @@ export function CurriculumTimeline({
                               }}
                               aria-label={`${lesson.title}, ${displaySpan} ${displaySpan === 1 ? 'meeting' : 'meetings'}`}
                               onContextMenu={(event) => openContextMenu(event, 'lesson', lesson.id)}
-                              onPointerDown={(event) => {
-                                selectLesson(lesson);
+                              onPointerDown={(event) =>
                                 beginLessonDrag(
                                   event,
                                   lesson,
@@ -2483,10 +2490,14 @@ export function CurriculumTimeline({
                                   lessonSpan,
                                   start,
                                   span
-                                );
-                              }}
+                                )
+                              }
                               onPointerMove={updateLessonDrag}
-                              onPointerUp={() => void finishLessonDrag()}
+                              onPointerUp={() => {
+                                void finishLessonDrag().then((moved) => {
+                                  if (!moved) selectLesson(lesson);
+                                });
+                              }}
                               onPointerCancel={() => {
                                 setLessonDrag(null);
                                 setLessonDragPreview(null);
