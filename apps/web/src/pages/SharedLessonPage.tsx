@@ -85,12 +85,25 @@ export function SharedLessonPage() {
   };
 
   const toggleComplete = (index: number) => {
+    const isCurrentlyComplete = completedSteps.has(index);
     setCompletedSteps((current) => {
       const next = new Set(current);
       if (next.has(index)) next.delete(index);
       else next.add(index);
       return next;
     });
+
+    if (!isCurrentlyComplete) {
+      setExpandedSteps((current) => {
+        const next = new Set(current);
+        next.delete(index);
+        const nextStepIndex = lesson.steps.findIndex(
+          (_, candidateIndex) => candidateIndex > index && !completedSteps.has(candidateIndex)
+        );
+        if (nextStepIndex >= 0) next.add(nextStepIndex);
+        return next;
+      });
+    }
   };
 
   return (

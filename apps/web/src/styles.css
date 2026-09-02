@@ -6865,6 +6865,11 @@ button,
   color: #fff;
 }
 
+.shared-step-card.is-complete:not(.is-open) {
+  border-color: rgba(70, 114, 93, 0.18);
+  background: #f7fbf8;
+}
+
 .shared-step-toggle {
   display: grid;
   width: 100%;
