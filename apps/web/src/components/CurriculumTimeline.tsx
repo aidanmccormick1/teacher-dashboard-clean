@@ -83,9 +83,9 @@ const nullable = (value: string) => value.trim() || null;
 
 const zoomLabels: Array<{ id: Zoom; label: string }> = [
   { id: 'year', label: 'Year' },
-  { id: 'day', label: 'Day' },
   { id: 'month', label: 'Month' },
-  { id: 'week', label: 'Week' }
+  { id: 'week', label: 'Week' },
+  { id: 'day', label: 'Day' }
 ];
 
 function clamp(value: number, min: number, max: number) {
@@ -120,11 +120,10 @@ function overlaps(a: PositionedUnit, b: PositionedUnit) {
 }
 
 function dateLabel(date: Date | undefined, zoom: Zoom, index: number) {
-  if (!date) return zoom === 'week' ? `Week ${index + 1}` : `${zoom === 'day' ? 'D' : 'M'}${index + 1}`;
+  if (zoom === 'day') return `M${index + 1}`;
+  if (!date) return zoom === 'week' ? `Week ${index + 1}` : `M${index + 1}`;
   if (zoom === 'week')
     return `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${date.getDate()}`;
-  if (zoom === 'day')
-    return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   if (zoom === 'month')
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return date.toLocaleDateString(undefined, { month: 'short' });
