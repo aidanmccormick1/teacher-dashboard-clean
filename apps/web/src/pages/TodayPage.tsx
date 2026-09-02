@@ -402,7 +402,7 @@ export function TodayPage() {
                     : meeting.status === 'upcoming'
                       ? 'Later'
                       : meeting.status === 'completed'
-                        ? 'Done'
+                        ? 'Open'
                         : 'Time TBD'}
                 </span>
               </Link>
