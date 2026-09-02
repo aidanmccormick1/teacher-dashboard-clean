@@ -6986,7 +6986,7 @@ button,
 .shared-lesson-cta {
   position: relative;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 13px;
   margin-top: 50px;
@@ -7009,17 +7009,6 @@ button,
   border: 1px solid rgba(70, 114, 93, 0.15);
   border-radius: 50%;
   content: '';
-}
-
-.shared-cta-spark {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.7);
-  color: var(--green);
-  font-size: 1.1rem;
 }
 
 .shared-lesson-cta .eyebrow {
@@ -7178,11 +7167,11 @@ button,
     grid-column: 1 / -1;
   }
   .shared-lesson-cta {
-    grid-template-columns: 30px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
   }
   .shared-lesson-cta .shared-lesson-button {
-    grid-column: 2;
-    justify-self: start;
+    grid-column: auto;
+    justify-self: end;
   }
 }
 

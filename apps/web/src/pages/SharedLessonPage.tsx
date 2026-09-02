@@ -284,16 +284,12 @@ export function SharedLessonPage() {
       </section>
 
       <footer className="shared-lesson-cta" id="join-teacherdesk">
-        <div className="shared-cta-spark" aria-hidden="true">
-          ✦
-        </div>
         <div>
-          <p className="eyebrow">Made for the whole school day</p>
-          <h2>Plan less. Teach with more room to think.</h2>
+          <h2>Plan faster. Teach more.</h2>
           <p>TeacherDesk keeps your courses, lessons, and classroom momentum in one calm place.</p>
         </div>
         <a className="shared-lesson-button" href="/login">
-          Join TeacherDesk <span aria-hidden="true">↗</span>
+          Join TeacherDesk
         </a>
       </footer>
     </main>
