@@ -288,10 +288,25 @@ export function LessonWorkspacePage() {
     : `/year-plan?course=${data.course.id}`;
   const updateLesson = (patch: Partial<Workspace['lesson']>) =>
     queue({ ...data, lesson: { ...data.lesson, ...patch } });
-  const updateStep = (id: string, patch: Partial<Step>) =>
+  const updateStep = (id: string, patch: Partial<Step>) => {
+    const currentStep = data.lesson.segments.find((step) => step.id === id);
+    const durationDelta =
+      currentStep && 'durationMinutes' in patch
+        ? (patch.durationMinutes ?? 0) - (currentStep.durationMinutes ?? 0)
+        : 0;
+
     updateLesson({
+      ...(durationDelta
+        ? {
+            estimatedDurationMinutes: Math.max(
+              1,
+              (data.lesson.estimatedDurationMinutes ?? 45) + durationDelta
+            )
+          }
+        : {}),
       segments: data.lesson.segments.map((s) => (s.id === id ? { ...s, ...patch } : s))
     });
+  };
   const queueServerMutation = <T,>(mutation: () => Promise<T>) => {
     if (timer.current) {
       clearTimeout(timer.current);

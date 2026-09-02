@@ -7758,3 +7758,48 @@ button:disabled,
     grid-template-columns: 30px minmax(0, 1fr) 30px;
   }
 }
+
+/* Keep the full-screen lesson editor spacious without wasting the first viewport. */
+.lesson-document-page {
+  padding-inline: clamp(12px, 2vw, 28px);
+}
+
+.lesson-document-page .lesson-workspace-header {
+  gap: 24px;
+  margin-bottom: 12px;
+  padding-block: 8px 12px;
+}
+
+.lesson-document-page .lesson-document {
+  gap: 14px;
+}
+
+.lesson-document-page .lesson-meta {
+  width: min(100%, 1180px);
+  margin-inline: auto;
+}
+
+.lesson-document-page .lesson-writing-grid {
+  gap: 22px;
+  padding-block: 12px 14px;
+}
+
+.lesson-document-page .lesson-primary-fields {
+  gap: 14px;
+}
+
+.lesson-document-page .lesson-notes-panel {
+  padding: 10px 12px;
+}
+
+@media (max-width: 760px) {
+  .lesson-document-page .lesson-workspace-header {
+    gap: 10px;
+    margin-bottom: 8px;
+    padding-block: 6px 10px;
+  }
+
+  .lesson-document-page .lesson-writing-grid {
+    gap: 14px;
+  }
+}
