@@ -102,7 +102,6 @@ export function SharedLessonPage() {
           </span>
           <span>
             <strong>TeacherDesk</strong>
-            <small>Calico EDU</small>
           </span>
         </a>
         <span className="shared-readonly-pill">
@@ -138,14 +137,6 @@ export function SharedLessonPage() {
               <span aria-hidden="true">↗</span> Read-only
             </span>
           </div>
-        </div>
-        <div className="shared-lesson-hero-art" aria-hidden="true">
-          <span className="hero-art-ring hero-art-ring-one" />
-          <span className="hero-art-ring hero-art-ring-two" />
-          <span className="hero-art-card">
-            <span>LESSON</span>
-            <strong>{String(lesson.steps.length).padStart(2, '0')}</strong>
-          </span>
         </div>
       </section>
 

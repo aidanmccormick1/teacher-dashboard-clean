@@ -7264,6 +7264,104 @@ button,
     grid-column: auto;
   }
 }
+
+/* Minimal public header: keep the shared lesson focused on the content. */
+.shared-lesson-page .shared-lesson-topbar {
+  margin-bottom: 0;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.shared-lesson-page .shared-lesson-brand strong {
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.shared-lesson-page .shared-lesson-brand .shared-brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: 0.64rem;
+}
+
+.shared-lesson-page .shared-readonly-pill {
+  padding: 5px 9px;
+  background: transparent;
+  font-size: 0.68rem;
+}
+
+.shared-lesson-page .shared-lesson-hero {
+  display: block;
+  min-height: 0;
+  padding: 42px 0 30px;
+  overflow: visible;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.shared-lesson-page .shared-lesson-hero::after,
+.shared-lesson-page .shared-lesson-hero-art {
+  display: none;
+}
+
+.shared-lesson-page .shared-lesson-breadcrumb {
+  margin-bottom: 14px;
+}
+
+.shared-lesson-page .shared-lesson-hero h1 {
+  max-width: none;
+  font-size: clamp(2.25rem, 4.5vw, 3.75rem);
+  line-height: 1;
+}
+
+.shared-lesson-page .shared-lesson-description {
+  max-width: 760px;
+  margin-top: 14px;
+  font-size: 0.98rem;
+}
+
+.shared-lesson-page .shared-lesson-meta {
+  margin-top: 18px;
+}
+
+.shared-lesson-page .shared-lesson-nav {
+  position: static;
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  margin: 0;
+  padding: 11px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.shared-lesson-page .shared-lesson-nav a {
+  padding: 5px 10px;
+  font-size: 0.72rem;
+}
+
+.shared-lesson-page .shared-lesson-nav a:first-child {
+  padding-left: 0;
+}
+
+@media (max-width: 560px) {
+  .shared-lesson-page .shared-lesson-hero {
+    padding-top: 32px;
+  }
+
+  .shared-lesson-page .shared-lesson-hero h1 {
+    font-size: clamp(2rem, 11vw, 3.1rem);
+  }
+}
 .lesson-title-input {
   border: 0;
   background: transparent;
@@ -8789,9 +8887,9 @@ button:disabled,
 
 .shared-lesson-page .shared-lesson-hero h1 {
   margin: 0;
-  max-width: 900px;
-  font-size: clamp(2.6rem, 5vw, 4.4rem);
-  line-height: 0.98;
+  max-width: none;
+  font-size: clamp(2.25rem, 4.5vw, 3.75rem);
+  line-height: 1;
   letter-spacing: -0.065em;
 }
 
@@ -8808,6 +8906,6 @@ button:disabled,
   }
 
   .shared-lesson-page .shared-lesson-hero h1 {
-    font-size: clamp(2.7rem, 14vw, 4rem);
+    font-size: clamp(2rem, 11vw, 3.1rem);
   }
 }
