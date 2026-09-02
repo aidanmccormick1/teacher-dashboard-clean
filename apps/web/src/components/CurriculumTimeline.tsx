@@ -249,11 +249,16 @@ export function CurriculumTimeline({
   const lessonPlanDraftRef = useRef<LessonPlanDraft>(emptyLessonPlan());
   const hydratedLessonId = useRef<string | null>(null);
   const selectedLessonIdRef = useRef<string | null>(null);
+  const selectedLessonRef = useRef<Lesson | null>(null);
+  const saveLessonPlanRef = useRef<
+    ((draftToSave?: LessonPlanDraft, lessonId?: string | null) => Promise<void>) | null
+  >(null);
   const scrollStorageKey = `teacheros_year_plan_scroll_${course.id}_${selectedSection?.sectionId ?? 'none'}_${displayMode}`;
+  const selectedSectionId = selectedSection?.sectionId;
 
   useEffect(() => {
     setExpandedUnitIds(course.units.map((unit) => unit.id));
-  }, [course.id]);
+  }, [course.id, course.units]);
 
   useEffect(() => {
     let active = true;
@@ -288,7 +293,7 @@ export function CurriculumTimeline({
   }, [api]);
 
   useEffect(() => {
-    if (!selectedSection || dateProjectionOnly) {
+    if (!selectedSectionId || dateProjectionOnly) {
       setSectionPlans([]);
       setLastSectionPlanOperation(null);
       setEditingSharedPlan(false);
@@ -300,7 +305,7 @@ export function CurriculumTimeline({
     setLastSectionPlanOperation(null);
     let active = true;
     void api
-      .getSectionLessonPlans(selectedSection.sectionId)
+      .getSectionLessonPlans(selectedSectionId)
       .then((value) => {
         if (active) setSectionPlans(value.plans);
       })
@@ -310,7 +315,7 @@ export function CurriculumTimeline({
     return () => {
       active = false;
     };
-  }, [api, dateProjectionOnly, selectedSection?.sectionId]);
+  }, [api, dateProjectionOnly, selectedSectionId]);
 
   useEffect(() => {
     if (!initialLessonId) return;
@@ -343,6 +348,8 @@ export function CurriculumTimeline({
       null,
     [course.units, selection]
   );
+  const selectedLessonId = selectedLesson?.id;
+  selectedLessonRef.current = selectedLesson;
   const sectionMeetings = useMemo(
     () => projectMeetingsForSection(meetingData, selectedSection?.sectionId ?? null),
     [meetingData, selectedSection]
@@ -575,19 +582,20 @@ export function CurriculumTimeline({
   };
 
   useEffect(() => {
-    if (!selectedLesson) {
+    const lesson = selectedLessonRef.current;
+    if (!selectedLessonId || !lesson) {
       hydratedLessonId.current = null;
       selectedLessonIdRef.current = null;
       return;
     }
-    selectedLessonIdRef.current = selectedLesson.id;
-    if (hydratedLessonId.current === selectedLesson.id) return;
-    hydratedLessonId.current = selectedLesson.id;
-    const plan = selectedLesson.lessonPlan;
+    selectedLessonIdRef.current = selectedLessonId;
+    if (hydratedLessonId.current === selectedLessonId) return;
+    hydratedLessonId.current = selectedLessonId;
+    const plan = lesson.lessonPlan;
     setLessonPlanDraft({
-      title: selectedLesson.title,
-      duration: selectedLesson.estimatedDurationMinutes?.toString() ?? '',
-      overview: selectedLesson.description ?? '',
+      title: lesson.title,
+      duration: lesson.estimatedDurationMinutes?.toString() ?? '',
+      overview: lesson.description ?? '',
       objective: plan.objective ?? '',
       teacherNotes: plan.teacherNotes ?? '',
       studentDirections: plan.studentDirections ?? '',
@@ -599,7 +607,7 @@ export function CurriculumTimeline({
     setNewSegmentTitle('');
     setNewSegmentMinutes('');
     setNewSegmentDescription('');
-  }, [selectedLesson?.id]);
+  }, [selectedLessonId]);
 
   useEffect(() => {
     lessonPlanDraftRef.current = lessonPlanDraft;
@@ -1140,6 +1148,7 @@ export function CurriculumTimeline({
       setSaving(false);
     }
   };
+  saveLessonPlanRef.current = saveLessonPlan;
 
   const queueLessonPlanSave = (next: LessonPlanDraft, delay = 550) => {
     lessonPlanDraftRef.current = next;
@@ -1176,9 +1185,9 @@ export function CurriculumTimeline({
       lessonPlanSaveTimer.current = null;
       const snapshot = lessonPlanDraftRef.current;
       const lessonId = selectedLessonIdRef.current;
-      if (lessonId) {
+      if (lessonId && saveLessonPlanRef.current) {
         lessonPlanSaveChain.current = lessonPlanSaveChain.current.then(() =>
-          saveLessonPlan(snapshot, lessonId)
+          saveLessonPlanRef.current!(snapshot, lessonId)
         );
       }
     },

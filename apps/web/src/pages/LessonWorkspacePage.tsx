@@ -267,13 +267,15 @@ export function LessonWorkspacePage() {
       }
     }
   };
+  const saveRef = useRef(save);
+  saveRef.current = save;
   useEffect(
     () => () => {
       if (timer.current) {
         clearTimeout(timer.current);
         if (latest.current)
           saveChain.current = saveChain.current.then(() =>
-            save(latest.current!, draftVersion.current)
+            saveRef.current(latest.current!, draftVersion.current)
           );
       }
       if (retryTimer.current) clearTimeout(retryTimer.current);

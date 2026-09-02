@@ -78,6 +78,10 @@ export function ClassroomPage() {
     context && dashboard && lesson
       ? `teacheros_classroom_draft_${context.sectionId}_${dashboard.date}_${lesson.id}_${context.meetingTime ?? 'legacy'}`
       : null;
+  const contextSectionId = context?.sectionId;
+  const contextMeetingTime = context?.meetingTime ?? null;
+  const dashboardDate = dashboard?.date;
+  const lessonId = lesson?.id;
   useEffect(() => {
     void Promise.all([api.dashboardToday(), api.getSchedule()])
       .then(([today, sections]) => {
@@ -119,13 +123,13 @@ export function ClassroomPage() {
       );
   }, [api, selected?.courseId]);
   useEffect(() => {
-    if (!lesson || !context || !dashboard) return;
+    if (!lessonId || !contextSectionId || !dashboardDate) return;
     let cancelled = false;
     void api
-      .getClassMeeting(context.sectionId, {
-        lessonId: lesson.id,
-        meetingDate: dashboard.date,
-        scheduledStartTime: context.meetingTime,
+      .getClassMeeting(contextSectionId, {
+        lessonId,
+        meetingDate: dashboardDate,
+        scheduledStartTime: contextMeetingTime,
         origin: manual ? 'manual' : 'scheduled'
       })
       .then((value) => {
@@ -160,10 +164,10 @@ export function ClassroomPage() {
     };
   }, [
     api,
-    context?.meetingTime,
-    context?.sectionId,
-    dashboard?.date,
-    lesson?.id,
+    contextMeetingTime,
+    contextSectionId,
+    dashboardDate,
+    lessonId,
     manual,
     resume?.lastNote?.content,
     resume?.state?.carryOverNote,

@@ -79,8 +79,8 @@ export function ProfilePage() {
   const api = useApiClient();
   const navigate = useNavigate();
   const [form, setForm] = useState<ProfileForm>(() => loadDraft(auth.email));
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [, setSaving] = useState(false);
+  const [, setSaved] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

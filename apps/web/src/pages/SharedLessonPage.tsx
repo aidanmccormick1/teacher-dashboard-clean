@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import type { PublicLessonResponse } from '@teacheros/contracts';
 import { getPublicLesson } from '../lib/api.js';
+
 function safeHtml(value: string | null) {
   const doc = new DOMParser().parseFromString(value ?? '', 'text/html');
   for (const node of Array.from(doc.body.querySelectorAll('*'))) {
@@ -19,61 +20,286 @@ function safeHtml(value: string | null) {
   }
   return doc.body.innerHTML;
 }
+
+function hostnameFor(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
 export function SharedLessonPage() {
   const { token = '' } = useParams();
   const [data, setData] = useState<PublicLessonResponse | null>(null);
   const [error, setError] = useState(false);
+  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(() => new Set());
+  const [completedSteps, setCompletedSteps] = useState<Set<number>>(() => new Set());
   useEffect(() => {
     void getPublicLesson(token)
       .then(setData)
       .catch(() => setError(true));
   }, [token]);
+
+  useEffect(() => {
+    if (data?.lesson.steps.length) setExpandedSteps(new Set([0]));
+  }, [data]);
+
   if (error)
     return (
-      <main className="shared-lesson">
+      <main className="shared-lesson-state">
+        <div className="shared-brand-mark" aria-hidden="true">
+          TD
+        </div>
+        <p className="eyebrow">TeacherDesk</p>
         <h1>Lesson unavailable</h1>
         <p>This link is private or no longer active.</p>
+        <a className="shared-lesson-button" href="/">
+          Visit TeacherDesk <span aria-hidden="true">↗</span>
+        </a>
       </main>
     );
-  if (!data) return <p className="muted">Loading lesson…</p>;
+
+  if (!data)
+    return (
+      <main className="shared-lesson-state shared-lesson-loading">
+        <div className="shared-loading-orb" aria-hidden="true" />
+        <p className="eyebrow">TeacherDesk · shared lesson</p>
+        <p>Preparing your lesson…</p>
+      </main>
+    );
+
+  const { lesson } = data;
+  const completedCount = completedSteps.size;
+  const progress = lesson.steps.length
+    ? Math.round((completedCount / lesson.steps.length) * 100)
+    : 0;
+
+  const toggleStep = (index: number) => {
+    setExpandedSteps((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  const toggleComplete = (index: number) => {
+    setCompletedSteps((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
   return (
-    <main className="shared-lesson">
-      <p className="eyebrow">
-        {data.courseName} / {data.unitTitle}
-      </p>
-      <h1>{data.lesson.title}</h1>
-      {data.lesson.estimatedDurationMinutes ? (
-        <p>{data.lesson.estimatedDurationMinutes} minutes</p>
-      ) : null}
-      <h2>Objective</h2>
-      <div dangerouslySetInnerHTML={{ __html: safeHtml(data.lesson.objective) }} />
-      <h2>Materials</h2>
-      <div dangerouslySetInnerHTML={{ __html: safeHtml(data.lesson.materials) }} />
-      {data.lesson.links.length ? (
-        <section className="shared-lesson-resources" aria-labelledby="shared-resources-heading">
-          <h2 id="shared-resources-heading">Resources</h2>
-          <ul>
-            {data.lesson.links.map((link) => (
-              <li key={link.url}>
-                <a href={link.url} target="_blank" rel="noreferrer">
-                  <strong>{link.title}</strong>
-                  <span>{new URL(link.url).hostname.replace(/^www\./, '')}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-      <h2>Lesson</h2>
-      {data.lesson.steps.map((step, index) => (
-        <section key={`${step.title}-${index}`}>
-          <p className="eyebrow">
-            {step.durationMinutes ? `${step.durationMinutes} min` : ''} {step.stepType ?? ''}
+    <main className="shared-lesson shared-lesson-page">
+      <header className="shared-lesson-topbar">
+        <a className="shared-lesson-brand" href="/" aria-label="TeacherDesk home">
+          <span className="shared-brand-mark" aria-hidden="true">
+            TD
+          </span>
+          <span>
+            <strong>TeacherDesk</strong>
+            <small>Calico EDU</small>
+          </span>
+        </a>
+        <span className="shared-readonly-pill">
+          <span aria-hidden="true">●</span> Shared lesson
+        </span>
+      </header>
+
+      <section className="shared-lesson-hero" aria-labelledby="shared-lesson-title">
+        <div className="shared-lesson-hero-copy">
+          <p className="eyebrow shared-lesson-breadcrumb">
+            <span>{data.courseName}</span>
+            <span aria-hidden="true">/</span>
+            <span>{data.unitTitle}</span>
           </p>
-          <h3>{step.title}</h3>
-          <div dangerouslySetInnerHTML={{ __html: safeHtml(step.description) }} />
-        </section>
-      ))}
+          <h1 id="shared-lesson-title">{lesson.title}</h1>
+          {lesson.description ? (
+            <div
+              className="shared-lesson-description"
+              dangerouslySetInnerHTML={{ __html: safeHtml(lesson.description) }}
+            />
+          ) : null}
+          <div className="shared-lesson-meta" aria-label="Lesson details">
+            {lesson.estimatedDurationMinutes ? (
+              <span>
+                <span aria-hidden="true">◷</span> {lesson.estimatedDurationMinutes} minutes
+              </span>
+            ) : null}
+            <span>
+              <span aria-hidden="true">☷</span> {lesson.steps.length}{' '}
+              {lesson.steps.length === 1 ? 'part' : 'parts'}
+            </span>
+            <span>
+              <span aria-hidden="true">↗</span> Read-only
+            </span>
+          </div>
+        </div>
+        <div className="shared-lesson-hero-art" aria-hidden="true">
+          <span className="hero-art-ring hero-art-ring-one" />
+          <span className="hero-art-ring hero-art-ring-two" />
+          <span className="hero-art-card">
+            <span>LESSON</span>
+            <strong>{String(lesson.steps.length).padStart(2, '0')}</strong>
+          </span>
+        </div>
+      </section>
+
+      <nav className="shared-lesson-nav" aria-label="Lesson sections">
+        <a href="#overview">At a glance</a>
+        <a href="#lesson-flow">Lesson flow</a>
+        <a href="#join-teacherdesk">TeacherDesk</a>
+      </nav>
+
+      <section className="shared-overview" id="overview" aria-labelledby="overview-heading">
+        <div className="shared-section-heading">
+          <p className="eyebrow">Plan at a glance</p>
+          <h2 id="overview-heading">Everything you need to begin.</h2>
+        </div>
+        <div className="shared-overview-grid">
+          {lesson.objective ? (
+            <article className="shared-info-card shared-info-card-objective">
+              <div className="shared-info-card-icon" aria-hidden="true">
+                ✦
+              </div>
+              <div>
+                <p className="shared-card-label">Objective</p>
+                <div dangerouslySetInnerHTML={{ __html: safeHtml(lesson.objective) }} />
+              </div>
+            </article>
+          ) : null}
+          {lesson.materials ? (
+            <article className="shared-info-card shared-info-card-materials">
+              <div className="shared-info-card-icon" aria-hidden="true">
+                ✚
+              </div>
+              <div>
+                <p className="shared-card-label">Materials</p>
+                <div dangerouslySetInnerHTML={{ __html: safeHtml(lesson.materials) }} />
+              </div>
+            </article>
+          ) : null}
+          {lesson.links.length ? (
+            <article
+              className="shared-info-card shared-info-card-resources"
+              aria-labelledby="shared-resources-heading"
+            >
+              <div className="shared-info-card-icon" aria-hidden="true">
+                ↗
+              </div>
+              <div>
+                <p className="shared-card-label" id="shared-resources-heading">
+                  Resources
+                </p>
+                <ul className="shared-resource-list">
+                  {lesson.links.map((link) => (
+                    <li key={link.url}>
+                      <a href={link.url} target="_blank" rel="noreferrer">
+                        <strong>{link.title}</strong>
+                        <span>
+                          {hostnameFor(link.url)} <span aria-hidden="true">↗</span>
+                        </span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </article>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="shared-flow" id="lesson-flow" aria-labelledby="lesson-flow-heading">
+        <header className="shared-flow-header">
+          <div>
+            <p className="eyebrow">Lesson flow</p>
+            <h2 id="lesson-flow-heading">Follow the rhythm of the lesson.</h2>
+          </div>
+          <div className="shared-progress-summary" aria-label={`${progress}% of lesson explored`}>
+            <strong>
+              {completedCount}/{lesson.steps.length}
+            </strong>
+            <span>explored</span>
+          </div>
+        </header>
+        <div className="shared-progress-track" aria-hidden="true">
+          <span style={{ width: `${progress}%` }} />
+        </div>
+        <div className="shared-step-list">
+          {lesson.steps.map((step, index) => {
+            const isExpanded = expandedSteps.has(index);
+            const isComplete = completedSteps.has(index);
+            const stepId = `shared-step-${index + 1}`;
+            return (
+              <article
+                className={`shared-step-card${isExpanded ? ' is-open' : ''}${isComplete ? ' is-complete' : ''}`}
+                key={`${step.title}-${index}`}
+              >
+                <button
+                  className="shared-step-toggle"
+                  type="button"
+                  aria-expanded={isExpanded}
+                  aria-controls={stepId}
+                  onClick={() => toggleStep(index)}
+                >
+                  <span className="shared-step-number" aria-hidden="true">
+                    {String(index + 1).padStart(2, '0')}
+                  </span>
+                  <span className="shared-step-title">
+                    <span className="eyebrow">
+                      {[
+                        step.durationMinutes ? `${step.durationMinutes} min` : '',
+                        step.stepType ?? ''
+                      ]
+                        .filter(Boolean)
+                        .join(' · ') || 'Lesson part'}
+                    </span>
+                    <strong>{step.title}</strong>
+                  </span>
+                  <span className="shared-step-chevron" aria-hidden="true">
+                    ⌄
+                  </span>
+                </button>
+                {isExpanded ? (
+                  <div className="shared-step-detail" id={stepId}>
+                    {step.description ? (
+                      <div dangerouslySetInnerHTML={{ __html: safeHtml(step.description) }} />
+                    ) : (
+                      <p className="muted">No additional notes were added for this part.</p>
+                    )}
+                    <button
+                      className="shared-step-complete"
+                      type="button"
+                      onClick={() => toggleComplete(index)}
+                    >
+                      <span aria-hidden="true">{isComplete ? '✓' : '○'}</span>
+                      {isComplete ? 'Marked as explored' : 'Mark as explored'}
+                    </button>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <footer className="shared-lesson-cta" id="join-teacherdesk">
+        <div className="shared-cta-spark" aria-hidden="true">
+          ✦
+        </div>
+        <div>
+          <p className="eyebrow">Made for the whole school day</p>
+          <h2>Plan less. Teach with more room to think.</h2>
+          <p>TeacherDesk keeps your courses, lessons, and classroom momentum in one calm place.</p>
+        </div>
+        <a className="shared-lesson-button" href="/login">
+          Join TeacherDesk <span aria-hidden="true">↗</span>
+        </a>
+      </footer>
     </main>
   );
 }
