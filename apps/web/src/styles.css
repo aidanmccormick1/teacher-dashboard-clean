@@ -7759,6 +7759,46 @@ button:disabled,
   }
 }
 
+/* Keep the expanded outline and its timeline rows on one shared vertical grid. */
+.curriculum-workspace {
+  --timeline-row-height: 53px;
+  --timeline-lesson-row-height: 38px;
+  --timeline-action-row-height: 38px;
+}
+
+.curriculum-workspace .curriculum-lesson-tree {
+  gap: 0;
+  padding: 0;
+}
+
+.curriculum-workspace .curriculum-tree-row,
+.curriculum-workspace .curriculum-track-group > .curriculum-track-row:first-child {
+  box-sizing: border-box;
+  height: var(--timeline-row-height);
+  min-height: var(--timeline-row-height);
+}
+
+.curriculum-workspace .curriculum-lesson-row,
+.curriculum-workspace .curriculum-track-group > .curriculum-lesson-track-row {
+  box-sizing: border-box;
+  height: var(--timeline-lesson-row-height);
+  min-height: var(--timeline-lesson-row-height);
+}
+
+.curriculum-workspace .curriculum-track-group > .curriculum-track-row {
+  align-items: center;
+  padding-block: 0;
+}
+
+.curriculum-workspace .curriculum-track-group > .curriculum-lesson-track-row {
+  padding-block: 3px;
+}
+
+.curriculum-workspace .curriculum-canvas {
+  gap: 0;
+  padding-top: 0;
+}
+
 /* Keep the full-screen lesson editor spacious without wasting the first viewport. */
 .lesson-document-page {
   padding-inline: clamp(12px, 2vw, 28px);
