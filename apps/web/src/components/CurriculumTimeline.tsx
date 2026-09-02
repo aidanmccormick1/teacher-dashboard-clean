@@ -51,7 +51,10 @@ type LessonDrag = {
   originX: number;
   start: number;
   span: number;
+  unitStart: number;
+  unitEnd: number;
 };
+type OutlineDropPosition = { unitId: string; index: number } | null;
 type RangeDrag = { originIndex: number; originX: number; unitId: string | null; laneTop: number };
 type RangeDraft = PlanningRange & { unitId: string | null };
 type LessonPlanDraft = {
@@ -213,8 +216,9 @@ export function CurriculumTimeline({
     start: number;
     span: number;
   } | null>(null);
+  const [lessonDragRemainder, setLessonDragRemainder] = useState(0);
   const [outlineDraggedLessonId, setOutlineDraggedLessonId] = useState<string | null>(null);
-  const [outlineDropLessonId, setOutlineDropLessonId] = useState<string | null>(null);
+  const [outlineDropPosition, setOutlineDropPosition] = useState<OutlineDropPosition>(null);
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
   const [meetingData, setMeetingData] = useState<MeetingInstancesResponse | null>(null);
   const [lessonPlanDraft, setLessonPlanDraft] = useState<LessonPlanDraft>(emptyLessonPlan);
@@ -418,11 +422,14 @@ export function CurriculumTimeline({
     if (index === null) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    const canvas = event.currentTarget.closest('.curriculum-canvas');
     setRangeDrag({
       originIndex: index,
       originX: event.clientX,
       unitId,
-      laneTop: event.currentTarget.offsetTop
+      laneTop: canvas
+        ? event.currentTarget.getBoundingClientRect().top - canvas.getBoundingClientRect().top
+        : event.currentTarget.offsetTop
     });
     setRangePreview(null);
   };
@@ -835,25 +842,46 @@ export function CurriculumTimeline({
     lesson: Lesson,
     mode: LessonDrag['mode'],
     start: number,
-    span: number
+    span: number,
+    unitStart: number,
+    unitSpan: number
   ) => {
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
-    setLessonDrag({ lesson, mode, originX: event.clientX, start, span });
+    setLessonDrag({
+      lesson,
+      mode,
+      originX: event.clientX,
+      start,
+      span,
+      unitStart,
+      unitEnd: unitStart + unitSpan
+    });
     setLessonDragPreview({ start, span });
+    setLessonDragRemainder(0);
   };
 
   const updateLessonDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!lessonDrag) return;
-    const delta = Math.round((event.clientX - lessonDrag.originX) / slotWidth);
+    event.preventDefault();
+    const pixelDelta = event.clientX - lessonDrag.originX;
+    const delta = Math.round(pixelDelta / slotWidth);
+    const maxStart = Math.max(lessonDrag.unitStart, lessonDrag.unitEnd - lessonDrag.span);
+    const nextStart = clamp(lessonDrag.start + delta, lessonDrag.unitStart, maxStart);
+    const appliedDelta = nextStart - lessonDrag.start;
+    let remainder = pixelDelta - appliedDelta * slotWidth;
+    if (lessonDrag.unitStart === maxStart) remainder = 0;
+    else if (nextStart === lessonDrag.unitStart) remainder = Math.max(0, remainder);
+    else if (nextStart === maxStart) remainder = Math.min(0, remainder);
     setLessonDragPreview({
-      start:
-        lessonDrag.mode === 'move'
-          ? clamp(lessonDrag.start + delta, 0, visibleMeetings - 1)
-          : lessonDrag.start,
-      span: lessonDrag.mode === 'resize' ? Math.max(1, lessonDrag.span + delta) : lessonDrag.span
+      start: lessonDrag.mode === 'move' ? nextStart : lessonDrag.start,
+      span:
+        lessonDrag.mode === 'resize'
+          ? clamp(lessonDrag.span + delta, 1, lessonDrag.unitEnd - lessonDrag.start)
+          : lessonDrag.span
     });
+    setLessonDragRemainder(lessonDrag.mode === 'move' ? remainder : 0);
   };
 
   const finishLessonDrag = async () => {
@@ -868,6 +896,7 @@ export function CurriculumTimeline({
         : lessonDragPreview.span !== lessonDrag.span;
     setLessonDrag(null);
     setLessonDragPreview(null);
+    setLessonDragRemainder(0);
     if (!changed) return;
     try {
       setSaving(true);
@@ -905,15 +934,24 @@ export function CurriculumTimeline({
     }
   };
 
-  const reorderLessonTo = async (unit: Unit, draggedId: string, targetId: string) => {
-    if (draggedId === targetId || saving) return;
+  const reorderLessonTo = async (unit: Unit, draggedId: string, insertionIndex: number) => {
+    if (saving) return;
     const ordered = [...unit.lessons].sort((a, b) => a.orderIndex - b.orderIndex);
     const from = ordered.findIndex((lesson) => lesson.id === draggedId);
-    const to = ordered.findIndex((lesson) => lesson.id === targetId);
-    if (from < 0 || to < 0) return;
+    if (from < 0) return;
     const [moving] = ordered.splice(from, 1);
     if (!moving) return;
-    ordered.splice(to, 0, moving);
+    const adjustedIndex = clamp(
+      insertionIndex > from ? insertionIndex - 1 : insertionIndex,
+      0,
+      ordered.length
+    );
+    ordered.splice(adjustedIndex, 0, moving);
+    if (adjustedIndex === from) {
+      setOutlineDraggedLessonId(null);
+      setOutlineDropPosition(null);
+      return;
+    }
     try {
       setSaving(true);
       let detail: CourseDetailResponse | null = null;
@@ -929,7 +967,7 @@ export function CurriculumTimeline({
     } finally {
       setSaving(false);
       setOutlineDraggedLessonId(null);
-      setOutlineDropLessonId(null);
+      setOutlineDropPosition(null);
     }
   };
 
@@ -1942,6 +1980,12 @@ export function CurriculumTimeline({
             {positions.map((position) => {
               const expanded = expandedUnitIds.includes(position.unit.id);
               const unitSelected = selection?.type === 'unit' && selection.id === position.unit.id;
+              const orderedLessons = [...position.unit.lessons].sort(
+                (left, right) => left.orderIndex - right.orderIndex
+              );
+              const draggedLessonBelongsToUnit = orderedLessons.some(
+                (lesson) => lesson.id === outlineDraggedLessonId
+              );
               return (
                 <div
                   key={position.unit.id}
@@ -1974,8 +2018,15 @@ export function CurriculumTimeline({
                   </div>
                   {expanded ? (
                     <div className="curriculum-lesson-tree">
-                      {position.unit.lessons.map((lesson) => {
+                      {orderedLessons.map((lesson, lessonIndex) => {
                         const selected = selection?.type === 'lesson' && selection.id === lesson.id;
+                        const dropBefore =
+                          outlineDropPosition?.unitId === position.unit.id &&
+                          outlineDropPosition.index === lessonIndex;
+                        const dropAfter =
+                          lessonIndex === orderedLessons.length - 1 &&
+                          outlineDropPosition?.unitId === position.unit.id &&
+                          outlineDropPosition.index === orderedLessons.length;
                         return (
                           <div
                             key={lesson.id}
@@ -1983,25 +2034,37 @@ export function CurriculumTimeline({
                               'curriculum-lesson-row',
                               selected ? 'selected' : '',
                               outlineDraggedLessonId === lesson.id ? 'dragging' : '',
-                              outlineDropLessonId === lesson.id ? 'drop-target' : ''
+                              dropBefore ? 'drop-before' : '',
+                              dropAfter ? 'drop-after' : ''
                             ]
                               .filter(Boolean)
                               .join(' ')}
                             onContextMenu={(event) => openContextMenu(event, 'lesson', lesson.id)}
                             onDragOver={(event) => {
+                              if (!draggedLessonBelongsToUnit) return;
                               event.preventDefault();
-                              if (outlineDraggedLessonId !== lesson.id)
-                                setOutlineDropLessonId(lesson.id);
+                              event.dataTransfer.dropEffect = 'move';
+                              const bounds = event.currentTarget.getBoundingClientRect();
+                              const after = event.clientY >= bounds.top + bounds.height / 2;
+                              setOutlineDropPosition({
+                                unitId: position.unit.id,
+                                index: lessonIndex + (after ? 1 : 0)
+                              });
                             }}
-                            onDragLeave={() => {
-                              if (outlineDropLessonId === lesson.id) setOutlineDropLessonId(null);
-                            }}
-                            onDrop={() => {
+                            onDrop={(event) => {
+                              if (!draggedLessonBelongsToUnit) return;
+                              event.preventDefault();
+                              event.stopPropagation();
                               if (outlineDraggedLessonId)
                                 void reorderLessonTo(
                                   position.unit,
                                   outlineDraggedLessonId,
-                                  lesson.id
+                                  lessonIndex +
+                                    (event.clientY >=
+                                    event.currentTarget.getBoundingClientRect().top +
+                                      event.currentTarget.getBoundingClientRect().height / 2
+                                      ? 1
+                                      : 0)
                                 );
                             }}
                           >
@@ -2012,11 +2075,12 @@ export function CurriculumTimeline({
                               aria-label={`Drag to reorder ${lesson.title}`}
                               onDragStart={(event) => {
                                 event.dataTransfer.effectAllowed = 'move';
+                                event.dataTransfer.setData('text/plain', lesson.id);
                                 setOutlineDraggedLessonId(lesson.id);
                               }}
                               onDragEnd={() => {
                                 setOutlineDraggedLessonId(null);
-                                setOutlineDropLessonId(null);
+                                setOutlineDropPosition(null);
                               }}
                             >
                               ⠿
@@ -2028,6 +2092,37 @@ export function CurriculumTimeline({
                           </div>
                         );
                       })}
+                      <div
+                        className={`curriculum-lesson-end-drop-zone${
+                          draggedLessonBelongsToUnit ? ' is-dragging' : ''
+                        }${
+                          outlineDropPosition?.unitId === position.unit.id &&
+                          outlineDropPosition.index === orderedLessons.length
+                            ? ' active'
+                            : ''
+                        }`}
+                        aria-hidden="true"
+                        onDragOver={(event) => {
+                          if (!draggedLessonBelongsToUnit) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = 'move';
+                          setOutlineDropPosition({
+                            unitId: position.unit.id,
+                            index: orderedLessons.length
+                          });
+                        }}
+                        onDrop={(event) => {
+                          if (!draggedLessonBelongsToUnit) return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (outlineDraggedLessonId)
+                            void reorderLessonTo(
+                              position.unit,
+                              outlineDraggedLessonId,
+                              orderedLessons.length
+                            );
+                        }}
+                      />
                       {quickLessonUnitId === position.unit.id ? (
                         <input
                           className="curriculum-inline-input"
@@ -2171,8 +2266,14 @@ export function CurriculumTimeline({
                   other.start < start + span
               );
               const expanded = expandedUnitIds.includes(position.unit.id);
+              const orderedLessons = [...position.unit.lessons].sort(
+                (left, right) => left.orderIndex - right.orderIndex
+              );
               return (
-                <div key={position.unit.id} className="curriculum-track-group">
+                <div
+                  key={position.unit.id}
+                  className={`curriculum-track-group${expanded ? ' expanded' : ''}`}
+                >
                   <div
                     className="curriculum-track-row"
                     onPointerDown={(event) => {
@@ -2245,15 +2346,22 @@ export function CurriculumTimeline({
                     </article>
                   </div>
                   {expanded
-                    ? position.unit.lessons.map((lesson, index) => {
+                    ? orderedLessons.map((lesson, index) => {
                         const defaultLessonSpan = Math.max(
                           1,
-                          Math.floor(span / Math.max(1, position.unit.lessons.length))
+                          Math.floor(span / Math.max(1, orderedLessons.length))
                         );
                         const defaultLessonStart =
                           start + Math.min(span - 1, index * defaultLessonSpan);
-                        const lessonSpan = effectiveLessonSpan(lesson, defaultLessonSpan);
-                        const lessonStart = effectiveLessonStart(lesson, defaultLessonStart);
+                        const lessonSpan = Math.min(
+                          span,
+                          effectiveLessonSpan(lesson, defaultLessonSpan)
+                        );
+                        const lessonStart = clamp(
+                          effectiveLessonStart(lesson, defaultLessonStart),
+                          start,
+                          Math.max(start, start + span - lessonSpan)
+                        );
                         const active = currentLessonId === lesson.id;
                         const selectedLesson =
                           selection?.type === 'lesson' && selection.id === lesson.id;
@@ -2282,7 +2390,11 @@ export function CurriculumTimeline({
                                 .filter(Boolean)
                                 .join(' ')}
                               style={{
-                                gridColumn: `${displayStart + 1} / span ${Math.max(1, Math.min(displaySpan, visibleMeetings - displayStart))}`
+                                gridColumn: `${displayStart + 1} / span ${Math.max(1, Math.min(displaySpan, visibleMeetings - displayStart))}`,
+                                transform:
+                                  isLessonDragging && lessonDrag?.mode === 'move'
+                                    ? `translateX(${lessonDragRemainder}px)`
+                                    : undefined
                               }}
                               aria-label={`${lesson.title}, ${displaySpan} ${displaySpan === 1 ? 'meeting' : 'meetings'}`}
                               onContextMenu={(event) => openContextMenu(event, 'lesson', lesson.id)}
@@ -2292,13 +2404,22 @@ export function CurriculumTimeline({
                                 type="button"
                                 aria-label={`Move ${lesson.title} on timeline`}
                                 onPointerDown={(event) =>
-                                  beginLessonDrag(event, lesson, 'move', lessonStart, lessonSpan)
+                                  beginLessonDrag(
+                                    event,
+                                    lesson,
+                                    'move',
+                                    lessonStart,
+                                    lessonSpan,
+                                    start,
+                                    span
+                                  )
                                 }
                                 onPointerMove={updateLessonDrag}
                                 onPointerUp={() => void finishLessonDrag()}
                                 onPointerCancel={() => {
                                   setLessonDrag(null);
                                   setLessonDragPreview(null);
+                                  setLessonDragRemainder(0);
                                 }}
                               >
                                 ⠿
@@ -2316,13 +2437,22 @@ export function CurriculumTimeline({
                                 type="button"
                                 aria-label={`Resize ${lesson.title}`}
                                 onPointerDown={(event) =>
-                                  beginLessonDrag(event, lesson, 'resize', lessonStart, lessonSpan)
+                                  beginLessonDrag(
+                                    event,
+                                    lesson,
+                                    'resize',
+                                    lessonStart,
+                                    lessonSpan,
+                                    start,
+                                    span
+                                  )
                                 }
                                 onPointerMove={updateLessonDrag}
                                 onPointerUp={() => void finishLessonDrag()}
                                 onPointerCancel={() => {
                                   setLessonDrag(null);
                                   setLessonDragPreview(null);
+                                  setLessonDragRemainder(0);
                                 }}
                               />
                             </article>
