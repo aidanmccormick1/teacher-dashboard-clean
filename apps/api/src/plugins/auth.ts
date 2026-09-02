@@ -20,7 +20,7 @@ export const authPlugin = fp(async (app) => {
     if (
       path.startsWith('/health') ||
       path.startsWith('/docs') ||
-      path.startsWith('/v1/test-auth') ||
+      (app.config.NODE_ENV !== 'production' && path.startsWith('/v1/test-auth')) ||
       (request.method === 'GET' && /^\/v1\/public\/lessons\/[0-9a-f-]{36}$/i.test(path))
     )
       return;
@@ -52,7 +52,7 @@ export const authPlugin = fp(async (app) => {
       return;
     }
 
-    if (token === pilotToken) {
+    if (app.config.NODE_ENV !== 'production' && token === pilotToken) {
       request.principal = {
         clerkUserId: 'pilot-teacher-demo',
         email: 'teacher.test@example.com'

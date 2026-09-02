@@ -88,8 +88,13 @@ export async function createApp(config: AppConfig) {
   app.setSerializerCompiler(serializerCompiler);
 
   await app.register(cors, {
-    origin: true,
-    credentials: true,
+    // This API uses bearer tokens rather than browser cookies. Keep CORS
+    // limited to the configured app origins instead of reflecting arbitrary
+    // origins with credentials enabled.
+    origin: config.CLERK_AUTHORIZED_PARTIES.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+    credentials: false,
     // Course and class-group editing uses PATCH and permanent deletion uses
     // DELETE. Include them in preflight responses so browser requests reach
     // the API instead of failing as a generic network error.
@@ -123,7 +128,9 @@ export async function createApp(config: AppConfig) {
   }
 
   await app.register(requestContextPlugin);
-  await app.register(testAuthRoutes);
+  if (config.NODE_ENV !== 'production') {
+    await app.register(testAuthRoutes);
+  }
   await app.register(authPlugin);
   await app.register(healthRoutes);
 

@@ -620,7 +620,7 @@ export function LessonWorkspacePage() {
               setActiveFieldId={setActiveRichFieldId}
             />
           </section>
-          <section className="lesson-field-card lesson-field-card-wide">
+          <section className="lesson-field-card lesson-core-field">
             <div className="lesson-field-card-heading">
               <p className="eyebrow">Learning objective</p>
               <span>What will students be able to do?</span>
@@ -634,7 +634,7 @@ export function LessonWorkspacePage() {
               setActiveFieldId={setActiveRichFieldId}
             />
           </section>
-          <section className="lesson-field-card">
+          <section className="lesson-field-card lesson-core-field">
             <div className="lesson-field-card-heading">
               <p className="eyebrow">Materials</p>
               <span>Handouts, supplies, technology…</span>
@@ -648,30 +648,16 @@ export function LessonWorkspacePage() {
               setActiveFieldId={setActiveRichFieldId}
             />
           </section>
-          <section className="lesson-field-card">
+          <section className="lesson-field-card lesson-core-field">
             <div className="lesson-field-card-heading">
-              <p className="eyebrow">Student directions</p>
+              <p className="eyebrow">Student instructions</p>
               <span>What students should do, see, or submit.</span>
             </div>
             <RichField
               fieldId="student-directions"
               value={rich(data.lesson.lessonPlan.studentDirections)}
               onChange={(studentDirections) => updateLessonPlan({ studentDirections })}
-              placeholder="Add student directions…"
-              activeFieldId={activeRichFieldId}
-              setActiveFieldId={setActiveRichFieldId}
-            />
-          </section>
-          <section className="lesson-field-card lesson-field-card-wide">
-            <div className="lesson-field-card-heading">
-              <p className="eyebrow">Teacher notes</p>
-              <span>Prompts, differentiation, checks for understanding, and reminders.</span>
-            </div>
-            <RichField
-              fieldId="teacher-notes"
-              value={rich(data.lesson.lessonPlan.teacherNotes)}
-              onChange={(teacherNotes) => updateLessonPlan({ teacherNotes })}
-              placeholder="Add teacher notes…"
+              placeholder="Add student instructions…"
               activeFieldId={activeRichFieldId}
               setActiveFieldId={setActiveRichFieldId}
             />
@@ -922,6 +908,20 @@ export function LessonWorkspacePage() {
               No steps yet. Add one or generate a draft to begin.
             </p>
           ) : null}
+        </section>
+        <section className="lesson-field-card lesson-field-card-wide lesson-teacher-notes-card">
+          <div className="lesson-field-card-heading">
+            <p className="eyebrow">Teacher notes</p>
+            <span>Prompts, differentiation, checks for understanding, and reminders.</span>
+          </div>
+          <RichField
+            fieldId="teacher-notes"
+            value={rich(data.lesson.lessonPlan.teacherNotes)}
+            onChange={(teacherNotes) => updateLessonPlan({ teacherNotes })}
+            placeholder="Add teacher notes…"
+            activeFieldId={activeRichFieldId}
+            setActiveFieldId={setActiveRichFieldId}
+          />
         </section>
         <aside className="section-context">
           <strong>Sections using this lesson</strong>
