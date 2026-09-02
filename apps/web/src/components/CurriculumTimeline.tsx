@@ -349,7 +349,7 @@ export function CurriculumTimeline({
     () =>
       Array.from(
         { length: Math.max(80, visibleMeetings, furthestMeeting) },
-        () => ({}),
+        (): { date?: string } => ({}),
       ),
     [furthestMeeting, visibleMeetings]
   );
@@ -1612,7 +1612,7 @@ export function CurriculumTimeline({
                 </div>
               ) : null}
             </div>
-            <div className="lesson-plan-fields">
+            <div className="lesson-plan-fields lesson-plan-top-fields">
               <label>
                 Lesson title
                 <input
@@ -1647,35 +1647,6 @@ export function CurriculumTimeline({
                   value={lessonPlanDraft.objective}
                   onChange={(event) => updateLessonPlanDraft({ objective: event.target.value })}
                   placeholder="Students will be able to…"
-                />
-              </label>
-              <label>
-                Materials
-                <textarea
-                  className="input"
-                  value={lessonPlanDraft.materials}
-                  onChange={(event) => updateLessonPlanDraft({ materials: event.target.value })}
-                  placeholder="Handouts, supplies, technology…"
-                />
-              </label>
-              <label>
-                Student directions
-                <textarea
-                  className="input"
-                  value={lessonPlanDraft.studentDirections}
-                  onChange={(event) =>
-                    updateLessonPlanDraft({ studentDirections: event.target.value })
-                  }
-                  placeholder="What students should do, see, or submit."
-                />
-              </label>
-              <label className="lesson-plan-wide">
-                Teacher notes
-                <textarea
-                  className="input"
-                  value={lessonPlanDraft.teacherNotes}
-                  onChange={(event) => updateLessonPlanDraft({ teacherNotes: event.target.value })}
-                  placeholder="Prompts, differentiation, checks for understanding, and reminders."
                 />
               </label>
             </div>
@@ -1817,6 +1788,37 @@ export function CurriculumTimeline({
                   </article>
                 ))}
               </div>
+            </div>
+            <div className="lesson-plan-fields lesson-plan-bottom-fields">
+              <label>
+                Materials
+                <textarea
+                  className="input"
+                  value={lessonPlanDraft.materials}
+                  onChange={(event) => updateLessonPlanDraft({ materials: event.target.value })}
+                  placeholder="Handouts, supplies, technology…"
+                />
+              </label>
+              <label>
+                Student directions
+                <textarea
+                  className="input"
+                  value={lessonPlanDraft.studentDirections}
+                  onChange={(event) =>
+                    updateLessonPlanDraft({ studentDirections: event.target.value })
+                  }
+                  placeholder="What students should do, see, or submit."
+                />
+              </label>
+              <label className="lesson-plan-wide">
+                Teacher notes
+                <textarea
+                  className="input"
+                  value={lessonPlanDraft.teacherNotes}
+                  onChange={(event) => updateLessonPlanDraft({ teacherNotes: event.target.value })}
+                  placeholder="Prompts, differentiation, checks for understanding, and reminders."
+                />
+              </label>
             </div>
           </section>
         </>

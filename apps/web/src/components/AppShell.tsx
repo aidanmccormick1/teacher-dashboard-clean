@@ -6,7 +6,6 @@ import { useAppAuth } from '../lib/auth.js';
 import {
   primaryNavigationIdForPath,
   primaryNavigationItems,
-  hasSidebarCollapsePreference,
   readSidebarCollapsed,
   saveSidebarCollapsed
 } from '../lib/navigation.js';
@@ -68,12 +67,6 @@ export function AppShell() {
   const feedbackReturnFocusRef = useRef<HTMLElement | null>(null);
   const activePrimaryNavigationId = primaryNavigationIdForPath(location.pathname);
   const visuallyCollapsed = isSidebarCollapsed && !isSidebarHoverExpanded;
-
-  useEffect(() => {
-    if (location.pathname === '/year-plan' && !hasSidebarCollapsePreference()) {
-      setIsSidebarCollapsed(true);
-    }
-  }, [location.pathname]);
 
   useEffect(() => {
     if (!isMobileNavigationOpen || !window.matchMedia('(max-width: 920px)').matches) return;

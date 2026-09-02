@@ -178,6 +178,22 @@
   gap: 10px;
 }
 
+.lesson-plan-top-fields {
+  order: 1;
+}
+
+.lesson-plan-steps {
+  order: 2;
+}
+
+.lesson-plan-resources {
+  order: 3;
+}
+
+.lesson-plan-bottom-fields {
+  order: 4;
+}
+
 .lesson-plan-fields label {
   display: grid;
   gap: 5px;

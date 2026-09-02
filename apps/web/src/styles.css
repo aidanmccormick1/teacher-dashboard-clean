@@ -7415,12 +7415,20 @@ button:disabled,
 }
 
 .lesson-title-input {
-  max-width: 900px;
+  display: block;
+  width: 100%;
+  max-width: none;
   border-radius: 4px;
-  padding: 2px 4px 3px;
-  font-size: clamp(1.65rem, 2.4vw, 2.25rem);
+  padding: 8px 4px 10px;
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 1.05;
   font-weight: 650;
   letter-spacing: -0.035em;
+}
+
+.lesson-workspace-header > div:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .lesson-title-input:hover,
