@@ -22,6 +22,19 @@ type FeedbackEntry = {
 };
 
 const feedbackStorageKey = 'teacheros_feedback_notes';
+const profileStorageKey = 'teacheros_profile_draft_v1';
+
+function readProfileDisplayName(): string | null {
+  try {
+    const draft = JSON.parse(window.localStorage.getItem(profileStorageKey) ?? '{}') as {
+      preferredName?: string;
+      fullName?: string;
+    };
+    return draft.preferredName?.trim() || draft.fullName?.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 function readFeedbackEntries(): FeedbackEntry[] {
   try {
@@ -51,6 +64,7 @@ export function AppShell() {
   const api = useApiClient();
   const location = useLocation();
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [profileDisplayName, setProfileDisplayName] = useState(readProfileDisplayName);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readSidebarCollapsed);
   const [isSidebarHoverExpanded, setIsSidebarHoverExpanded] = useState(false);
@@ -67,6 +81,15 @@ export function AppShell() {
   const feedbackReturnFocusRef = useRef<HTMLElement | null>(null);
   const activePrimaryNavigationId = primaryNavigationIdForPath(location.pathname);
   const visuallyCollapsed = isSidebarCollapsed && !isSidebarHoverExpanded;
+
+  useEffect(() => {
+    void api
+      .getProfile()
+      .then((profile) => {
+        setProfileDisplayName(readProfileDisplayName() ?? profile.user.fullName);
+      })
+      .catch(() => undefined);
+  }, [api]);
 
   useEffect(() => {
     if (!isMobileNavigationOpen || !window.matchMedia('(max-width: 920px)').matches) return;
@@ -326,7 +349,9 @@ export function AppShell() {
           data-mobile-open={isMobileNavigationOpen}
           ref={mobileNavigationRef}
         >
-          <p className="sidebar-account muted">{auth.email ?? auth.userId ?? 'Signed in'}</p>
+          <p className="sidebar-account muted">
+            {profileDisplayName ?? auth.email ?? auth.userId ?? 'Signed in'}
+          </p>
           <nav id="primary-navigation" aria-label="Primary navigation">
             {primaryNavigationItems.map((item) => (
               <NavLink

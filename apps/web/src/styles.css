@@ -700,9 +700,11 @@ a {
   text-decoration: none;
 }
 .today-schedule-row time {
-  width: 118px;
+  width: 170px;
+  flex: 0 0 170px;
   color: var(--muted);
   font-weight: 700;
+  white-space: nowrap;
 }
 .today-schedule-row > div {
   display: grid;
