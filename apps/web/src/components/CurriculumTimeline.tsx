@@ -55,6 +55,7 @@ type LessonDrag = {
   unitEnd: number;
 };
 type OutlineDropPosition = { unitId: string; index: number } | null;
+type OutlineUnitDropPosition = number | null;
 type RangeDrag = { originIndex: number; originX: number; unitId: string | null; laneTop: number };
 type RangeDraft = PlanningRange & { unitId: string | null };
 type LessonPlanDraft = {
@@ -220,6 +221,9 @@ export function CurriculumTimeline({
   const [lessonDragRemainder, setLessonDragRemainder] = useState(0);
   const [outlineDraggedLessonId, setOutlineDraggedLessonId] = useState<string | null>(null);
   const [outlineDropPosition, setOutlineDropPosition] = useState<OutlineDropPosition>(null);
+  const [outlineDraggedUnitId, setOutlineDraggedUnitId] = useState<string | null>(null);
+  const [outlineUnitDropPosition, setOutlineUnitDropPosition] =
+    useState<OutlineUnitDropPosition>(null);
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
   const [meetingData, setMeetingData] = useState<MeetingInstancesResponse | null>(null);
   const [lessonPlanDraft, setLessonPlanDraft] = useState<LessonPlanDraft>(emptyLessonPlan);
@@ -967,6 +971,43 @@ export function CurriculumTimeline({
       setSaving(false);
       setOutlineDraggedLessonId(null);
       setOutlineDropPosition(null);
+    }
+  };
+
+  const reorderUnitTo = async (draggedId: string, insertionIndex: number) => {
+    if (saving || !canEditSharedPlan) return;
+    const ordered = [...course.units].sort((left, right) => left.orderIndex - right.orderIndex);
+    const from = ordered.findIndex((unit) => unit.id === draggedId);
+    if (from < 0) return;
+    const [moving] = ordered.splice(from, 1);
+    if (!moving) return;
+    const adjustedIndex = clamp(
+      insertionIndex > from ? insertionIndex - 1 : insertionIndex,
+      0,
+      ordered.length
+    );
+    ordered.splice(adjustedIndex, 0, moving);
+    if (adjustedIndex === from) {
+      setOutlineDraggedUnitId(null);
+      setOutlineUnitDropPosition(null);
+      return;
+    }
+    try {
+      setSaving(true);
+      let detail: CourseDetailResponse | null = null;
+      for (const [index, unit] of ordered.entries()) {
+        if (unit.orderIndex !== index) {
+          detail = await api.updateUnit(unit.id, { orderIndex: index });
+        }
+      }
+      if (detail) onCourseChange(detail);
+      setStatus(`${moving.title} reordered`);
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not reorder units');
+    } finally {
+      setSaving(false);
+      setOutlineDraggedUnitId(null);
+      setOutlineUnitDropPosition(null);
     }
   };
 
@@ -1977,8 +2018,15 @@ export function CurriculumTimeline({
           </div>
           <div className="curriculum-tree-scroll">
             {positions.map((position) => {
+              const unitIndex = positions.findIndex((item) => item.unit.id === position.unit.id);
               const expanded = expandedUnitIds.includes(position.unit.id);
               const unitSelected = selection?.type === 'unit' && selection.id === position.unit.id;
+              const unitDragging = outlineDraggedUnitId === position.unit.id;
+              const unitDropBefore =
+                outlineUnitDropPosition === unitIndex && outlineDraggedUnitId !== position.unit.id;
+              const unitDropAfter =
+                outlineUnitDropPosition === unitIndex + 1 &&
+                outlineDraggedUnitId !== position.unit.id;
               const orderedLessons = [...position.unit.lessons].sort(
                 (left, right) => left.orderIndex - right.orderIndex
               );
@@ -1989,13 +2037,57 @@ export function CurriculumTimeline({
                 <div
                   key={position.unit.id}
                   className={
-                    unitSelected ? 'curriculum-tree-unit selected' : 'curriculum-tree-unit'
+                    [
+                      'curriculum-tree-unit',
+                      unitSelected ? 'selected' : '',
+                      unitDragging ? 'dragging' : '',
+                      unitDropBefore ? 'drop-before' : '',
+                      unitDropAfter ? 'drop-after' : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' ')
                   }
                 >
                   <div
                     className="curriculum-tree-row"
                     onContextMenu={(event) => openContextMenu(event, 'unit', position.unit.id)}
+                    onDragOver={(event) => {
+                      if (!outlineDraggedUnitId || outlineDraggedUnitId === position.unit.id) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      setOutlineUnitDropPosition(
+                        unitIndex + (event.clientY >= bounds.top + bounds.height / 2 ? 1 : 0)
+                      );
+                    }}
+                    onDrop={(event) => {
+                      if (!outlineDraggedUnitId || outlineDraggedUnitId === position.unit.id) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      void reorderUnitTo(
+                        outlineDraggedUnitId,
+                        unitIndex + (event.clientY >= bounds.top + bounds.height / 2 ? 1 : 0)
+                      );
+                    }}
                   >
+                    <button
+                      className="curriculum-unit-reorder"
+                      type="button"
+                      draggable={canEditSharedPlan && !saving}
+                      aria-label={`Drag to reorder ${position.unit.title}`}
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', position.unit.id);
+                        setOutlineDraggedUnitId(position.unit.id);
+                      }}
+                      onDragEnd={() => {
+                        setOutlineDraggedUnitId(null);
+                        setOutlineUnitDropPosition(null);
+                      }}
+                    >
+                      ⠿
+                    </button>
                     <button
                       className="curriculum-disclosure"
                       type="button"

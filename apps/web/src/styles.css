@@ -2377,10 +2377,35 @@ body.course-editor-open {
 }
 
 .curriculum-tree-unit {
+  position: relative;
   border-bottom: 1px solid #edf0ed;
 }
 .curriculum-tree-unit.selected {
   background: #f2f7f3;
+}
+
+.curriculum-tree-unit.dragging {
+  opacity: 0.45;
+}
+
+.curriculum-tree-unit.drop-before > .curriculum-tree-row::before,
+.curriculum-tree-unit.drop-after > .curriculum-tree-row::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 4;
+  height: 2px;
+  background: var(--blue);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+  content: '';
+}
+
+.curriculum-tree-unit.drop-before > .curriculum-tree-row::before {
+  top: -1px;
+}
+
+.curriculum-tree-unit.drop-after > .curriculum-tree-row::after {
+  bottom: -1px;
 }
 
 .curriculum-tree-row {
@@ -2396,6 +2421,22 @@ body.course-editor-open {
   color: var(--muted);
   box-shadow: none;
   font-size: 1.25rem;
+}
+
+.curriculum-unit-reorder {
+  flex: 0 0 28px;
+  width: 28px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #8a9790;
+  box-shadow: none;
+  cursor: grab;
+  font-size: 1rem;
+}
+
+.curriculum-unit-reorder:active {
+  cursor: grabbing;
 }
 
 .curriculum-tree-select {
