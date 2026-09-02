@@ -37,7 +37,7 @@ type SchoolYearSettings = {
   meetingDays: string[];
   bellScheduleType: 'weekly' | 'block' | 'ab' | 'rotating';
 };
-type Zoom = 'year' | 'quarter' | 'month' | 'week';
+type Zoom = 'year' | 'day' | 'month' | 'week';
 type Selection = { type: 'unit' | 'lesson'; id: string } | null;
 type ContextMenu = { type: 'unit' | 'lesson'; id: string; x: number; y: number } | null;
 type PositionedUnit = { unit: Unit; start: number; span: number };
@@ -83,7 +83,7 @@ const nullable = (value: string) => value.trim() || null;
 
 const zoomLabels: Array<{ id: Zoom; label: string }> = [
   { id: 'year', label: 'Year' },
-  { id: 'quarter', label: 'Quarter' },
+  { id: 'day', label: 'Day' },
   { id: 'month', label: 'Month' },
   { id: 'week', label: 'Week' }
 ];
@@ -120,9 +120,11 @@ function overlaps(a: PositionedUnit, b: PositionedUnit) {
 }
 
 function dateLabel(date: Date | undefined, zoom: Zoom, index: number) {
-  if (!date) return zoom === 'week' ? `Week ${index + 1}` : `M${index + 1}`;
+  if (!date) return zoom === 'week' ? `Week ${index + 1}` : `${zoom === 'day' ? 'D' : 'M'}${index + 1}`;
   if (zoom === 'week')
     return `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${date.getDate()}`;
+  if (zoom === 'day')
+    return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   if (zoom === 'month')
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return date.toLocaleDateString(undefined, { month: 'short' });
@@ -362,13 +364,13 @@ export function CurriculumTimeline({
       )
     : 52;
   // Zoom changes density, never scope. Every view represents the complete
-  // instructional year so moving between Year, Quarter, Month, and Week cannot
+  // instructional year so moving between Year, Day, Month, and Week cannot
   // hide later meetings or change the meeting index beneath a lesson.
   const visibleMeetings = Math.max(
     furthestMeeting,
     selectedSection ? sectionMeetings.length : schoolYearWeeks
   );
-  const slotWidth = zoom === 'year' ? 34 : zoom === 'quarter' ? 48 : zoom === 'month' ? 78 : 108;
+  const slotWidth = zoom === 'year' ? 34 : zoom === 'day' ? 128 : zoom === 'month' ? 78 : 108;
   const courseMeetingSlots = useMemo(
     () =>
       Array.from(
@@ -776,9 +778,7 @@ export function CurriculumTimeline({
         }
       }
       if (detail) onCourseChange(detail);
-      setStatus(
-        mode === 'shift' ? 'Timeline updated and following units shifted' : 'Timeline updated'
-      );
+      setStatus(null);
     } catch (err) {
       setStatus(err instanceof ApiError ? err.message : 'Could not update the timeline');
     } finally {
@@ -2233,7 +2233,7 @@ export function CurriculumTimeline({
           <div className="curriculum-scale" style={{ minWidth: visibleMeetings * slotWidth }}>
             {Array.from({ length: visibleMeetings }, (_, index) => (
               <span key={index} style={{ width: slotWidth }}>
-                {index % (zoom === 'year' ? 5 : zoom === 'quarter' ? 3 : 1) === 0
+                {index % (zoom === 'year' ? 5 : 1) === 0
                   ? dateLabel(meetings[index], zoom, index)
                   : ''}
               </span>
