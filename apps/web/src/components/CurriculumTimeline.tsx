@@ -791,17 +791,19 @@ export function CurriculumTimeline({
   };
 
   const beginUnitDrag = (
-    event: ReactPointerEvent<HTMLButtonElement>,
+    event: ReactPointerEvent<HTMLElement>,
     unit: PositionedUnit,
     mode: Drag['mode']
   ) => {
+    if (!canEditSharedPlan) return;
     event.preventDefault();
+    event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({ unit, mode, originX: event.clientX });
     setDragPreview(mode === 'move' ? unit.start : unit.span);
   };
 
-  const updateUnitDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const updateUnitDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (!drag) return;
     const delta = Math.round((event.clientX - drag.originX) / slotWidth);
     setDragPreview(
@@ -841,7 +843,7 @@ export function CurriculumTimeline({
   };
 
   const beginLessonDrag = (
-    event: ReactPointerEvent<HTMLButtonElement>,
+    event: ReactPointerEvent<HTMLElement>,
     lesson: Lesson,
     mode: LessonDrag['mode'],
     start: number,
@@ -849,6 +851,7 @@ export function CurriculumTimeline({
     unitStart: number,
     unitSpan: number
   ) => {
+    if (!canEditSharedPlan) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -865,7 +868,7 @@ export function CurriculumTimeline({
     setLessonDragRemainder(0);
   };
 
-  const updateLessonDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const updateLessonDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (!lessonDrag) return;
     event.preventDefault();
     const pixelDelta = event.clientX - lessonDrag.originX;
@@ -2050,7 +2053,17 @@ export function CurriculumTimeline({
                 >
                   <div
                     className="curriculum-tree-row"
+                    draggable={canEditSharedPlan && !saving}
                     onContextMenu={(event) => openContextMenu(event, 'unit', position.unit.id)}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData('text/plain', position.unit.id);
+                      setOutlineDraggedUnitId(position.unit.id);
+                    }}
+                    onDragEnd={() => {
+                      setOutlineDraggedUnitId(null);
+                      setOutlineUnitDropPosition(null);
+                    }}
                     onDragOver={(event) => {
                       if (!outlineDraggedUnitId || outlineDraggedUnitId === position.unit.id) return;
                       event.preventDefault();
@@ -2071,23 +2084,6 @@ export function CurriculumTimeline({
                       );
                     }}
                   >
-                    <button
-                      className="curriculum-unit-reorder"
-                      type="button"
-                      draggable={canEditSharedPlan && !saving}
-                      aria-label={`Drag to reorder ${position.unit.title}`}
-                      onDragStart={(event) => {
-                        event.dataTransfer.effectAllowed = 'move';
-                        event.dataTransfer.setData('text/plain', position.unit.id);
-                        setOutlineDraggedUnitId(position.unit.id);
-                      }}
-                      onDragEnd={() => {
-                        setOutlineDraggedUnitId(null);
-                        setOutlineUnitDropPosition(null);
-                      }}
-                    >
-                      ⠿
-                    </button>
                     <button
                       className="curriculum-disclosure"
                       type="button"
@@ -2130,7 +2126,17 @@ export function CurriculumTimeline({
                             ]
                               .filter(Boolean)
                               .join(' ')}
+                            draggable={!saving}
                             onContextMenu={(event) => openContextMenu(event, 'lesson', lesson.id)}
+                            onDragStart={(event) => {
+                              event.dataTransfer.effectAllowed = 'move';
+                              event.dataTransfer.setData('text/plain', lesson.id);
+                              setOutlineDraggedLessonId(lesson.id);
+                            }}
+                            onDragEnd={() => {
+                              setOutlineDraggedLessonId(null);
+                              setOutlineDropPosition(null);
+                            }}
                             onDragOver={(event) => {
                               if (!draggedLessonBelongsToUnit) return;
                               event.preventDefault();
@@ -2159,23 +2165,6 @@ export function CurriculumTimeline({
                                 );
                             }}
                           >
-                            <button
-                              className="curriculum-lesson-reorder"
-                              type="button"
-                              draggable
-                              aria-label={`Drag to reorder ${lesson.title}`}
-                              onDragStart={(event) => {
-                                event.dataTransfer.effectAllowed = 'move';
-                                event.dataTransfer.setData('text/plain', lesson.id);
-                                setOutlineDraggedLessonId(lesson.id);
-                              }}
-                              onDragEnd={() => {
-                                setOutlineDraggedLessonId(null);
-                                setOutlineDropPosition(null);
-                              }}
-                            >
-                              ⠿
-                            </button>
                             <button type="button" onClick={() => selectLesson(lesson)}>
                               {lesson.title}
                             </button>
@@ -2392,22 +2381,17 @@ export function CurriculumTimeline({
                       }}
                       aria-label={`Unit ${position.unit.title}, meetings ${start + 1} through ${start + span}`}
                       onContextMenu={(event) => openContextMenu(event, 'unit', position.unit.id)}
+                      onPointerDown={(event) => {
+                        selectUnit(position.unit);
+                        beginUnitDrag(event, position, 'move');
+                      }}
+                      onPointerMove={updateUnitDrag}
+                      onPointerUp={finishUnitDrag}
+                      onPointerCancel={() => {
+                        setDrag(null);
+                        setDragPreview(null);
+                      }}
                     >
-                      <button
-                        className="curriculum-unit-grab"
-                        type="button"
-                        aria-label={`Move ${position.unit.title}`}
-                        disabled={!canEditSharedPlan}
-                        onPointerDown={(event) => beginUnitDrag(event, position, 'move')}
-                        onPointerMove={updateUnitDrag}
-                        onPointerUp={finishUnitDrag}
-                        onPointerCancel={() => {
-                          setDrag(null);
-                          setDragPreview(null);
-                        }}
-                      >
-                        ⠿
-                      </button>
                       <button
                         className="curriculum-unit-content"
                         type="button"
@@ -2489,32 +2473,26 @@ export function CurriculumTimeline({
                               }}
                               aria-label={`${lesson.title}, ${displaySpan} ${displaySpan === 1 ? 'meeting' : 'meetings'}`}
                               onContextMenu={(event) => openContextMenu(event, 'lesson', lesson.id)}
+                              onPointerDown={(event) => {
+                                selectLesson(lesson);
+                                beginLessonDrag(
+                                  event,
+                                  lesson,
+                                  'move',
+                                  lessonStart,
+                                  lessonSpan,
+                                  start,
+                                  span
+                                );
+                              }}
+                              onPointerMove={updateLessonDrag}
+                              onPointerUp={() => void finishLessonDrag()}
+                              onPointerCancel={() => {
+                                setLessonDrag(null);
+                                setLessonDragPreview(null);
+                                setLessonDragRemainder(0);
+                              }}
                             >
-                              <button
-                                className="curriculum-lesson-grab"
-                                type="button"
-                                aria-label={`Move ${lesson.title} on timeline`}
-                                onPointerDown={(event) =>
-                                  beginLessonDrag(
-                                    event,
-                                    lesson,
-                                    'move',
-                                    lessonStart,
-                                    lessonSpan,
-                                    start,
-                                    span
-                                  )
-                                }
-                                onPointerMove={updateLessonDrag}
-                                onPointerUp={() => void finishLessonDrag()}
-                                onPointerCancel={() => {
-                                  setLessonDrag(null);
-                                  setLessonDragPreview(null);
-                                  setLessonDragRemainder(0);
-                                }}
-                              >
-                                ⠿
-                              </button>
                               <button
                                 className="curriculum-lesson-content"
                                 type="button"

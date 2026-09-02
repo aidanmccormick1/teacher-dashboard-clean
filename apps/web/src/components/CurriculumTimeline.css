@@ -549,6 +549,11 @@
   overflow: visible;
   border-radius: 7px;
   box-shadow: 0 1px 3px rgba(41, 68, 90, 0.08);
+  cursor: grab;
+}
+
+.curriculum-unit-bar:active {
+  cursor: grabbing;
 }
 
 .curriculum-unit-content {
@@ -559,24 +564,6 @@
   padding-inline: 10px;
   padding-block: 3px;
   line-height: 1.05;
-}
-
-.curriculum-unit-grab {
-  position: absolute;
-  top: 50%;
-  left: -27px;
-  z-index: 3;
-  width: 25px;
-  height: 30px;
-  padding: 0;
-  transform: translateY(-50%);
-  opacity: 0;
-}
-
-.curriculum-unit-bar:hover .curriculum-unit-grab,
-.curriculum-unit-grab:focus-visible,
-.curriculum-unit-bar.dragging .curriculum-unit-grab {
-  opacity: 1;
 }
 
 .curriculum-unit-resize {
@@ -865,27 +852,6 @@
   font-size: 0.68rem;
 }
 
-.curriculum-lesson-row > button.curriculum-lesson-reorder {
-  flex: 0 0 24px;
-  width: 24px;
-  min-width: 24px;
-  overflow: visible;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: #8a9790;
-  box-shadow: none;
-  cursor: grab;
-  opacity: 0;
-  text-align: center;
-}
-
-.curriculum-lesson-row:hover .curriculum-lesson-reorder,
-.curriculum-lesson-row.selected .curriculum-lesson-reorder,
-.curriculum-lesson-reorder:focus-visible {
-  opacity: 1;
-}
-
 .curriculum-lesson-create-actions {
   display: flex;
   min-height: var(--timeline-action-row-height);
@@ -1000,6 +966,7 @@
   overflow: hidden;
   border-radius: 6px;
   padding: 0;
+  cursor: grab;
 }
 
 .curriculum-lesson-bar.dragging {
@@ -1008,7 +975,6 @@
   box-shadow: 0 5px 13px rgba(41, 68, 90, 0.18);
 }
 
-.curriculum-lesson-grab,
 .curriculum-lesson-resize,
 .curriculum-lesson-content {
   border: 0;
@@ -1017,32 +983,10 @@
   box-shadow: none;
 }
 
-.curriculum-workspace .curriculum-lesson-grab {
-  align-self: stretch;
-  flex: 0 0 34px;
-  width: 34px;
-  min-width: 34px;
-  padding: 0;
-  cursor: grab;
-  opacity: 0.65;
-  touch-action: none;
-  user-select: none;
-}
-
-.curriculum-workspace .curriculum-lesson-grab:hover,
-.curriculum-workspace .curriculum-lesson-grab:focus-visible {
-  background: rgba(62, 97, 122, 0.1);
-  opacity: 1;
-}
-
-.curriculum-workspace .curriculum-lesson-bar.dragging .curriculum-lesson-grab {
-  cursor: grabbing;
-  opacity: 1;
-}
-
 .curriculum-lesson-content {
   display: flex;
   flex: 1;
+  cursor: inherit;
   min-width: 0;
   align-items: center;
   justify-content: space-between;

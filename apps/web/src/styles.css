@@ -2414,6 +2414,14 @@ body.course-editor-open {
   min-height: 53px;
 }
 
+.curriculum-tree-row[draggable='true'] {
+  cursor: grab;
+}
+
+.curriculum-tree-row[draggable='true']:active {
+  cursor: grabbing;
+}
+
 .curriculum-disclosure {
   width: 42px;
   border: 0;
@@ -2421,22 +2429,6 @@ body.course-editor-open {
   color: var(--muted);
   box-shadow: none;
   font-size: 1.25rem;
-}
-
-.curriculum-unit-reorder {
-  flex: 0 0 28px;
-  width: 28px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: #8a9790;
-  box-shadow: none;
-  cursor: grab;
-  font-size: 1rem;
-}
-
-.curriculum-unit-reorder:active {
-  cursor: grabbing;
 }
 
 .curriculum-tree-select {
@@ -2474,6 +2466,11 @@ body.course-editor-open {
   gap: 4px;
   min-width: 0;
   border-radius: 7px;
+  cursor: grab;
+}
+
+.curriculum-lesson-row:active {
+  cursor: grabbing;
 }
 .curriculum-lesson-row.selected {
   background: #edf4f7;
@@ -2606,7 +2603,6 @@ body.course-editor-open {
   background: repeating-linear-gradient(135deg, #fff4dc, #fff4dc 7px, #ffefd3 7px, #ffefd3 14px);
 }
 
-.curriculum-unit-grab,
 .curriculum-unit-resize {
   flex: 0 0 30px;
   border: 0;
@@ -2616,10 +2612,6 @@ body.course-editor-open {
   touch-action: none;
 }
 
-.curriculum-unit-grab {
-  cursor: grab;
-  font-size: 1rem;
-}
 .curriculum-unit-resize {
   width: 12px;
   flex-basis: 12px;
