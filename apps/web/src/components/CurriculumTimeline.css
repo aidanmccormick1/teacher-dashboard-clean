@@ -1099,3 +1099,15 @@
     min-height: 420px;
   }
 }
+
+/* Keep the outline header aligned with the sticky meeting scale while scrolling. */
+.curriculum-tree-heading {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #fff;
+}
+
+.curriculum-canvas {
+  padding-top: 0;
+}
