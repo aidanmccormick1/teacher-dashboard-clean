@@ -151,15 +151,11 @@ export function SharedLessonPage() {
 
       <nav className="shared-lesson-nav" aria-label="Lesson sections">
         <a href="#overview">At a glance</a>
-        <a href="#lesson-flow">Lesson flow</a>
+        <a href="#lesson-flow">Steps</a>
         <a href="#join-teacherdesk">TeacherDesk</a>
       </nav>
 
-      <section className="shared-overview" id="overview" aria-labelledby="overview-heading">
-        <div className="shared-section-heading">
-          <p className="eyebrow">Plan at a glance</p>
-          <h2 id="overview-heading">Everything you need to begin.</h2>
-        </div>
+      <section className="shared-overview" id="overview">
         <div className="shared-overview-grid">
           {lesson.objective ? (
             <article className="shared-info-card shared-info-card-objective">
@@ -213,19 +209,15 @@ export function SharedLessonPage() {
         </div>
       </section>
 
-      <section className="shared-flow" id="lesson-flow" aria-labelledby="lesson-flow-heading">
-        <header className="shared-flow-header">
-          <div>
-            <p className="eyebrow">Lesson flow</p>
-            <h2 id="lesson-flow-heading">Follow the rhythm of the lesson.</h2>
-          </div>
-          <div className="shared-progress-summary" aria-label={`${progress}% of lesson explored`}>
+      <section className="shared-flow" id="lesson-flow">
+        <div className="shared-flow-status">
+          <div className="shared-progress-summary" aria-label={`${progress}% completed`}>
             <strong>
               {completedCount}/{lesson.steps.length}
             </strong>
-            <span>explored</span>
+            <span>completed</span>
           </div>
-        </header>
+        </div>
         <div className="shared-progress-track" aria-hidden="true">
           <span style={{ width: `${progress}%` }} />
         </div>
@@ -277,7 +269,7 @@ export function SharedLessonPage() {
                       onClick={() => toggleComplete(index)}
                     >
                       <span aria-hidden="true">{isComplete ? '✓' : '○'}</span>
-                      {isComplete ? 'Marked as explored' : 'Mark as explored'}
+                      {isComplete ? 'Marked as completed' : 'Mark as completed'}
                     </button>
                   </div>
                 ) : null}
