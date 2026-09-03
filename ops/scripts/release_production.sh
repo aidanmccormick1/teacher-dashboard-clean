@@ -4,11 +4,11 @@ set -euo pipefail
 # The only production release path for the TeacherDesk web app.
 #
 # Source of truth: GitHub main in a clean teacher-dashboard-clean checkout.
-# Frontend host: Git-connected teacheros-app Cloudflare Pages project.
+# Frontend host: Git-connected teacherplat Cloudflare Pages project.
 # Backend host: Render, which auto-deploys the same Git commit.
 
-PROJECT_NAME="${CLOUDFLARE_PAGES_PROJECT:-teacheros-app}"
-WEB_URL="${WEB_URL:-https://teacheros-app.pages.dev}"
+PROJECT_NAME="${CLOUDFLARE_PAGES_PROJECT:-teacherplat}"
+WEB_URL="${WEB_URL:-https://teacherplat.pages.dev}"
 API_URL="${API_URL:-https://teacheros-api.onrender.com}"
 EXPECTED_REMOTE="https://github.com/aidanmccormick1/teacher-dashboard-clean.git"
 RENDER_SERVICE="${RENDER_SERVICE:-teacheros-api}"

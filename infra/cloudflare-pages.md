@@ -6,8 +6,8 @@ GitHub is the source of truth and Cloudflare Pages hosts the production frontend
 | --- | --- |
 | Repository | `aidanmccormick1/teacher-dashboard-clean` |
 | Release branch | `main` |
-| Pages project | `teacheros-app` |
-| Production URL | `https://teacheros-app.pages.dev/management` |
+| Pages project | `teacherplat` |
+| Production URL | `https://teacherplat.pages.dev/management` |
 | API host | `https://teacheros-api.onrender.com` |
 
 The canonical Pages project is Git-connected to `aidanmccormick1/teacher-dashboard-clean`, with `main` as its only production branch. A push to `main` triggers the production build. The checked-in release command verifies that Git-connected deployment for the exact commit, compares its live bundle to a local production build, and confirms API readiness. It does not create a second, ad-hoc production deployment.
@@ -26,7 +26,7 @@ The command requires `RENDER_API_KEY` from secure local or CI secret storage. It
 
 The command refuses the wrong checkout, wrong branch, dirty files, a non-canonical remote, or a local branch that does not exactly match `origin/main`. It records the Git SHA in the Cloudflare deployment and prints the matching Cloudflare deployment ID at completion.
 
-`teacher-dashboard-clean.pages.dev` is a legacy address. Once the `teacheros-app` cutover is verified, it is retained only as a redirect to the canonical production URL. A future custom domain should be attached to `teacheros-app`; the Pages hostname remains the fallback.
+`teacheros-app.pages.dev` and `teacher-dashboard-clean.pages.dev` are legacy addresses. They remain available during the cutover, with the older address redirecting to the canonical production URL. A future custom domain should be attached to `teacherplat`; the Pages hostname remains the fallback.
 
 The redirect-only legacy bundle is stored at `ops/legacy-pages-redirect/` and is deployed only to the legacy Pages project. It is not part of the canonical frontend build.
 
