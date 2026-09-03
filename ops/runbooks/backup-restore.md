@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Postgres system of record (Neon, US-East)
+- Postgres system of record (Render, US-East)
 - R2/S3-compatible private materials bucket
 
 ## Prerequisites

@@ -1,5 +1,7 @@
 # TeacherOS v2 Monorepo
 
+The production frontend is [teacherplat.pages.dev](https://teacherplat.pages.dev), hosted on Cloudflare Pages. The API, PostgreSQL database, and Redis-compatible queue are hosted on Render. The canonical source is the `main` branch of [aidanmccormick1/teacher-dashboard-clean](https://github.com/aidanmccormick1/teacher-dashboard-clean).
+
 This repository contains the v2 rebuild of the Teacher Platform with an API-first architecture.
 
 ## Workspace layout
@@ -8,7 +10,7 @@ This repository contains the v2 rebuild of the Teacher Platform with an API-firs
 - `apps/api`: Fastify TypeScript API (Render target)
 - `apps/worker`: optional standalone BullMQ process for async AI jobs
 - `packages/ai-worker`: shared queued-job processor used by the API pilot mode and standalone worker
-- `packages/db`: Drizzle schema + migrations for Neon Postgres
+- `packages/db`: Drizzle schema + migrations for Render Postgres
 - `packages/contracts`: Shared Zod contracts for request/response types
 
 Legacy v1 files remain in the repository as reference during migration.

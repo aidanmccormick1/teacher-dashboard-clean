@@ -1,5 +1,7 @@
 # Teacher Platform Build Instructions for Codex
 
+> Historical planning document — do not use its older Supabase architecture or deployment instructions as current guidance. Current hosting, deployment, and production status are maintained in `docs/PROJECT_REFERENCE.md` and `infra/cloudflare-pages.md`.
+
 ## Purpose
 
 Use this file as the main implementation brief for building out the Teacher Platform over the next several weeks.

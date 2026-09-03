@@ -1,5 +1,7 @@
 # TeacherOS v2 Implementation Status
 
+> Current production frontend: `https://teacherplat.pages.dev`. Cloudflare Pages deploys the `main` branch of `aidanmccormick1/teacher-dashboard-clean`; the API and data services remain on Render. Historical architecture notes elsewhere in this file are retained for context and are not current deployment instructions.
+
 ## What is implemented now
 
 ### Latest phase execution (production phases)

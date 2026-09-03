@@ -1,5 +1,7 @@
 # Teacher Dashboard Design Refresh
 
+> Historical design document. Current implementation and production status are maintained in `docs/PROJECT_REFERENCE.md`.
+
 ## Summary
 - Move the product toward a calm, Apple-like teaching workspace.
 - Keep the useful information, but reduce visual competition.

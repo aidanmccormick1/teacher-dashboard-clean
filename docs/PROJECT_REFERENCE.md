@@ -1,7 +1,7 @@
 # TeacherDesk — Project Reference
 
 > Living reference for the TeacherDesk / Calico Edu application.  
-> Snapshot: August 14, 2026. Update this document whenever infrastructure, product scope, or deployment ownership changes. It intentionally excludes credentials, tokens, and passwords.
+> Snapshot: September 3, 2026. Update this document whenever infrastructure, product scope, or deployment ownership changes. It intentionally excludes credentials, tokens, and passwords.
 
 ## Executive summary
 
@@ -31,7 +31,7 @@ flowchart LR
 | Frontend | `https://teacherplat.pages.dev` | Canonical Cloudflare Pages production site. |
 | Backend API | `https://teacheros-api.onrender.com` | Render Node/Fastify service. |
 | API health | `https://teacheros-api.onrender.com/health/readiness` | Returns readiness JSON when healthy. |
-| Database | Render PostgreSQL: `teacheros-db` | Paid Render PostgreSQL instance. |
+| Database | Render PostgreSQL: `teacheros-db` | Render PostgreSQL instance. Plan/status should be verified in the Render dashboard. |
 | Queue/cache | Render Valkey: `teacheros-redis` | Used for AI job queueing. |
 | Object storage | Cloudflare R2 | Intended for uploads; not yet confirmed as configured in the API. |
 
@@ -104,7 +104,7 @@ The Render PostgreSQL database is the persistent source of application data. The
 
 R2 is the intended home for uploaded artifacts, such as schedule source files. At the time of this snapshot, the API capability endpoint reports S3/R2 storage as unavailable. R2 should be configured with the bucket endpoint and restricted credentials in Render environment variables, then verified through an upload flow. Reference: `infra/cloudflare-r2.md`.
 
-## Verified operating state (August 12, 2026)
+## Verified operating state (September 3, 2026)
 
 | Check | Result | Evidence / meaning |
 | --- | --- | --- |
@@ -115,7 +115,7 @@ R2 is the intended home for uploaded artifacts, such as schedule source files. A
 | Production smoke test | Passed for public endpoints | `npm run ops:smoke:production` passed web root, SPA routes, and API liveness/readiness/capabilities. |
 | GitHub CI for dashboard gate commit | Passed | The GitHub quality workflow succeeded for commit `f5cbd8c`. It runs install, typecheck, lint, tests, and build. |
 | Full authenticated AI-import test | Pending | Requires authorization to use the production OpenAI key and an authenticated test flow. |
-| Cloudflare Pages deployment | Passed | The canonical `teacherplat` Pages project serves production from GitHub `main`. Its checked-in release command waits for and verifies the matching Git-connected deployment ID. The previous Pages addresses remain available during cutover. |
+| Cloudflare Pages deployment | Passed | The `teacherplat` Pages project was created and successfully deployed from GitHub `main`. Its checked-in release command waits for and verifies the matching Git-connected deployment ID. The previous Pages addresses remain available during transition. |
 
 The exact capabilities response at the snapshot was logically equivalent to:
 
@@ -260,9 +260,9 @@ The backend is currently healthy and deployed from the correct GitHub project. T
 
 ### Frontend
 
-The Cloudflare Pages project uses manual asset uploads rather than a GitHub deployment connection. The August 14, 2026 production deployment contains the web build associated with `ab4ba1820e6ebe5664f59a4e8b81fbb2b48aab6d`; its public bundle is `assets/index-lAR0oxNU.js`. The `/management` route was authenticated and verified after deployment.
+The canonical `teacherplat` Pages project is Git-connected to GitHub and automatically deploys `main`. Its build command is `npm run build`, with `apps/web/dist` as the output directory. The `/management` route should be authenticated and verified after each production deployment.
 
-For future frontend releases, build the web workspace, deploy `apps/web/dist` with Wrangler to the `teacher-dashboard-clean` Pages project, then verify the production bundle and smoke checks. Do not assume a GitHub push will deploy Pages automatically while the project remains manually-uploaded.
+The previous `teacheros-app.pages.dev` project remains available during the transition. It is not the canonical production address.
 
 ## Operational checks
 
@@ -290,14 +290,14 @@ Run commands from `/Users/aidanmccormick/Desktop/teacher-dashboard-clean`.
 | Priority | Item | Why it matters | Recommended next action |
 | --- | --- | --- | --- |
 | High | Render API cold starts | Teachers can see backend timeout/waking messages. | Upgrade the Render API web service to an always-on paid plan. |
-| Resolved | Cloudflare Pages old production bundle | The current web build was uploaded and verified at `/management`. | Keep using the manual Pages deployment runbook for future frontend releases. |
+| Resolved | Cloudflare Pages old production bundle | The canonical `teacherplat` project is now deployed from the current GitHub source. | Verify the `main` deployment and production smoke checks after relevant changes. |
 | Medium | File-based AI import E2E verification | A production queue test with a safe pasted schedule succeeded; a representative image/PDF should still be checked after major model or upload changes. | Run a safe image/PDF sample through upload → read → review → apply. |
 | High | R2/storage capability unavailable | File upload persistence may be incomplete or use an alternate path. | Configure and verify Cloudflare R2 in Render; confirm `s3` capability becomes true. |
 | Medium | Guided import UX | Existing flow must become visibly step-by-step and low-overwhelm. | Design and implement the explicit upload → read → review → confirm journey. |
 | Medium | Start/end time support and weekly view | Core teacher scheduling requirements are not fully confirmed as implemented. | Inspect schema/UI, add data migration/API/UI, and test importer parsing. |
 | Medium | Year plan / stackable lessons | Requested planning model needs detailed implementation. | Define data model and drag/reorder interactions, then build incrementally. |
 | Medium | Private notes/text | Teachers need account-specific text. | Define scope, privacy, autosave behavior, and UI placement. |
-| Low | Documentation mismatch | Some older README language refers to Neon PostgreSQL, while production uses Render PostgreSQL. | Update general docs once the platform configuration is stable. |
+| Low | Documentation drift | Historical design and implementation notes may describe earlier architecture or status. | Treat this reference and the current runbooks as authoritative for operations. |
 
 ## Working principles for future changes
 
@@ -319,7 +319,7 @@ Run commands from `/Users/aidanmccormick/Desktop/teacher-dashboard-clean`.
 | Aug. 12, 2026 | Repoint Render API to `teacher-dashboard-clean/main`. | It was incorrectly building the parallel legacy repository. |
 | Aug. 12, 2026 | Add a dashboard import gate before normal empty statistics/readiness. | An unconfigured account should be guided into setup rather than shown misleading empty dashboard content. |
 | Aug. 12, 2026 | Use queued AI jobs for schedule reading. | Synchronous schedule parsing held the browser request open and could surface a timeout even when the worker infrastructure was available. |
-| Aug. 12, 2026 | Deploy Pages manually with Wrangler. | The Cloudflare Pages project has no active Git connection; a GitHub push alone does not update the public frontend. |
+| Sep. 3, 2026 | Use the `teacherplat` Pages project as the canonical frontend. | The new project is Git-connected to `teacher-dashboard-clean/main`; the prior `teacheros-app` address remains available during transition. |
 
 ## Useful references in the repository
 
@@ -334,7 +334,7 @@ Run commands from `/Users/aidanmccormick/Desktop/teacher-dashboard-clean`.
 
 ## Next recommended build sequence
 
-1. Maintain the manual Cloudflare Pages deployment runbook and verify the public bundle after each frontend release.
+1. Maintain the Git-connected Cloudflare Pages deployment and verify the public bundle after each frontend release.
 2. Eliminate API cold starts by upgrading the Render API service.
 3. Configure/verify R2 upload storage and run a complete authenticated AI schedule-import test.
 4. Rebuild the schedule import UI into explicit, confirmed stages.

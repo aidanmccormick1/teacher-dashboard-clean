@@ -1,5 +1,7 @@
 # TeacherOS Product Overview
 
+> Product overview and historical requirements. Current infrastructure and deployment details are maintained in `docs/PROJECT_REFERENCE.md`.
+
 ## What TeacherOS Is
 TeacherOS is a planning and classroom workflow app built for teachers who teach multiple class periods, manage shared curriculum, and need a simple way to know what to teach next.
 

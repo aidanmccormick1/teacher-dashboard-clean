@@ -8,7 +8,7 @@
 - `5xx rate > 5%` for `5m`: **critical**
 - `/health/readiness` failing for `2` consecutive checks: **critical**
 
-## Web (Cloudflare Pages)
+## Web (`teacherplat.pages.dev`, Cloudflare Pages)
 
 - First useful render `> 1.5s` p75 on broadband synthetic probes: **warning**
 - JS unhandled rejection/session error rate `> 0`: **critical** (target is zero)
@@ -20,7 +20,7 @@
 - Retry exhaustion (`failed` after max attempts) rate `> 10%` over `15m`: **warning**
 - Dead-letter queue size `> 0`: **critical**
 
-## Database (Neon Postgres)
+## Database (Render Postgres, US-East)
 
 - Connection saturation `> 80%` for `10m`: **warning**
 - Storage `> 85%`: **warning**
