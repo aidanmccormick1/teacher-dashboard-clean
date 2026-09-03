@@ -2577,6 +2577,7 @@ body.course-editor-open {
   z-index: 1;
   display: flex;
   align-items: stretch;
+  height: calc(var(--timeline-row-height) - 2px);
   min-width: 0;
   overflow: hidden;
   border: 1px solid rgba(70, 114, 93, 0.36);
@@ -8789,7 +8790,7 @@ button:disabled,
 
 /* Keep the expanded outline and its timeline rows on one shared vertical grid. */
 .curriculum-workspace {
-  --timeline-row-height: 53px;
+  --timeline-row-height: 70px;
   --timeline-lesson-row-height: 38px;
   --timeline-action-row-height: 38px;
 }

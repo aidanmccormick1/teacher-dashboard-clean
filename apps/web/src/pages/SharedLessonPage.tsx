@@ -108,20 +108,6 @@ export function SharedLessonPage() {
 
   return (
     <main className="shared-lesson shared-lesson-page">
-      <header className="shared-lesson-topbar">
-        <a className="shared-lesson-brand" href="/" aria-label="TeacherDesk home">
-          <span className="shared-brand-mark" aria-hidden="true">
-            TD
-          </span>
-          <span>
-            <strong>TeacherDesk</strong>
-          </span>
-        </a>
-        <span className="shared-readonly-pill">
-          <span aria-hidden="true">●</span> Shared lesson
-        </span>
-      </header>
-
       <section className="shared-lesson-hero" aria-labelledby="shared-lesson-title">
         <div className="shared-lesson-hero-copy">
           <p className="eyebrow shared-lesson-breadcrumb">
