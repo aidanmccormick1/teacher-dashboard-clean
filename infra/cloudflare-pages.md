@@ -26,7 +26,7 @@ The command requires `RENDER_API_KEY` from secure local or CI secret storage. It
 
 The command refuses the wrong checkout, wrong branch, dirty files, a non-canonical remote, or a local branch that does not exactly match `origin/main`. It records the Git SHA in the Cloudflare deployment and prints the matching Cloudflare deployment ID at completion.
 
-`teacheros-app.pages.dev` and `teacher-dashboard-clean.pages.dev` are legacy addresses. They remain available during the cutover, with the older address redirecting to the canonical production URL. A future custom domain should be attached to `teacherplat`; the Pages hostname remains the fallback.
+`teacheros-app.pages.dev` and `teacher-dashboard-clean.pages.dev` are legacy addresses. They remain available during the transition, with the older address redirecting to the canonical production URL. A future custom domain should be attached to `teacherplat`; the Pages hostname remains the fallback.
 
 The redirect-only legacy bundle is stored at `ops/legacy-pages-redirect/` and is deployed only to the legacy Pages project. It is not part of the canonical frontend build.
 

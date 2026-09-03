@@ -142,4 +142,4 @@
 - Implement full repository/service layering in API modules (currently routes contain direct orchestration).
 - Add contract and integration tests for each business route (currently smoke-level baseline).
 - Add full e2e scenarios for all acceptance criteria in the plan.
-- Complete DNS cutover + production runbooks/backup verification.
+- Complete production backup verification and keep the current deployment runbooks aligned with the live stack.
