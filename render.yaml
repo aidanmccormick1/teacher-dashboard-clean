@@ -3,7 +3,7 @@ services:
     name: teacheros-api
     runtime: node
     rootDir: .
-    plan: free
+    plan: starter
     region: ohio
     branch: main
     buildCommand: npm ci --include=dev && npm --workspace @teacheros/contracts run build && npm --workspace @teacheros/db run build && npm --workspace @teacheros/ai-worker run build && npm --workspace @teacheros/api run build
@@ -79,9 +79,8 @@ services:
 
 databases:
   - name: teacheros-db
-    plan: free
+    plan: basic-256mb
     region: ohio
-    databaseName: teacheros
     user: teacheros
     postgresMajorVersion: "17"
     ipAllowList: []
