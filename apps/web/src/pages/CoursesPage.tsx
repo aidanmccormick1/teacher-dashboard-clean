@@ -459,7 +459,7 @@ export function CoursesPage() {
   };
 
   return (
-    <main className="courses-page">
+    <main className="courses-page page-entry">
       <header className="courses-page-header">
         <div>
           <p className="eyebrow">Courses</p>

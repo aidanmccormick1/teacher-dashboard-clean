@@ -311,7 +311,7 @@ export function SchoolPage() {
   };
 
   return (
-    <div className="school-page stack">
+    <div className="school-page stack page-entry">
       <section className="paper-hero">
         <div>
           <p className="eyebrow">School profile</p>
