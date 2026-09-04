@@ -16,6 +16,7 @@ import { LoginPage } from './pages/LoginPage.js';
 import { OnboardingPage } from './pages/OnboardingPage.js';
 import { ProfilePage } from './pages/ProfilePage.js';
 import { SchoolPage } from './pages/SchoolPage.js';
+import { SharingPage } from './pages/SharingPage.js';
 
 function RequireAuth() {
   const auth = useAppAuth();
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/dashboard" element={<Navigate to="/today" replace />} />
           <Route path="/year-plan" element={<YearPlanPage />} />
           <Route path="/courses" element={<CoursesPage />} />
+          <Route path="/sharing" element={<SharingPage />} />
           <Route path="/school" element={<SchoolPage />} />
           <Route path="/classroom" element={<ClassroomPage />} />
           <Route path="/curriculum" element={<Navigate to="/courses" replace />} />

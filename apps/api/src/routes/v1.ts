@@ -4354,6 +4354,35 @@ export async function v1Routes(app: FastifyInstance) {
     }
   );
 
+  app.get(
+    '/v1/courses/:courseId/share',
+    {
+      schema: {
+        params: CourseParamsSchema,
+        response: { 200: CourseShareResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { courseId } = CourseParamsSchema.parse(request.params);
+      if (!(await findOwnedCourse(user.id, courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+      const [share] = await db
+        .select()
+        .from(courseShares)
+        .where(eq(courseShares.courseId, courseId))
+        .limit(1);
+      return CourseShareResponseSchema.parse({
+        enabled: share?.enabled ?? false,
+        token: share?.publicToken ?? null
+      });
+    }
+  );
+
   app.patch(
     '/v1/courses/:courseId/share',
     {

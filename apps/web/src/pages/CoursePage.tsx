@@ -46,7 +46,6 @@ export function CoursePage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
   const [collaborators, setCollaborators] = useState<CourseCollaboratorsResponse['collaborators']>(
     []
@@ -128,18 +127,11 @@ export function CoursePage() {
       .catch(() => undefined);
   };
 
-  const courseAction = async (action: 'share' | 'duplicate' | 'end' | 'leave' | 'delete') => {
+  const courseAction = async (action: 'duplicate' | 'end' | 'leave' | 'delete') => {
     if (!course) return;
     try {
       setSaving(true);
-      if (action === 'share') {
-        const share = await api.updateCourseShare(course.id, true);
-        if (share.token)
-          await navigator.clipboard?.writeText(
-            `${location.origin}/shared/curriculum/${share.token}`
-          );
-        setCopyStatus('Secure curriculum link copied.');
-      } else if (action === 'duplicate') {
+      if (action === 'duplicate') {
         const name = window.prompt('New course name', `${course.name} copy`)?.trim();
         if (!name) return;
         const duplicate = await api.duplicateCourse(course.id, name);
@@ -200,14 +192,12 @@ export function CoursePage() {
           <Link className="button-link" to={`/year-plan?course=${courseId}`}>
             Open Year Plan
           </Link>
+          <Link className="button-link secondary" to={`/sharing?course=${courseId}`}>
+            Manage sharing
+          </Link>
           <details className="course-actions-menu">
             <summary aria-label="Course actions">•••</summary>
             <div>
-              {course?.accessRole === 'owner' ? (
-                <button type="button" onClick={() => void courseAction('share')}>
-                  Create public view link
-                </button>
-              ) : null}
               <button type="button" onClick={() => void courseAction('duplicate')}>
                 Duplicate as independent copy
               </button>
@@ -234,7 +224,6 @@ export function CoursePage() {
         </div>
       </div>
       {error ? <p className="notice warning">{error}</p> : null}
-      {copyStatus ? <p className="notice success">{copyStatus}</p> : null}
       {loading && !course ? <p className="muted">Loading course...</p> : null}
 
       {course ? (

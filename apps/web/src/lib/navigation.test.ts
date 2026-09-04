@@ -14,6 +14,7 @@ describe('primary navigation matching', () => {
     ['/year-plan/', 'year-plan'],
     ['/courses', 'courses'],
     ['/courses/course-1', 'courses'],
+    ['/sharing', 'sharing'],
     ['/school', 'school']
   ] as const)('marks %s as %s', (pathname, expected) => {
     expect(primaryNavigationIdForPath(pathname)).toBe(expected);

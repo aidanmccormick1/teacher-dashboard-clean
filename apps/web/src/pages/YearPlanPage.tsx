@@ -3,7 +3,6 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CSSProperties } from 'react';
 import type {
   CourseDetailResponse,
-  CoursePacingResponse,
   GetScheduleResponse,
   SchoolCalendarResponse
 } from '@teacheros/contracts';
@@ -37,8 +36,6 @@ export function YearPlanPage() {
   const [calendar, setCalendar] = useState<SchoolCalendarResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pacing, setPacing] = useState<CoursePacingResponse | null>(null);
-  const [pacingUpdating, setPacingUpdating] = useState(false);
   const remembered = useMemo(readRememberedContext, []);
 
   useEffect(() => {
@@ -88,25 +85,6 @@ export function YearPlanPage() {
     schedule?.sections.filter((section) => section.courseId === selectedCourse?.id) ?? [];
   const selectedSection =
     courseSections.find((section) => section.sectionId === context.sectionId) ?? null;
-
-  useEffect(() => {
-    if (!selectedCourse) {
-      setPacing(null);
-      return;
-    }
-    let cancelled = false;
-    void api
-      .getCoursePacing(selectedCourse.id)
-      .then((response) => {
-        if (!cancelled) setPacing(response);
-      })
-      .catch(() => {
-        if (!cancelled) setPacing(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [api, selectedCourse?.id]);
 
   useEffect(() => {
     if (loading) return;
@@ -227,70 +205,6 @@ export function YearPlanPage() {
           No Class Group schedule is attached. You can plan the shared curriculum by meeting
           sequence until a schedule is added.
         </p>
-      ) : null}
-      {pacing ? (
-        <section className="card stack" aria-label="Shared pacing reference">
-          <div className="section-heading">
-            <div>
-              <h2>Shared pacing reference</h2>
-              <p className="muted">
-                This only compares each teacher’s current curriculum position. It never changes
-                schedules, progress, or classroom history.
-              </p>
-            </div>
-          </div>
-          <label className="row">
-            <input
-              type="checkbox"
-              checked={pacing.sharingEnabled}
-              disabled={pacingUpdating}
-              onChange={async (event) => {
-                try {
-                  setPacingUpdating(true);
-                  setPacing(
-                    await api.updateCoursePacingSharing(selectedCourse.id, {
-                      enabled: event.target.checked
-                    })
-                  );
-                } catch (err) {
-                  setError(
-                    err instanceof ApiError ? err.message : 'Could not update pacing sharing.'
-                  );
-                } finally {
-                  setPacingUpdating(false);
-                }
-              }}
-            />
-            Share my class-group progress with course collaborators
-          </label>
-          {pacing.participants.map((participant) => (
-            <div className="course-edit-meeting-row" key={participant.userId}>
-              <div>
-                <strong>
-                  {participant.fullName ?? participant.email}
-                  {participant.isCurrentUser ? ' (you)' : ''}
-                </strong>
-                {participant.classGroups.length ? (
-                  participant.classGroups.map((group) => (
-                    <span key={group.sectionId}>
-                      {group.sectionName} ·{' '}
-                      {group.lessonTitle
-                        ? `Lesson ${typeof group.lessonOrderIndex === 'number' ? group.lessonOrderIndex + 1 : '—'}: ${group.lessonTitle}`
-                        : 'No lesson position yet'}
-                    </span>
-                  ))
-                ) : (
-                  <span>No linked class groups</span>
-                )}
-              </div>
-            </div>
-          ))}
-          {pacing.participants.length === 1 && !pacing.sharingEnabled ? (
-            <p className="muted">
-              Opt in to let collaborators compare their own current positions with yours.
-            </p>
-          ) : null}
-        </section>
       ) : null}
       <CurriculumTimeline
         course={selectedCourse}

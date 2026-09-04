@@ -280,17 +280,11 @@ export function CoursesPage() {
 
   const runCourseAction = async (
     course: Course,
-    action: 'share' | 'duplicate' | 'end' | 'restore'
+    action: 'duplicate' | 'end' | 'restore'
   ) => {
     try {
       setSaving(true);
-      if (action === 'share') {
-        const share = await api.updateCourseShare(course.id, true);
-        if (share.token)
-          await navigator.clipboard?.writeText(
-            `${location.origin}/shared/curriculum/${share.token}`
-          );
-      } else if (action === 'duplicate') {
+      if (action === 'duplicate') {
         const nextName = window.prompt('New course name', `${course.name} copy`)?.trim();
         if (!nextName) return;
         await api.duplicateCourse(course.id, nextName);
@@ -389,6 +383,9 @@ export function CoursesPage() {
               <Link className="button-link secondary" to={`/courses/${course.id}`}>
                 Open course
               </Link>
+              <Link className="button-link secondary" to={`/sharing?course=${course.id}`}>
+                Sharing
+              </Link>
               {course.units.length ? (
                 <Link className="button-link" to={`/year-plan?course=${course.id}`}>
                   Year Plan
@@ -425,11 +422,6 @@ export function CoursesPage() {
                 </button>
               ) : (
                 <>
-                  {course.accessRole === 'owner' ? (
-                    <button type="button" onClick={() => void runCourseAction(course, 'share')}>
-                      Create public view link
-                    </button>
-                  ) : null}
                   <button type="button" onClick={() => void runCourseAction(course, 'duplicate')}>
                     Duplicate as independent copy
                   </button>

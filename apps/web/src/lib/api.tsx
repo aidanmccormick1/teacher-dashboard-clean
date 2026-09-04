@@ -436,6 +436,8 @@ export function useApiClient() {
           { method: 'PATCH', body: JSON.stringify({ enabled }) },
           auth
         ),
+      getCourseShare: (courseId: string) =>
+        request<CourseShareResponse>(`/v1/courses/${courseId}/share`, { method: 'GET' }, auth),
       createUnit: (courseId: string, body: UnitCreateRequest) =>
         request<CourseDetailResponse>(
           `/v1/courses/${courseId}/units`,
