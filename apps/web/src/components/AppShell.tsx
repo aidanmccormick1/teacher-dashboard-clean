@@ -4,10 +4,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
-import {
-  primaryNavigationIdForPath,
-  primaryNavigationItems
-} from '../lib/navigation.js';
+import { primaryNavigationIdForPath, primaryNavigationItems } from '../lib/navigation.js';
 
 type FeedbackEntry = {
   type: string;
@@ -370,9 +367,6 @@ export function AppShell() {
                 aria-label={item.label}
                 onClick={closeMobileNavigation}
               >
-                <span className="sidebar-nav-icon" aria-hidden="true">
-                  {item.icon}
-                </span>
                 <span className="sidebar-nav-label">{item.label}</span>
               </NavLink>
             ))}
@@ -385,9 +379,6 @@ export function AppShell() {
                 aria-expanded={isImportOpen}
                 onClick={() => setIsImportOpen((open) => !open)}
               >
-                <span className="sidebar-nav-icon" aria-hidden="true">
-                  ⇧
-                </span>
                 <span className="sidebar-nav-label">Import</span>
               </button>
               {isImportOpen ? (
@@ -419,9 +410,6 @@ export function AppShell() {
               aria-label="Profile"
               onClick={closeMobileNavigation}
             >
-              <span className="sidebar-nav-icon" aria-hidden="true">
-                ○
-              </span>
               <span className="sidebar-nav-label">Profile</span>
             </NavLink>
             <button
@@ -432,9 +420,6 @@ export function AppShell() {
                 closeMobileNavigation();
               }}
             >
-              <span className="sidebar-nav-icon" aria-hidden="true">
-                ?
-              </span>
               <span className="sidebar-nav-label">Feedback</span>
             </button>
             <button
@@ -445,9 +430,6 @@ export function AppShell() {
                 void auth.signOut();
               }}
             >
-              <span className="sidebar-nav-icon" aria-hidden="true">
-                ↪
-              </span>
               <span className="sidebar-nav-label">Sign out</span>
             </button>
           </nav>

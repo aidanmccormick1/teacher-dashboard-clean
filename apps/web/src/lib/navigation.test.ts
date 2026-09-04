@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  primaryNavigationIdForPath
-} from './navigation.js';
+import { primaryNavigationIdForPath } from './navigation.js';
 
 describe('primary navigation matching', () => {
   it.each([

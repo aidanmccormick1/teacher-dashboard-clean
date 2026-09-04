@@ -4,15 +4,14 @@ export type PrimaryNavigationItem = {
   id: PrimaryNavigationId;
   label: string;
   href: string;
-  icon: string;
 };
 
 export const primaryNavigationItems: PrimaryNavigationItem[] = [
-  { id: 'today', label: 'Today', href: '/today', icon: '◷' },
-  { id: 'year-plan', label: 'Year Plan', href: '/year-plan', icon: '▤' },
-  { id: 'courses', label: 'Courses', href: '/courses', icon: '▦' },
-  { id: 'sharing', label: 'Sharing', href: '/sharing', icon: '↗' },
-  { id: 'school', label: 'School', href: '/school', icon: '⌂' }
+  { id: 'today', label: 'Today', href: '/today' },
+  { id: 'year-plan', label: 'Year Plan', href: '/year-plan' },
+  { id: 'courses', label: 'Courses', href: '/courses' },
+  { id: 'sharing', label: 'Sharing', href: '/sharing' },
+  { id: 'school', label: 'School', href: '/school' }
 ];
 
 export function primaryNavigationIdForPath(pathname: string): PrimaryNavigationId | null {

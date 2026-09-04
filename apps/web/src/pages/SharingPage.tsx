@@ -38,15 +38,393 @@ function formatActivityDate(value: string): string {
   }).format(new Date(value));
 }
 
+const previewCourseId = '00000000-0000-4000-8000-000000000001';
+const previewCourseTwoId = '00000000-0000-4000-8000-000000000002';
+const previewCourseThreeId = '00000000-0000-4000-8000-000000000003';
+
+const previewCourses = [
+  {
+    id: previewCourseId,
+    name: 'Spanish 6',
+    subject: 'Spanish',
+    gradeLevel: 'Grade 6',
+    sortIndex: 0,
+    archivedAt: null,
+    createdAt: '2026-08-12T15:00:00.000Z',
+    updatedAt: '2026-09-04T18:30:00.000Z',
+    accessRole: 'owner',
+    lifecycle: 'active',
+    linkedClassGroupCount: 2,
+    units: [
+      {
+        id: '00000000-0000-4000-8000-000000000011',
+        title: 'Getting to know each other',
+        description: 'Build classroom language and confidence.',
+        orderIndex: 0,
+        plannedStartMeeting: 0,
+        plannedMeetingCount: 8,
+        lessons: [
+          {
+            id: '00000000-0000-4000-8000-000000000101',
+            title: 'Welcome to Spanish 6',
+            description: 'Introductions, routines, and useful classroom phrases.',
+            lessonPlan: {
+              objective: 'Introduce yourself and follow core classroom routines.',
+              teacherNotes: null,
+              studentDirections: null,
+              materials: 'Name cards, mini whiteboards',
+              links: []
+            },
+            orderIndex: 0,
+            estimatedDurationMinutes: 45,
+            plannedStartMeeting: 0,
+            plannedMeetingCount: 1,
+            segments: [
+              {
+                id: '00000000-0000-4000-8000-000000001101',
+                title: 'Greeting circle',
+                description: null,
+                durationMinutes: 10,
+                stepType: null,
+                orderIndex: 0
+              },
+              {
+                id: '00000000-0000-4000-8000-000000001102',
+                title: 'Classroom language practice',
+                description: null,
+                durationMinutes: 25,
+                stepType: null,
+                orderIndex: 1
+              }
+            ]
+          },
+          {
+            id: '00000000-0000-4000-8000-000000000102',
+            title: 'Names and introductions',
+            description: 'Ask and answer simple personal questions.',
+            lessonPlan: {
+              objective: 'Exchange names and one personal detail.',
+              teacherNotes: null,
+              studentDirections: null,
+              materials: 'Conversation cards',
+              links: []
+            },
+            orderIndex: 1,
+            estimatedDurationMinutes: 45,
+            plannedStartMeeting: 1,
+            plannedMeetingCount: 2,
+            segments: [
+              {
+                id: '00000000-0000-4000-8000-000000001103',
+                title: 'Model dialogue',
+                description: null,
+                durationMinutes: 12,
+                stepType: null,
+                orderIndex: 0
+              },
+              {
+                id: '00000000-0000-4000-8000-000000001104',
+                title: 'Partner rotations',
+                description: null,
+                durationMinutes: 25,
+                stepType: null,
+                orderIndex: 1
+              },
+              {
+                id: '00000000-0000-4000-8000-000000001105',
+                title: 'Exit reflection',
+                description: null,
+                durationMinutes: 8,
+                stepType: null,
+                orderIndex: 2
+              }
+            ]
+          }
+        ]
+      },
+      {
+        id: '00000000-0000-4000-8000-000000000012',
+        title: 'Animals and habitats',
+        description: 'High-frequency vocabulary through familiar animals.',
+        orderIndex: 1,
+        plannedStartMeeting: 8,
+        plannedMeetingCount: 10,
+        lessons: [
+          {
+            id: '00000000-0000-4000-8000-000000000103',
+            title: 'Zoo vocabulary: common animals',
+            description: 'Recognize and describe familiar zoo animals.',
+            lessonPlan: {
+              objective: 'Name and describe ten common animals.',
+              teacherNotes: null,
+              studentDirections: null,
+              materials: 'Animal image cards',
+              links: []
+            },
+            orderIndex: 0,
+            estimatedDurationMinutes: 50,
+            plannedStartMeeting: 8,
+            plannedMeetingCount: 2,
+            segments: [
+              {
+                id: '00000000-0000-4000-8000-000000001106',
+                title: 'Image sort',
+                description: null,
+                durationMinutes: 12,
+                stepType: null,
+                orderIndex: 0
+              },
+              {
+                id: '00000000-0000-4000-8000-000000001107',
+                title: 'Describe and guess',
+                description: null,
+                durationMinutes: 25,
+                stepType: null,
+                orderIndex: 1
+              },
+              {
+                id: '00000000-0000-4000-8000-000000001108',
+                title: 'Quick check',
+                description: null,
+                durationMinutes: 8,
+                stepType: null,
+                orderIndex: 2
+              }
+            ]
+          },
+          {
+            id: '00000000-0000-4000-8000-000000000104',
+            title: 'Where animals live',
+            description: 'Connect animals with habitats and regions.',
+            lessonPlan: {
+              objective: 'Say where an animal lives using a complete sentence.',
+              teacherNotes: null,
+              studentDirections: null,
+              materials: 'Habitat map',
+              links: []
+            },
+            orderIndex: 1,
+            estimatedDurationMinutes: 45,
+            plannedStartMeeting: 10,
+            plannedMeetingCount: 2,
+            segments: []
+          },
+          {
+            id: '00000000-0000-4000-8000-000000000105',
+            title: 'Design a mini zoo',
+            description: 'Apply animal and habitat language in a small-group task.',
+            lessonPlan: {
+              objective: 'Present a habitat plan using target vocabulary.',
+              teacherNotes: null,
+              studentDirections: null,
+              materials: 'Poster paper, markers',
+              links: []
+            },
+            orderIndex: 2,
+            estimatedDurationMinutes: 60,
+            plannedStartMeeting: 12,
+            plannedMeetingCount: 2,
+            segments: []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: previewCourseTwoId,
+    name: 'Spanish 5',
+    subject: 'Spanish',
+    gradeLevel: 'Grade 5',
+    sortIndex: 1,
+    archivedAt: null,
+    createdAt: '2026-08-10T15:00:00.000Z',
+    updatedAt: '2026-09-03T18:30:00.000Z',
+    accessRole: 'editor',
+    lifecycle: 'active',
+    linkedClassGroupCount: 1,
+    units: []
+  },
+  {
+    id: previewCourseThreeId,
+    name: 'Advisory',
+    subject: 'Student life',
+    gradeLevel: 'Grade 6',
+    sortIndex: 2,
+    archivedAt: null,
+    createdAt: '2026-08-18T15:00:00.000Z',
+    updatedAt: '2026-09-01T18:30:00.000Z',
+    accessRole: 'owner',
+    lifecycle: 'unlinked',
+    linkedClassGroupCount: 0,
+    units: []
+  }
+] satisfies Course[];
+
+const previewSchedule = {
+  sections: [
+    {
+      sectionId: '00000000-0000-4000-8000-000000000201',
+      courseId: previewCourseId,
+      courseName: 'Spanish 6',
+      sectionName: 'Group A',
+      meetings: [
+        { day: 'Monday', time: '09:10', endTime: '09:55', room: 'Room 204' },
+        { day: 'Wednesday', time: '09:10', endTime: '09:55', room: 'Room 204' }
+      ]
+    },
+    {
+      sectionId: '00000000-0000-4000-8000-000000000202',
+      courseId: previewCourseId,
+      courseName: 'Spanish 6',
+      sectionName: 'Group C',
+      meetings: [
+        { day: 'Tuesday', time: '13:20', endTime: '14:05', room: 'Room 204' },
+        { day: 'Thursday', time: '13:20', endTime: '14:05', room: 'Room 204' }
+      ]
+    },
+    {
+      sectionId: '00000000-0000-4000-8000-000000000203',
+      courseId: previewCourseTwoId,
+      courseName: 'Spanish 5',
+      sectionName: 'Period 3',
+      meetings: [{ day: 'Friday', time: '10:10', endTime: '10:55', room: 'Room 204' }]
+    }
+  ],
+  holidays: []
+} satisfies GetScheduleResponse;
+
+const previewCollaborators = [
+  {
+    userId: '00000000-0000-4000-8000-000000000301',
+    email: 'aidan@calico.edu',
+    fullName: 'Aidan McCormick',
+    role: 'owner',
+    status: 'accepted',
+    invitedByUserId: null,
+    joinedAt: '2026-08-12T15:00:00.000Z'
+  },
+  {
+    userId: '00000000-0000-4000-8000-000000000302',
+    email: 'maria.santos@calico.edu',
+    fullName: 'Maria Santos',
+    role: 'editor',
+    status: 'accepted',
+    invitedByUserId: '00000000-0000-4000-8000-000000000301',
+    joinedAt: '2026-08-20T15:00:00.000Z'
+  },
+  {
+    userId: '00000000-0000-4000-8000-000000000303',
+    email: 'jlee@calico.edu',
+    fullName: 'Jordan Lee',
+    role: 'editor',
+    status: 'invited',
+    invitedByUserId: '00000000-0000-4000-8000-000000000301',
+    joinedAt: null
+  }
+] satisfies CourseCollaboratorsResponse['collaborators'];
+
+const previewPacing = {
+  sharingEnabled: true,
+  participants: [
+    {
+      userId: '00000000-0000-4000-8000-000000000301',
+      fullName: 'Aidan McCormick',
+      email: 'aidan@calico.edu',
+      isCurrentUser: true,
+      classGroups: [
+        {
+          sectionId: '00000000-0000-4000-8000-000000000201',
+          sectionName: 'Group A',
+          lessonId: '00000000-0000-4000-8000-000000000103',
+          lessonTitle: 'Zoo vocabulary: common animals',
+          lessonOrderIndex: 0,
+          status: 'in_progress',
+          lastTaughtDate: '2026-09-03'
+        },
+        {
+          sectionId: '00000000-0000-4000-8000-000000000202',
+          sectionName: 'Group C',
+          lessonId: '00000000-0000-4000-8000-000000000102',
+          lessonTitle: 'Names and introductions',
+          lessonOrderIndex: 1,
+          status: 'in_progress',
+          lastTaughtDate: '2026-09-02'
+        }
+      ]
+    },
+    {
+      userId: '00000000-0000-4000-8000-000000000302',
+      fullName: 'Maria Santos',
+      email: 'maria.santos@calico.edu',
+      isCurrentUser: false,
+      classGroups: [
+        {
+          sectionId: '00000000-0000-4000-8000-000000000204',
+          sectionName: '6B Spanish',
+          lessonId: '00000000-0000-4000-8000-000000000103',
+          lessonTitle: 'Zoo vocabulary: common animals',
+          lessonOrderIndex: 0,
+          status: 'in_progress',
+          lastTaughtDate: '2026-09-03'
+        }
+      ]
+    }
+  ]
+} satisfies CoursePacingResponse;
+
+const previewActivity = [
+  {
+    id: '00000000-0000-4000-8000-000000000401',
+    action: 'lesson_updated',
+    summary: 'updated Zoo vocabulary: common animals',
+    subjectType: 'lesson',
+    subjectId: '00000000-0000-4000-8000-000000000103',
+    actor: {
+      userId: '00000000-0000-4000-8000-000000000302',
+      fullName: 'Maria Santos',
+      email: 'maria.santos@calico.edu'
+    },
+    createdAt: '2026-09-04T18:22:00.000Z'
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000402',
+    action: 'lesson_comment_added',
+    summary: 'commented on Names and introductions',
+    subjectType: 'lesson',
+    subjectId: '00000000-0000-4000-8000-000000000102',
+    actor: {
+      userId: '00000000-0000-4000-8000-000000000301',
+      fullName: 'Aidan McCormick',
+      email: 'aidan@calico.edu'
+    },
+    createdAt: '2026-09-04T17:08:00.000Z'
+  }
+] satisfies CourseActivityResponse['activity'];
+
+const previewLessonShares: Record<string, LessonShareResponse> = {
+  '00000000-0000-4000-8000-000000000101': {
+    enabled: true,
+    token: '00000000-0000-4000-8000-000000000501'
+  },
+  '00000000-0000-4000-8000-000000000102': { enabled: false, token: null },
+  '00000000-0000-4000-8000-000000000103': {
+    enabled: true,
+    token: '00000000-0000-4000-8000-000000000503'
+  },
+  '00000000-0000-4000-8000-000000000104': { enabled: false, token: null },
+  '00000000-0000-4000-8000-000000000105': { enabled: false, token: null }
+};
+
 export function SharingPage() {
   const api = useApiClient();
   const [params, setParams] = useSearchParams();
+  const isDesignPreview = import.meta.env.DEV && params.get('preview') === 'design';
   const [courses, setCourses] = useState<Course[]>([]);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
   const [invitations, setInvitations] = useState<CourseInvitationsResponse['invitations']>([]);
-  const [collaborators, setCollaborators] = useState<
-    CourseCollaboratorsResponse['collaborators']
-  >([]);
+  const [collaborators, setCollaborators] = useState<CourseCollaboratorsResponse['collaborators']>(
+    []
+  );
   const [activity, setActivity] = useState<CourseActivityResponse['activity']>([]);
   const [pacing, setPacing] = useState<CoursePacingResponse | null>(null);
   const [courseShare, setCourseShare] = useState<CourseShareResponse | null>(null);
@@ -63,15 +441,30 @@ export function SharingPage() {
 
   const selectedCourseId = params.get('course') ?? '';
   const view: SharingView = params.get('view') === 'lessons' ? 'lessons' : 'course';
-  const selectedCourse = courses.find((course) => course.id === selectedCourseId) ?? courses[0] ?? null;
+  const selectedCourse =
+    courses.find((course) => course.id === selectedCourseId) ?? courses[0] ?? null;
 
-  const updateLocation = (courseId: string, nextView: SharingView = view) => {
-    setParams({ course: courseId, view: nextView });
-  };
+  const updateLocation = useCallback(
+    (courseId: string, nextView: SharingView = view) => {
+      setParams({
+        course: courseId,
+        view: nextView,
+        ...(isDesignPreview ? { preview: 'design' } : {})
+      });
+    },
+    [isDesignPreview, setParams, view]
+  );
 
   const loadPage = useCallback(async () => {
     try {
       setLoading(true);
+      if (isDesignPreview) {
+        setCourses(previewCourses);
+        setSchedule(previewSchedule);
+        setInvitations([]);
+        setError(null);
+        return;
+      }
       const [courseList, scheduleResult, invitationResult] = await Promise.all([
         api.listCourses(),
         api.getSchedule(),
@@ -89,7 +482,7 @@ export function SharingPage() {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, isDesignPreview]);
 
   useEffect(() => {
     void loadPage();
@@ -98,10 +491,22 @@ export function SharingPage() {
   useEffect(() => {
     if (!selectedCourse || selectedCourseId === selectedCourse.id) return;
     updateLocation(selectedCourse.id);
-  }, [selectedCourse?.id, selectedCourseId]);
+  }, [selectedCourse, selectedCourseId, updateLocation]);
 
   useEffect(() => {
     if (!selectedCourse) return;
+    if (isDesignPreview) {
+      setCollaborators(previewCollaborators);
+      setActivity(previewActivity);
+      setPacing(previewPacing);
+      setCourseShare({
+        enabled: true,
+        token: '00000000-0000-4000-8000-000000000500'
+      });
+      setLessonShares(previewLessonShares);
+      setCourseLoading(false);
+      return;
+    }
     let cancelled = false;
     setCourseLoading(true);
     setLessonShares({});
@@ -134,10 +539,15 @@ export function SharingPage() {
     return () => {
       cancelled = true;
     };
-  }, [api, selectedCourse?.id, selectedCourse?.updatedAt]);
+  }, [api, isDesignPreview, selectedCourse]);
 
   useEffect(() => {
     if (!selectedCourse || view !== 'lessons') return;
+    if (isDesignPreview) {
+      setLessonShares(previewLessonShares);
+      setLessonSharesLoading(false);
+      return;
+    }
     let cancelled = false;
     const lessons = selectedCourse.units.flatMap((unit) => unit.lessons);
     setLessonSharesLoading(true);
@@ -162,7 +572,7 @@ export function SharingPage() {
     return () => {
       cancelled = true;
     };
-  }, [api, selectedCourse?.id, selectedCourse?.updatedAt, view]);
+  }, [api, isDesignPreview, selectedCourse, view]);
 
   const linkedClasses = useMemo(
     () => schedule?.sections.filter((section) => section.courseId === selectedCourse?.id) ?? [],
@@ -189,6 +599,24 @@ export function SharingPage() {
 
   const inviteCollaborator = async () => {
     if (!selectedCourse || !inviteEmail.trim()) return;
+    if (isDesignPreview) {
+      const email = inviteEmail.trim();
+      setCollaborators((current) => [
+        ...current,
+        {
+          userId: crypto.randomUUID(),
+          email,
+          fullName: null,
+          role: 'editor',
+          status: 'invited',
+          invitedByUserId: '00000000-0000-4000-8000-000000000301',
+          joinedAt: null
+        }
+      ]);
+      setInviteEmail('');
+      setNotice(`Invitation preview created for ${email}.`);
+      return;
+    }
     try {
       setSavingKey('invite');
       setCollaborators(
@@ -215,6 +643,27 @@ export function SharingPage() {
       )
     )
       return;
+    if (isDesignPreview) {
+      setSchedule((current) =>
+        current
+          ? {
+              ...current,
+              sections: current.sections.map((section) =>
+                section.sectionId === classGroup.sectionId
+                  ? {
+                      ...section,
+                      courseId: selectedCourse.id,
+                      courseName: selectedCourse.name
+                    }
+                  : section
+              )
+            }
+          : current
+      );
+      setClassToLink('');
+      setNotice(`${selectedCourse.name} is now ready to use with ${classGroup.sectionName}.`);
+      return;
+    }
     try {
       setSavingKey('class');
       setSchedule(await api.updateSection(classGroup.sectionId, { courseId: selectedCourse.id }));
@@ -229,6 +678,14 @@ export function SharingPage() {
 
   const setPublicCourseShare = async (enabled: boolean) => {
     if (!selectedCourse) return;
+    if (isDesignPreview) {
+      setCourseShare({
+        enabled,
+        token: enabled ? '00000000-0000-4000-8000-000000000500' : null
+      });
+      setNotice(enabled ? 'View-only course link is ready.' : 'View-only course link turned off.');
+      return;
+    }
     try {
       setSavingKey('course-share');
       const share = await api.updateCourseShare(selectedCourse.id, enabled);
@@ -242,6 +699,17 @@ export function SharingPage() {
   };
 
   const setLessonShare = async (lessonId: string, enabled: boolean) => {
+    if (isDesignPreview) {
+      setLessonShares((current) => ({
+        ...current,
+        [lessonId]: {
+          enabled,
+          token: enabled ? (current[lessonId]?.token ?? crypto.randomUUID()) : null
+        }
+      }));
+      setNotice(enabled ? 'Lesson link is ready.' : 'Lesson link turned off.');
+      return;
+    }
     try {
       setSavingKey(`lesson-${lessonId}`);
       const share = await api.updateLessonShare(lessonId, enabled);
@@ -264,13 +732,24 @@ export function SharingPage() {
   };
 
   const respondToInvitation = async (courseId: string, response: 'accept' | 'decline') => {
+    if (isDesignPreview) {
+      setInvitations((current) =>
+        current.filter((invitation) => invitation.course.id !== courseId)
+      );
+      setNotice(
+        response === 'accept' ? 'Course added to your sharing workspace.' : 'Invitation declined.'
+      );
+      return;
+    }
     try {
       setSavingKey(`invitation-${courseId}`);
       if (response === 'accept') await api.acceptCourseInvitation(courseId);
       else await api.declineCourseInvitation(courseId);
       await loadPage();
       if (response === 'accept') updateLocation(courseId);
-      setNotice(response === 'accept' ? 'Course added to your sharing workspace.' : 'Invitation declined.');
+      setNotice(
+        response === 'accept' ? 'Course added to your sharing workspace.' : 'Invitation declined.'
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not update the invitation.');
     } finally {
@@ -290,15 +769,22 @@ export function SharingPage() {
   if (!selectedCourse) {
     return (
       <main className="sharing-empty-page page-entry">
-        <span className="sharing-empty-mark" aria-hidden="true">
-          ↗
-        </span>
         <p className="eyebrow">Sharing</p>
-        <h1>Start with a course</h1>
-        <p>Create or import a course before inviting collaborators or sharing individual lessons.</p>
-        <Link className="button-link" to="/courses">
-          Go to Courses
-        </Link>
+        <h1>{error ? 'Sharing could not load' : 'Start with a course'}</h1>
+        <p>
+          {error
+            ? error
+            : 'Create or import a course before inviting collaborators or sharing individual lessons.'}
+        </p>
+        {error ? (
+          <button className="button-link" type="button" onClick={() => void loadPage()}>
+            Try again
+          </button>
+        ) : (
+          <Link className="button-link" to="/courses">
+            Go to Courses
+          </Link>
+        )}
       </main>
     );
   }
@@ -312,6 +798,9 @@ export function SharingPage() {
           <p>Share the curriculum. Keep every teacher’s classes, pace, and history their own.</p>
         </div>
         <div className="sharing-boundary" aria-label="What stays private">
+          {isDesignPreview ? (
+            <span className="sharing-preview-label">Design preview data</span>
+          ) : null}
           <span>✓ Shared curriculum</span>
           <span>• Private schedules</span>
           <span>• Private class notes</span>
@@ -423,7 +912,9 @@ export function SharingPage() {
           <div className="sharing-course-header">
             <div>
               <div className="sharing-course-kicker">
-                <span>{selectedCourse.accessRole === 'owner' ? 'Course owner' : 'Course collaborator'}</span>
+                <span>
+                  {selectedCourse.accessRole === 'owner' ? 'Course owner' : 'Course collaborator'}
+                </span>
                 {courseLoading ? <span>Refreshing…</span> : null}
               </div>
               <h2>{selectedCourse.name}</h2>
@@ -491,7 +982,9 @@ export function SharingPage() {
                         </span>
                         <div>
                           <strong>{collaborator.fullName ?? collaborator.email}</strong>
-                          <span>{collaborator.fullName ? collaborator.email : 'Teacher account'}</span>
+                          <span>
+                            {collaborator.fullName ? collaborator.email : 'Teacher account'}
+                          </span>
                         </div>
                         <div className="sharing-person-role">
                           <strong>{collaborator.role === 'owner' ? 'Owner' : 'Can edit'}</strong>
@@ -512,6 +1005,13 @@ export function SharingPage() {
                                 )
                               )
                                 return;
+                              if (isDesignPreview) {
+                                setCollaborators((current) =>
+                                  current.filter((person) => person.userId !== collaborator.userId)
+                                );
+                                setNotice('Collaborator removed from the preview.');
+                                return;
+                              }
                               try {
                                 setSavingKey(`remove-${collaborator.userId}`);
                                 await api.removeCourseCollaborator(
@@ -559,7 +1059,10 @@ export function SharingPage() {
                           placeholder="colleague@school.edu"
                         />
                       </label>
-                      <button type="submit" disabled={savingKey === 'invite' || !inviteEmail.trim()}>
+                      <button
+                        type="submit"
+                        disabled={savingKey === 'invite' || !inviteEmail.trim()}
+                      >
                         {savingKey === 'invite' ? 'Sending…' : 'Send invite'}
                       </button>
                     </form>
@@ -571,7 +1074,9 @@ export function SharingPage() {
                     <div>
                       <p className="eyebrow">Your classroom</p>
                       <h3>Use this curriculum with my classes</h3>
-                      <p>A class connects to the shared course but keeps its own teaching record.</p>
+                      <p>
+                        A class connects to the shared course but keeps its own teaching record.
+                      </p>
                     </div>
                   </div>
                   <div className="sharing-linked-classes">
@@ -679,7 +1184,9 @@ export function SharingPage() {
                     </div>
                   ) : null}
                   {selectedCourse.accessRole !== 'owner' ? (
-                    <small className="sharing-owner-note">Only the course owner can manage this link.</small>
+                    <small className="sharing-owner-note">
+                      Only the course owner can manage this link.
+                    </small>
                   ) : null}
                 </section>
 
@@ -702,6 +1209,17 @@ export function SharingPage() {
                       checked={pacing?.sharingEnabled ?? false}
                       disabled={!pacing || savingKey === 'pacing'}
                       onChange={async (event) => {
+                        if (isDesignPreview) {
+                          setPacing((current) =>
+                            current ? { ...current, sharingEnabled: event.target.checked } : current
+                          );
+                          setNotice(
+                            event.target.checked
+                              ? 'Your class positions are now visible to collaborators.'
+                              : 'Your class positions are private.'
+                          );
+                          return;
+                        }
                         try {
                           setSavingKey('pacing');
                           setPacing(
@@ -758,9 +1276,13 @@ export function SharingPage() {
                         <li key={event.id}>
                           <span className="sharing-activity-dot" aria-hidden="true" />
                           <div>
-                            <strong>{event.actor?.fullName ?? event.actor?.email ?? 'A collaborator'}</strong>
+                            <strong>
+                              {event.actor?.fullName ?? event.actor?.email ?? 'A collaborator'}
+                            </strong>
                             <p>{event.summary}</p>
-                            <time dateTime={event.createdAt}>{formatActivityDate(event.createdAt)}</time>
+                            <time dateTime={event.createdAt}>
+                              {formatActivityDate(event.createdAt)}
+                            </time>
                           </div>
                         </li>
                       ))}
@@ -871,7 +1393,9 @@ export function SharingPage() {
                 </div>
               ) : (
                 <div className="sharing-inline-empty sharing-lesson-empty">
-                  <strong>{lessonSearch ? 'No lessons match that search' : 'No lessons yet'}</strong>
+                  <strong>
+                    {lessonSearch ? 'No lessons match that search' : 'No lessons yet'}
+                  </strong>
                   <span>
                     {lessonSearch
                       ? 'Try a different title or keyword.'

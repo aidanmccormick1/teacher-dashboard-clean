@@ -278,10 +278,7 @@ export function CoursesPage() {
     }
   };
 
-  const runCourseAction = async (
-    course: Course,
-    action: 'duplicate' | 'end' | 'restore'
-  ) => {
+  const runCourseAction = async (course: Course, action: 'duplicate' | 'end' | 'restore') => {
     try {
       setSaving(true);
       if (action === 'duplicate') {

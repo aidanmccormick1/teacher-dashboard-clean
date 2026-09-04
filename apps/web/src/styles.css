@@ -413,9 +413,21 @@ a {
 }
 
 .sidebar a.active {
-  background: #edf3f0;
+  position: relative;
+  background: #f1f4f2;
   color: var(--ink);
   box-shadow: none;
+}
+
+.sidebar a.active::before {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--green);
+  content: '';
 }
 
 .sidebar-nav-icon {
@@ -7450,6 +7462,14 @@ button,
   color: var(--sharing-green);
 }
 
+.sharing-boundary .sharing-preview-label {
+  color: #8a602f;
+}
+
+.sharing-boundary .sharing-preview-label + span {
+  color: var(--sharing-green);
+}
+
 .sharing-page-notice {
   display: flex;
   align-items: center;
@@ -7591,7 +7611,10 @@ button,
   background: transparent;
   color: var(--sharing-ink);
   text-align: left;
-  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
 }
 
 .sharing-course-list button:hover {
@@ -8071,7 +8094,9 @@ button,
   appearance: none;
   background: #dfe4e5;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease;
 }
 
 .sharing-toggle-row input[role='switch']::after,
@@ -8405,18 +8430,6 @@ button,
   margin-top: 18px;
 }
 
-.sharing-empty-mark {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  margin-bottom: 14px;
-  border-radius: 50%;
-  background: var(--sharing-green-soft);
-  color: var(--sharing-green);
-  font-size: 1.4rem;
-}
-
 .sharing-loading-state {
   align-content: start;
   padding-top: 30px;
@@ -8478,11 +8491,13 @@ button,
   }
 }
 
-@media (max-width: 840px) {
+@media (max-width: 980px) {
   .sharing-page-header,
   .sharing-lessons-toolbar {
     align-items: flex-start;
     flex-direction: column;
+    min-width: 0;
+    width: 100%;
   }
 
   .sharing-boundary {
@@ -8495,7 +8510,20 @@ button,
 
   .sharing-workspace {
     display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     overflow: visible;
+  }
+
+  .sharing-course-rail,
+  .sharing-detail,
+  .sharing-course-header,
+  .sharing-view-tabs,
+  .sharing-course-view {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .sharing-course-rail {
@@ -8505,6 +8533,7 @@ button,
 
   .sharing-course-list {
     display: flex;
+    max-width: 100%;
     overflow-x: auto;
     padding-bottom: 12px;
   }
@@ -8529,7 +8558,7 @@ button,
   }
 }
 
-@media (max-width: 620px) {
+@media (max-width: 680px) {
   .sharing-page-header h1 {
     font-size: 2.65rem;
   }
