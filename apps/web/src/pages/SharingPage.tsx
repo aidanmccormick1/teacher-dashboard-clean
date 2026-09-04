@@ -12,6 +12,7 @@ import type {
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { timeRange } from '../lib/today.js';
 
 type Course = CourseDetailResponse['course'];
 type SharingView = 'course' | 'lessons';
@@ -36,6 +37,15 @@ function formatActivityDate(value: string): string {
     hour: 'numeric',
     minute: '2-digit'
   }).format(new Date(value));
+}
+
+function classPickerLabel(section: GetScheduleResponse['sections'][number]) {
+  const meetingLabel = section.meetings.length
+    ? section.meetings
+        .map((meeting) => `${meeting.day} ${timeRange(meeting.time, meeting.endTime)}`)
+        .join(', ')
+    : 'No meeting time set';
+  return `${section.sectionName} · ${meetingLabel} · currently using ${section.courseName}`;
 }
 
 const previewCourseId = '00000000-0000-4000-8000-000000000001';
@@ -1111,10 +1121,7 @@ export function SharingPage() {
                           <option value="">Choose one of my classes…</option>
                           {availableClasses.map((section) => (
                             <option key={section.sectionId} value={section.sectionId}>
-                              {section.sectionName} · currently using {section.courseName}
-                              {section.originalScheduleLabel
-                                ? ` · imported as ${section.originalScheduleLabel}`
-                                : ''}
+                              {classPickerLabel(section)}
                             </option>
                           ))}
                         </select>

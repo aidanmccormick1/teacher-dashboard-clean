@@ -26,6 +26,15 @@ function importKey(courseName: string, sectionName: string) {
   return `${courseName.trim().toLocaleLowerCase()}|${sectionName.trim().toLocaleLowerCase()}`;
 }
 
+function classPickerLabel(section: GetScheduleResponse['sections'][number]) {
+  const meetingLabel = section.meetings.length
+    ? section.meetings
+        .map((meeting) => `${meeting.day} ${timeRange(meeting.time, meeting.endTime)}`)
+        .join(', ')
+    : 'No meeting time set';
+  return `${section.sectionName} · ${meetingLabel} · currently using ${section.courseName}`;
+}
+
 function ScheduleImportPanel({
   existingSections,
   onApplied
@@ -544,7 +553,7 @@ export function CoursesPage() {
                 <option value="">Choose a class group…</option>
                 {(schedule?.sections ?? []).map((section) => (
                   <option key={section.sectionId} value={section.sectionId}>
-                    {section.sectionName} · currently using {section.courseName}
+                    {classPickerLabel(section)}
                   </option>
                 ))}
               </select>
