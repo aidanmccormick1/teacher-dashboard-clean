@@ -6269,20 +6269,38 @@ button,
 }
 
 .classroom-curriculum-picker {
-  padding: 0.8rem 0;
-  border-block: 1px solid var(--border, #dfe4e7);
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--soft-shadow);
 }
 
-.classroom-curriculum-picker > strong {
+.classroom-curriculum-context {
+  display: grid;
+  min-width: 150px;
+  gap: 3px;
   margin-right: auto;
 }
 .classroom-curriculum-picker label {
   display: grid;
   gap: 0.2rem;
 }
+.classroom-curriculum-context span,
 .classroom-curriculum-picker label > span {
+  color: var(--muted);
   font-size: 0.72rem;
-  color: var(--muted, #66727a);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.classroom-curriculum-context strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+.classroom-curriculum-picker label .input {
+  min-width: 190px;
 }
 
 .shared-curriculum {
@@ -6318,7 +6336,7 @@ button,
     align-items: stretch;
     flex-direction: column;
   }
-  .classroom-curriculum-picker > strong {
+  .classroom-curriculum-context {
     margin-right: 0;
   }
 }
@@ -8390,14 +8408,41 @@ button,
 }
 
 .classroom-live-header {
+  display: flex;
   align-items: flex-end;
+  justify-content: space-between;
   gap: 14px;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--line);
 }
+.classroom-heading {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.classroom-heading h1 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.classroom-header-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.classroom-header-controls label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .classroom-switcher {
   min-width: 190px;
-  max-width: 280px;
+  max-width: 230px;
 }
 .classroom-lesson-conflict {
   display: grid;
@@ -8446,13 +8491,9 @@ button,
 .live-now {
   display: grid;
   gap: 10px;
-  margin-top: 20px;
-  border: 1px solid rgba(41, 68, 90, 0.12);
-  border-radius: 18px;
-  padding: 28px 30px;
-  background:
-    radial-gradient(circle at top right, rgba(128, 169, 139, 0.2), transparent 38%), #ffffff;
-  box-shadow: 0 12px 30px rgba(31, 42, 52, 0.055);
+  margin-top: 14px;
+  padding: 18px 0 8px;
+  background: transparent;
 }
 .live-now h2 {
   margin: 0;
@@ -8540,7 +8581,7 @@ button,
 }
 .live-end {
   padding: 12px 18px;
-  background: var(--navy);
+  background: var(--green);
   color: #fff;
 }
 .live-wrapup {
@@ -8829,11 +8870,14 @@ button,
 }
 .live-footer-actions {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+  justify-content: space-between;
   padding-top: 28px;
 }
-.live-end {
+.live-footer-actions > .live-end {
+  margin-left: auto;
   box-shadow: 0 5px 12px rgba(41, 68, 90, 0.16);
 }
 .classroom-review-backdrop {
@@ -8966,6 +9010,11 @@ button:disabled,
     width: 100%;
     max-width: none;
   }
+  .classroom-header-controls {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
   .classroom-lesson-conflict {
     grid-template-columns: 1fr;
   }
@@ -8973,7 +9022,7 @@ button:disabled,
     justify-content: flex-start;
   }
   .live-now {
-    padding: 22px 20px;
+    padding: 22px 0;
   }
   .classroom-teaching-grid {
     grid-template-columns: 1fr;

@@ -409,53 +409,58 @@ export function ClassroomPage() {
   return (
     <main className="classroom-today">
       <header className="classroom-live-header">
-        <div>
+        <div className="classroom-heading">
           <p className="eyebrow">Classroom / Today</p>
-          <h1>
-            {context
-              ? dashboard?.currentClass?.sectionId === context.sectionId
-                ? 'Now'
-                : 'Prepare class'
-              : 'Next class'}
-          </h1>
+          <h1>{context?.courseName ?? 'Choose a class'}</h1>
         </div>
-        <select
-          className="input classroom-switcher"
-          value={sectionId}
-          onChange={(e) => changeSection(e.target.value)}
-        >
-          <option value="">Choose class</option>
-          {schedule?.sections.map((item) => (
-            <option key={item.sectionId} value={item.sectionId}>
-              {item.courseName} · {item.sectionName}
-            </option>
-          ))}
-        </select>
-        {!manual && selected && sectionTodayMeetings.length > 1 ? (
-          <select
-            aria-label="Choose meeting time"
-            className="input classroom-switcher"
-            value={selectedTodayMeeting?.meetingTime ?? ''}
-            onChange={(e) => changeMeetingTime(e.target.value)}
-          >
-            <option value="">Choose meeting time</option>
-            {sectionTodayMeetings.map((meeting) => (
-              <option
-                key={`${meeting.sectionId}-${meeting.meetingTime ?? 'unscheduled'}`}
-                value={meeting.meetingTime ?? ''}
+        <div className="classroom-header-controls">
+          <label className="classroom-class-group">
+            <span>Class group</span>
+            <select
+              className="input classroom-switcher"
+              value={sectionId}
+              onChange={(e) => changeSection(e.target.value)}
+            >
+              <option value="">Choose class group</option>
+              {schedule?.sections.map((item) => (
+                <option key={item.sectionId} value={item.sectionId}>
+                  {item.courseName === context?.courseName
+                    ? item.sectionName
+                    : `${item.courseName} · ${item.sectionName}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          {!manual && selected && sectionTodayMeetings.length > 1 ? (
+            <label className="classroom-meeting-time">
+              <span>Meeting time</span>
+              <select
+                aria-label="Choose meeting time"
+                className="input classroom-switcher"
+                value={selectedTodayMeeting?.meetingTime ?? ''}
+                onChange={(e) => changeMeetingTime(e.target.value)}
               >
-                {timeRange(meeting.meetingTime, meeting.endTime)}
-              </option>
-            ))}
-          </select>
-        ) : null}
+                <option value="">Choose meeting time</option>
+                {sectionTodayMeetings.map((meeting) => (
+                  <option
+                    key={`${meeting.sectionId}-${meeting.meetingTime ?? 'unscheduled'}`}
+                    value={meeting.meetingTime ?? ''}
+                  >
+                    {timeRange(meeting.meetingTime, meeting.endTime)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
       </header>
       {error ? <p className="notice warning">{error}</p> : null}
       {context && course ? (
         <section className="classroom-curriculum-picker" aria-label="Curriculum position">
-          <strong>
-            {course.name} · {context.sectionName}
-          </strong>
+          <div className="classroom-curriculum-context">
+            <span>Teaching</span>
+            <strong>{context.sectionName}</strong>
+          </div>
           <label>
             <span>Unit</span>
             <select
@@ -541,17 +546,9 @@ export function ClassroomPage() {
       ) : (
         <>
           <section className="live-now">
-            <p className="eyebrow">{context.courseName}</p>
             {lesson ? (
               <>
                 <h2>{lesson.title}</h2>
-                <div className="live-now-meta">
-                  <span>{context.sectionName}</span>
-                  <span>{timeRange(context.meetingTime, context.endTime)}</span>
-                  {lesson.estimatedDurationMinutes ? (
-                    <span>{lesson.estimatedDurationMinutes} min</span>
-                  ) : null}
-                </div>
               </>
             ) : (
               <>
@@ -572,8 +569,8 @@ export function ClassroomPage() {
                 <section className="live-steps" aria-labelledby="lesson-steps-heading">
                   <div className="live-section-heading">
                     <div>
-                      <p className="eyebrow">Lesson flow</p>
-                      <h3 id="lesson-steps-heading">Teach from the plan</h3>
+                      <p className="eyebrow">Lesson</p>
+                      <h3 id="lesson-steps-heading">Lesson steps</h3>
                     </div>
                     <span
                       className="live-progress"
@@ -718,11 +715,11 @@ export function ClassroomPage() {
                 </aside>
               </div>
               <div className="live-footer-actions">
-                <button className="live-end" type="button" onClick={() => setEnding(true)}>
-                  Review & end class
-                </button>
                 <button className="secondary" type="button" onClick={completeLessonAndMoveOn}>
-                  Complete lesson & move on
+                  Complete lesson and move on
+                </button>
+                <button className="live-end" type="button" onClick={() => setEnding(true)}>
+                  Review and end class
                 </button>
               </div>
               {ending ? (
