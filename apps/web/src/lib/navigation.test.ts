@@ -1,23 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  primaryNavigationIdForPath,
-  readSidebarCollapsed,
-  saveSidebarCollapsed,
-  sidebarCollapsedStorageKey
+  primaryNavigationIdForPath
 } from './navigation.js';
-
-function createStorage() {
-  const values = new Map<string, string>();
-  return {
-    getItem(key: string) {
-      return values.get(key) ?? null;
-    },
-    setItem(key: string, value: string) {
-      values.set(key, value);
-    }
-  };
-}
 
 describe('primary navigation matching', () => {
   it.each([
@@ -36,17 +21,5 @@ describe('primary navigation matching', () => {
 
   it('does not make a secondary route a primary destination', () => {
     expect(primaryNavigationIdForPath('/profile')).toBeNull();
-  });
-});
-
-describe('sidebar collapse preference', () => {
-  it('persists collapse state across a remount', () => {
-    const storage = createStorage();
-
-    expect(readSidebarCollapsed(storage)).toBe(false);
-    saveSidebarCollapsed(true, storage);
-
-    expect(storage.getItem(sidebarCollapsedStorageKey)).toBe('true');
-    expect(readSidebarCollapsed(storage)).toBe(true);
   });
 });

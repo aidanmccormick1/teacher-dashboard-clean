@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
 import {
   primaryNavigationIdForPath,
-  primaryNavigationItems,
-  readSidebarCollapsed,
-  saveSidebarCollapsed
+  primaryNavigationItems
 } from '../lib/navigation.js';
 
 type FeedbackEntry = {
@@ -23,6 +22,21 @@ type FeedbackEntry = {
 
 const feedbackStorageKey = 'teacheros_feedback_notes';
 const profileStorageKey = 'teacheros_profile_draft_v1';
+const sidebarWidthStorageKey = 'teacheros_sidebar_width_v1';
+const sidebarMinWidth = 232;
+const sidebarMaxWidth = 380;
+const sidebarDefaultWidth = 286;
+
+function readSidebarWidth(): number {
+  const saved = Number(window.localStorage.getItem(sidebarWidthStorageKey));
+  return Number.isFinite(saved)
+    ? Math.min(sidebarMaxWidth, Math.max(sidebarMinWidth, saved))
+    : sidebarDefaultWidth;
+}
+
+function saveSidebarWidth(width: number): void {
+  window.localStorage.setItem(sidebarWidthStorageKey, String(width));
+}
 
 function readProfileDisplayName(): string | null {
   try {
@@ -66,8 +80,8 @@ export function AppShell() {
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [profileDisplayName, setProfileDisplayName] = useState(readProfileDisplayName);
   const [isImportOpen, setIsImportOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readSidebarCollapsed);
-  const [isSidebarHoverExpanded, setIsSidebarHoverExpanded] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [isMobileNavigationOpen, setIsMobileNavigationOpen] = useState(false);
   const [feedbackType, setFeedbackType] = useState('Confusing');
   const [feedbackText, setFeedbackText] = useState('');
@@ -80,7 +94,7 @@ export function AppShell() {
   const feedbackPanelRef = useRef<HTMLDivElement>(null);
   const feedbackReturnFocusRef = useRef<HTMLElement | null>(null);
   const activePrimaryNavigationId = primaryNavigationIdForPath(location.pathname);
-  const visuallyCollapsed = isSidebarCollapsed && !isSidebarHoverExpanded;
+  const sidebarResizePointerId = useRef<number | null>(null);
 
   useEffect(() => {
     void api
@@ -148,11 +162,28 @@ export function AppShell() {
   }, [isImportOpen, isMobileNavigationOpen]);
 
   const closeMobileNavigation = () => setIsMobileNavigationOpen(false);
-  const toggleSidebar = () => {
-    const next = !isSidebarCollapsed;
-    setIsSidebarCollapsed(next);
-    setIsSidebarHoverExpanded(false);
-    saveSidebarCollapsed(next);
+  const resizeSidebar = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    const nextWidth = Math.min(sidebarMaxWidth, Math.max(sidebarMinWidth, event.clientX));
+    setSidebarWidth(nextWidth);
+  };
+  const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    sidebarResizePointerId.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsResizingSidebar(true);
+  };
+  const finishSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (sidebarResizePointerId.current !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    sidebarResizePointerId.current = null;
+    setIsResizingSidebar(false);
+    setSidebarWidth((currentWidth) => {
+      saveSidebarWidth(currentWidth);
+      return currentWidth;
+    });
   };
   const openFeedback = () => {
     feedbackReturnFocusRef.current = document.activeElement as HTMLElement | null;
@@ -296,24 +327,11 @@ export function AppShell() {
   ).length;
 
   return (
-    <div className={`app-shell${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
-      <aside
-        className={`sidebar${isSidebarCollapsed ? ' sidebar-collapsed' : ''}${
-          isSidebarHoverExpanded ? ' sidebar-hover-expanded' : ''
-        }`}
-        onMouseEnter={() => {
-          if (isSidebarCollapsed) setIsSidebarHoverExpanded(true);
-        }}
-        onMouseLeave={() => setIsSidebarHoverExpanded(false)}
-        onFocusCapture={() => {
-          if (isSidebarCollapsed) setIsSidebarHoverExpanded(true);
-        }}
-        onBlurCapture={(event) => {
-          if (isSidebarCollapsed && !event.currentTarget.contains(event.relatedTarget)) {
-            setIsSidebarHoverExpanded(false);
-          }
-        }}
-      >
+    <div
+      className={`app-shell${isResizingSidebar ? ' sidebar-resizing' : ''}`}
+      style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
+    >
+      <aside className="sidebar">
         <div className="sidebar-topbar">
           <div className="brand-lockup animated-brand-lockup">
             <span className="brand-mark" aria-hidden="true">
@@ -326,15 +344,6 @@ export function AppShell() {
               <span className="brand-underline" aria-hidden="true" />
             </div>
           </div>
-          <button
-            className="sidebar-collapse-toggle"
-            type="button"
-            aria-label={isSidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-            title={isSidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-            onClick={toggleSidebar}
-          >
-            <span aria-hidden="true">{isSidebarCollapsed ? '›' : '‹'}</span>
-          </button>
           <button
             ref={mobileToggleRef}
             className="sidebar-mobile-toggle secondary"
@@ -361,7 +370,6 @@ export function AppShell() {
                 to={item.href}
                 className={activePrimaryNavigationId === item.id ? 'active' : ''}
                 aria-label={item.label}
-                title={visuallyCollapsed ? item.label : undefined}
                 onClick={closeMobileNavigation}
               >
                 <span className="sidebar-nav-icon" aria-hidden="true">
@@ -378,7 +386,6 @@ export function AppShell() {
                 type="button"
                 aria-expanded={isImportOpen}
                 onClick={() => setIsImportOpen((open) => !open)}
-                title={visuallyCollapsed ? 'Import' : undefined}
               >
                 <span className="sidebar-nav-icon" aria-hidden="true">
                   ⇧
@@ -412,7 +419,6 @@ export function AppShell() {
               to="/profile"
               className="sidebar-secondary-link"
               aria-label="Profile"
-              title={visuallyCollapsed ? 'Profile' : undefined}
               onClick={closeMobileNavigation}
             >
               <span className="sidebar-nav-icon" aria-hidden="true">
@@ -423,7 +429,6 @@ export function AppShell() {
             <button
               className="sidebar-secondary-action feedback-button"
               type="button"
-              title={visuallyCollapsed ? 'Feedback' : undefined}
               onClick={() => {
                 openFeedback();
                 closeMobileNavigation();
@@ -437,7 +442,6 @@ export function AppShell() {
             <button
               className="sidebar-secondary-action secondary"
               type="button"
-              title={visuallyCollapsed ? 'Sign out' : undefined}
               onClick={() => {
                 closeMobileNavigation();
                 void auth.signOut();
@@ -450,6 +454,32 @@ export function AppShell() {
             </button>
           </nav>
         </div>
+        <div
+          className="sidebar-resize-handle"
+          role="separator"
+          aria-label="Resize sidebar"
+          aria-orientation="vertical"
+          aria-valuemin={sidebarMinWidth}
+          aria-valuemax={sidebarMaxWidth}
+          aria-valuenow={Math.round(sidebarWidth)}
+          tabIndex={0}
+          onPointerDown={startSidebarResize}
+          onPointerMove={resizeSidebar}
+          onPointerUp={finishSidebarResize}
+          onPointerCancel={finishSidebarResize}
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            event.preventDefault();
+            setSidebarWidth((currentWidth) => {
+              const nextWidth = Math.min(
+                sidebarMaxWidth,
+                Math.max(sidebarMinWidth, currentWidth + (event.key === 'ArrowRight' ? 8 : -8))
+              );
+              saveSidebarWidth(nextWidth);
+              return nextWidth;
+            });
+          }}
+        />
       </aside>
       <main className="main">
         <Outlet />

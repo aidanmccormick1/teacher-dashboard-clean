@@ -14,31 +14,6 @@ export const primaryNavigationItems: PrimaryNavigationItem[] = [
   { id: 'school', label: 'School', href: '/school', icon: '⌂' }
 ];
 
-export const sidebarCollapsedStorageKey = 'teacheros_sidebar_collapsed_v1';
-
-type StorageReader = Pick<Storage, 'getItem' | 'setItem'>;
-
-function browserStorage(): StorageReader | null {
-  return typeof window === 'undefined' ? null : window.localStorage;
-}
-
-export function readSidebarCollapsed(storage: StorageReader | null = browserStorage()): boolean {
-  return storage?.getItem(sidebarCollapsedStorageKey) === 'true';
-}
-
-export function saveSidebarCollapsed(
-  collapsed: boolean,
-  storage: StorageReader | null = browserStorage()
-): void {
-  storage?.setItem(sidebarCollapsedStorageKey, String(collapsed));
-}
-
-export function hasSidebarCollapsePreference(
-  storage: Pick<Storage, 'getItem'> | null = browserStorage()
-): boolean {
-  return storage?.getItem(sidebarCollapsedStorageKey) !== null;
-}
-
 export function primaryNavigationIdForPath(pathname: string): PrimaryNavigationId | null {
   const normalizedPathname = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
 
