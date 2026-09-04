@@ -8399,6 +8399,50 @@ button,
   min-width: 190px;
   max-width: 280px;
 }
+.classroom-lesson-conflict {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 22px;
+  align-items: center;
+  margin-top: 20px;
+  padding: 20px 22px;
+  border: 1px solid rgba(173, 125, 54, 0.28);
+  border-radius: 16px;
+  background: #fffaf0;
+  animation: classroom-enter 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.classroom-lesson-conflict h2 {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+  letter-spacing: -0.025em;
+}
+.classroom-lesson-conflict p:not(.eyebrow) {
+  margin: 7px 0 0;
+}
+.classroom-lesson-conflict-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 14px;
+}
+.classroom-lesson-conflict-details p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+.classroom-lesson-conflict-details span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.classroom-lesson-conflict-details strong {
+  color: var(--ink);
+}
+.classroom-lesson-conflict-actions {
+  justify-content: flex-end;
+}
 .live-now {
   display: grid;
   gap: 10px;
@@ -8594,6 +8638,7 @@ button,
 }
 @media (prefers-reduced-motion: reduce) {
   .classroom-today,
+  .classroom-lesson-conflict,
   .live-end-summary {
     animation: none;
   }
@@ -8920,6 +8965,12 @@ button:disabled,
   .classroom-switcher {
     width: 100%;
     max-width: none;
+  }
+  .classroom-lesson-conflict {
+    grid-template-columns: 1fr;
+  }
+  .classroom-lesson-conflict-actions {
+    justify-content: flex-start;
   }
   .live-now {
     padding: 22px 20px;

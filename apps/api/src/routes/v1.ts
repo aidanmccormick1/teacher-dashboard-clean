@@ -387,7 +387,10 @@ function meetingOccurrenceKey(startTime: string | null | undefined): string {
 }
 
 class MeetingRevisionConflictError extends Error {
-  constructor(message = 'This class meeting changed in another session. Refresh to reconcile it.') {
+  constructor(
+    message = 'This class meeting changed in another session. Refresh to reconcile it.',
+    readonly scheduledLesson: { id: string; title: string } | null = null
+  ) {
     super(message);
     this.name = 'MeetingRevisionConflictError';
   }
@@ -5089,8 +5092,14 @@ export async function v1Routes(app: FastifyInstance) {
           const existing =
             candidates.find((meeting) => meeting.occurrenceKey === requestedOccurrenceKey) ?? null;
           if (existing && existing.lessonId !== body.lessonId) {
+            const [scheduledLesson] = await tx
+              .select({ id: lessons.id, title: lessons.title })
+              .from(lessons)
+              .where(eq(lessons.id, existing.lessonId))
+              .limit(1);
             throw new MeetingRevisionConflictError(
-              'This scheduled class already belongs to a different lesson.'
+              'This class is scheduled for a different lesson today.',
+              scheduledLesson ?? null
             );
           }
           if (existing && body.expectedRevision !== existing.revision) {
@@ -5298,7 +5307,11 @@ export async function v1Routes(app: FastifyInstance) {
       } catch (error) {
         if (error instanceof MeetingRevisionConflictError) {
           (reply as any).code(409);
-          return { error: error.message, requestId: request.id };
+          return {
+            error: error.message,
+            requestId: request.id,
+            scheduledLesson: error.scheduledLesson
+          };
         }
         throw error;
       }
@@ -5341,10 +5354,18 @@ export async function v1Routes(app: FastifyInstance) {
         );
       const meeting = candidates.find((item) => item.occurrenceKey === key) ?? null;
       if (meeting && meeting.lessonId !== query.lessonId) {
+        const [scheduledLesson] = await db
+          .select({ id: lessons.id, title: lessons.title })
+          .from(lessons)
+          .where(eq(lessons.id, meeting.lessonId))
+          .limit(1);
         (reply as any).code(409);
         return {
-          error: 'This scheduled class belongs to a different lesson.',
-          requestId: request.id
+          error: 'This class is scheduled for a different lesson today.',
+          requestId: request.id,
+          scheduledLesson: scheduledLesson
+            ? { id: scheduledLesson.id, title: scheduledLesson.title }
+            : null
         };
       }
       const steps = await db

@@ -92,7 +92,8 @@ const AI_QUEUE_REQUEST_TIMEOUT_MS = 90_000;
 export class ApiError extends Error {
   constructor(
     message: string,
-    public readonly status: number
+    public readonly status: number,
+    public readonly details: Record<string, unknown> | null = null
   ) {
     super(message);
   }
@@ -163,14 +164,18 @@ async function request<TResponse>(
   }
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     const fallback =
       response.status === 413
         ? 'That schedule file is too large to send. Please use a file smaller than 10 MB.'
         : response.status >= 500
           ? 'The backend hit an error. Try again, and send feedback if it repeats.'
           : `Request failed (${response.status})`;
-    throw new ApiError(payload?.error ?? fallback, response.status);
+    throw new ApiError(
+      typeof payload?.error === 'string' ? payload.error : fallback,
+      response.status,
+      payload
+    );
   }
 
   return (await response.json()) as TResponse;

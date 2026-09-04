@@ -28,6 +28,18 @@ function safeHtml(value: string | null) {
   return doc.body.innerHTML;
 }
 
+type ScheduledLessonConflict = { id: string; title: string };
+
+function scheduledLessonFromError(error: unknown): ScheduledLessonConflict | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const value = error.details?.scheduledLesson;
+  if (!value || typeof value !== 'object') return null;
+  const lesson = value as { id?: unknown; title?: unknown };
+  return typeof lesson.id === 'string' && typeof lesson.title === 'string'
+    ? { id: lesson.id, title: lesson.title }
+    : null;
+}
+
 export function ClassroomPage() {
   const api = useApiClient();
   const [params, setParams] = useSearchParams();
@@ -42,6 +54,7 @@ export function ClassroomPage() {
   const [note, setNote] = useState('');
   const [state, setState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [error, setError] = useState<string | null>(null);
+  const [scheduledConflict, setScheduledConflict] = useState<ScheduledLessonConflict | null>(null);
   const timer = useRef<number | null>(null);
   const latest = useRef<{ checks: string[]; note: string; version: number } | null>(null);
   const draftVersion = useRef(0);
@@ -143,6 +156,7 @@ export function ClassroomPage() {
   }, [api, selected?.courseId]);
   useEffect(() => {
     if (!lessonId || !contextSectionId || !dashboardDate) return;
+    setScheduledConflict(null);
     let cancelled = false;
     void api
       .getClassMeeting(contextSectionId, {
@@ -175,8 +189,15 @@ export function ClassroomPage() {
         };
       })
       .catch((err) => {
-        if (!cancelled)
-          setError(err instanceof ApiError ? err.message : 'Could not load this class meeting.');
+        if (!cancelled) {
+          const conflict = scheduledLessonFromError(err);
+          if (conflict) {
+            setScheduledConflict(conflict);
+            setError(null);
+          } else {
+            setError(err instanceof ApiError ? err.message : 'Could not load this class meeting.');
+          }
+        }
       });
     return () => {
       cancelled = true;
@@ -188,6 +209,7 @@ export function ClassroomPage() {
     dashboardDate,
     lessonId,
     manual,
+    resume?.lesson?.id,
     resume?.lastNote?.content,
     resume?.state?.carryOverNote,
     draftStorageKey
@@ -247,7 +269,12 @@ export function ClassroomPage() {
         }
       } catch (err) {
         setState('error');
-        if (err instanceof ApiError && err.status === 409) {
+        const lessonConflict = scheduledLessonFromError(err);
+        if (lessonConflict) {
+          setScheduledConflict(lessonConflict);
+          setState('saved');
+          setError(null);
+        } else if (err instanceof ApiError && err.status === 409) {
           // Keep a recoverable local copy, then re-read the canonical version
           // and its revision. We never overwrite a different session blindly.
           try {
@@ -343,6 +370,25 @@ export function ClassroomPage() {
     if (lessonId) next.set('lesson', lessonId);
     else next.delete('lesson');
     setParams(next);
+  };
+  const chooseScheduledLesson = () => {
+    if (!scheduledConflict) return;
+    const next = new URLSearchParams(params);
+    next.set('lesson', scheduledConflict.id);
+    next.delete('manual');
+    setParams(next);
+  };
+  const teachSelectedLesson = () => {
+    const next = new URLSearchParams(params);
+    next.set('manual', '1');
+    setParams(next);
+  };
+  const lessonLabel = (candidate: { id: string; title: string }) => {
+    const unit = course?.units.find((item) =>
+      item.lessons.some((lesson) => lesson.id === candidate.id)
+    );
+    const lessonIndex = unit?.lessons.findIndex((lesson) => lesson.id === candidate.id) ?? -1;
+    return lessonIndex >= 0 ? `Lesson ${lessonIndex + 1}: ${candidate.title}` : candidate.title;
   };
   const changeUnit = (unitId: string) => {
     const unit = course?.units.find((item) => item.id === unitId);
@@ -445,6 +491,35 @@ export function ClassroomPage() {
               })}
             </select>
           </label>
+        </section>
+      ) : null}
+      {scheduledConflict && requestedLesson && !manual ? (
+        <section className="classroom-lesson-conflict" role="alert">
+          <div>
+            <p className="eyebrow">Lesson choice</p>
+            <h2>This class is scheduled for a different lesson today.</h2>
+            <div className="classroom-lesson-conflict-details">
+              <p>
+                <span>Scheduled</span>
+                <strong>{lessonLabel(scheduledConflict)}</strong>
+              </p>
+              <p>
+                <span>Selected</span>
+                <strong>{lessonLabel(requestedLesson)}</strong>
+              </p>
+            </div>
+            <p className="muted">
+              Follow the schedule, or intentionally teach the selected lesson as a manual override.
+            </p>
+          </div>
+          <div className="profile-actions classroom-lesson-conflict-actions">
+            <button type="button" onClick={chooseScheduledLesson}>
+              Use scheduled lesson
+            </button>
+            <button className="secondary" type="button" onClick={teachSelectedLesson}>
+              Teach selected lesson instead
+            </button>
+          </div>
         </section>
       ) : null}
       {requiresMeetingChoice ? (
