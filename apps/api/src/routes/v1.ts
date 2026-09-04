@@ -646,6 +646,7 @@ async function findOwnedSection(userId: string, sectionId: string) {
     .select({
       sectionId: sections.id,
       sectionName: sections.name,
+      originalScheduleLabel: sections.originalScheduleLabel,
       courseId: courses.id,
       courseName: courses.name
     })
@@ -785,6 +786,7 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
     .select({
       sectionId: sections.id,
       sectionName: sections.name,
+      originalScheduleLabel: sections.originalScheduleLabel,
       courseId: courses.id,
       courseName: courses.name,
       day: sectionMeetings.day,
@@ -833,6 +835,7 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
       courseId: string;
       courseName: string;
       sectionName: string;
+      originalScheduleLabel: string | null;
       meetings: Array<{
         day: string;
         time: string | null;
@@ -851,6 +854,7 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
         // and schedule, regardless of which course it uses.
         courseName: localNameByCurriculumId.get(row.courseId) ?? row.courseName,
         sectionName: row.sectionName,
+        originalScheduleLabel: row.originalScheduleLabel,
         meetings: []
       });
     }
@@ -5051,7 +5055,12 @@ export async function v1Routes(app: FastifyInstance) {
           }
           const [section] = await tx
             .insert(sections)
-            .values({ courseId, teacherId: user.id, name: firstClass.period })
+            .values({
+              courseId,
+              teacherId: user.id,
+              name: firstClass.period,
+              originalScheduleLabel: `${firstClass.name} · ${firstClass.period}`
+            })
             .returning({ id: sections.id });
           if (!section) throw new Error('Failed to create class group');
           if (meetings.length) {

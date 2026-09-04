@@ -177,6 +177,7 @@ export const GetScheduleResponseSchema = z.object({
       courseId: UuidSchema,
       courseName: z.string(),
       sectionName: z.string(),
+      originalScheduleLabel: z.string().nullable(),
       meetings: z.array(SectionMeetingSchema)
     })
   ),

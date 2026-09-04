@@ -276,6 +276,7 @@ const previewSchedule = {
       courseId: previewCourseId,
       courseName: 'Spanish 6',
       sectionName: 'Group A',
+      originalScheduleLabel: 'Spanish 6 · Group A',
       meetings: [
         { day: 'Monday', time: '09:10', endTime: '09:55', room: 'Room 204' },
         { day: 'Wednesday', time: '09:10', endTime: '09:55', room: 'Room 204' }
@@ -286,6 +287,7 @@ const previewSchedule = {
       courseId: previewCourseId,
       courseName: 'Spanish 6',
       sectionName: 'Group C',
+      originalScheduleLabel: 'Spanish 6 · Group C',
       meetings: [
         { day: 'Tuesday', time: '13:20', endTime: '14:05', room: 'Room 204' },
         { day: 'Thursday', time: '13:20', endTime: '14:05', room: 'Room 204' }
@@ -296,6 +298,7 @@ const previewSchedule = {
       courseId: previewCourseTwoId,
       courseName: 'Spanish 5',
       sectionName: 'Period 3',
+      originalScheduleLabel: 'Spanish 5 · Period 3',
       meetings: [{ day: 'Friday', time: '10:10', endTime: '10:55', room: 'Room 204' }]
     }
   ],
@@ -1109,6 +1112,9 @@ export function SharingPage() {
                           {availableClasses.map((section) => (
                             <option key={section.sectionId} value={section.sectionId}>
                               {section.sectionName} · currently using {section.courseName}
+                              {section.originalScheduleLabel
+                                ? ` · imported as ${section.originalScheduleLabel}`
+                                : ''}
                             </option>
                           ))}
                         </select>

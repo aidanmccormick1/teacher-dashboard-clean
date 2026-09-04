@@ -209,6 +209,9 @@ export const sections = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    // Kept verbatim at import time so a teacher can still recognize the label
+    // from the original schedule after renaming the class group locally.
+    originalScheduleLabel: text('original_schedule_label'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },

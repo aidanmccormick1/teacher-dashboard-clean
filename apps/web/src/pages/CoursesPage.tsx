@@ -283,7 +283,7 @@ export function CoursesPage() {
     }
   };
 
-  const runCourseAction = async (course: Course, action: 'duplicate' | 'end' | 'restore') => {
+  const runCourseAction = async (course: Course, action: 'duplicate' | 'end' | 'restore' | 'delete') => {
     try {
       setSaving(true);
       if (action === 'duplicate') {
@@ -292,6 +292,14 @@ export function CoursesPage() {
         await api.duplicateCourse(course.id, nextName);
       } else if (action === 'end') {
         await api.archiveCourse(course.id);
+      } else if (action === 'delete') {
+        if (
+          !window.confirm(
+            `Delete ${course.name} permanently? This removes its curriculum and linked class groups.`
+          )
+        )
+          return;
+        await api.deleteCourse(course.id);
       } else {
         await api.restoreCourse(course.id);
       }
@@ -433,9 +441,18 @@ export function CoursesPage() {
             <summary aria-label={`Actions for ${course.name}`}>•••</summary>
             <div>
               {course.lifecycle === 'ended' ? (
-                <button type="button" onClick={() => void runCourseAction(course, 'restore')}>
-                  Restore to workspace
-                </button>
+                <>
+                  <button type="button" onClick={() => void runCourseAction(course, 'restore')}>
+                    Restore to workspace
+                  </button>
+                  <button
+                    className="danger"
+                    type="button"
+                    onClick={() => void runCourseAction(course, 'delete')}
+                  >
+                    Delete permanently
+                  </button>
+                </>
               ) : (
                 <>
                   <button type="button" onClick={() => void runCourseAction(course, 'duplicate')}>
@@ -800,7 +817,7 @@ export function CoursesPage() {
       ) : null}
       {courses.some((course) => course.lifecycle === 'ended') ? (
         <section className="courses-archived">
-          <h2>Ended courses</h2>
+          <h2>Inactive courses</h2>
           <div className="course-hub-list">
             {courses.filter((course) => course.lifecycle === 'ended').map(renderCourse)}
           </div>
