@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import type { CSSProperties } from 'react';
 import type {
   CourseDetailResponse,
   GetScheduleResponse,
@@ -122,10 +123,11 @@ export function YearPlanPage() {
         <h1>Choose a course to begin planning</h1>
         {courses.length ? (
           <div className="year-plan-choice-list">
-            {courses.map((course) => (
+            {courses.map((course, index) => (
               <button
                 key={course.id}
                 type="button"
+                style={{ '--year-plan-choice-index': index } as CSSProperties}
                 onClick={() => updateContext({ courseId: course.id })}
               >
                 {course.name}

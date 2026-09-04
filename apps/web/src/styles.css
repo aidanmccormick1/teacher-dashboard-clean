@@ -752,6 +752,50 @@ a {
   text-align: left;
 }
 
+@keyframes year-plan-selection-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.year-plan-selection-state {
+  animation: year-plan-selection-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.year-plan-selection-state h1 {
+  animation: year-plan-selection-in 420ms 70ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.year-plan-choice-list {
+  animation: year-plan-selection-in 420ms 130ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.year-plan-choice-list button {
+  animation: year-plan-selection-in 420ms calc(180ms + var(--year-plan-choice-index, 0) * 70ms)
+    cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.year-plan-choice-list button:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 20px rgba(41, 68, 90, 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .year-plan-selection-state,
+  .year-plan-selection-state h1,
+  .year-plan-choice-list,
+  .year-plan-choice-list button {
+    animation: none;
+    transition: none;
+  }
+}
+
 @media (max-width: 780px) {
   .today-header,
   .today-focus-heading,
