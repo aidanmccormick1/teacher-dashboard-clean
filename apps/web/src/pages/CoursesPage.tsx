@@ -212,6 +212,11 @@ export function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
   const [invitations, setInvitations] = useState<CourseInvitationsResponse['invitations']>([]);
+  const [adoptingInvitation, setAdoptingInvitation] = useState<{
+    courseId: string;
+    name: string;
+    mode: 'collaborate' | 'copy';
+  } | null>(null);
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [grade, setGrade] = useState('');
@@ -316,7 +321,14 @@ export function CoursesPage() {
   const respondToInvitation = async (courseId: string, response: 'accept' | 'decline') => {
     try {
       setSaving(true);
-      if (response === 'accept') await api.acceptCourseInvitation(courseId);
+      if (response === 'accept') {
+        if (!adoptingInvitation || !adoptingInvitation.name.trim()) return;
+        await api.acceptCourseInvitation(courseId, {
+          mode: adoptingInvitation.mode,
+          name: adoptingInvitation.name.trim()
+        });
+        setAdoptingInvitation(null);
+      }
       else await api.declineCourseInvitation(courseId);
       await load();
     } catch (err) {
@@ -355,6 +367,13 @@ export function CoursesPage() {
         <div>
           <h2>{course.name}</h2>
           <p>{[course.subject, course.gradeLevel].filter(Boolean).join(' · ') || 'Course'}</p>
+          <span className="course-curriculum-status">
+            {course.relationshipType === 'shared'
+              ? `Using shared curriculum: ${course.curriculumName}`
+              : course.curriculumName !== course.name
+                ? `Based on: ${course.curriculumName} · Independent copy`
+                : 'Independent curriculum'}
+          </span>
           <span>
             {course.lifecycle === 'ended'
               ? 'Ended'
@@ -495,8 +514,8 @@ export function CoursesPage() {
             aria-label={`Link ${course.name} to a class group`}
           >
             <div>
-              <strong>Link to a class</strong>
-              <span>Choose one of your scheduled class groups. Names do not need to match.</span>
+              <strong>Link {course.name} to a class</strong>
+              <span>Choose one scheduled class. Its class name and schedule will not change.</span>
             </div>
             <div className="course-add-curriculum-options">
               <select
@@ -560,15 +579,14 @@ export function CoursesPage() {
               <p className="eyebrow">Shared with you</p>
               <h2 id="course-invitations-heading">Course invitations</h2>
             </div>
-            <p className="muted">
-              Accept now and link the curriculum to a class whenever you are ready.
-            </p>
+            <p className="muted">Choose whether to collaborate or make an independent course.</p>
           </div>
           <div className="course-hub-list">
             {invitations.map((invitation) => (
               <article className="course-hub-row" key={invitation.course.id}>
                 <div>
-                  <h2>{invitation.course.name}</h2>
+                  <p className="eyebrow">Shared curriculum</p>
+                  <h2>{invitation.course.curriculumName}</h2>
                   <p>
                     {invitation.invitedBy.fullName ?? invitation.invitedBy.email} invited you to
                     collaborate.
@@ -578,9 +596,15 @@ export function CoursesPage() {
                   <button
                     type="button"
                     disabled={saving}
-                    onClick={() => void respondToInvitation(invitation.course.id, 'accept')}
+                    onClick={() =>
+                      setAdoptingInvitation({
+                        courseId: invitation.course.id,
+                        name: invitation.course.curriculumName,
+                        mode: 'collaborate'
+                      })
+                    }
                   >
-                    Accept collaboration
+                    Choose how to use it
                   </button>
                   <button
                     className="secondary"
@@ -594,6 +618,47 @@ export function CoursesPage() {
               </article>
             ))}
           </div>
+          {adoptingInvitation ? (
+            <div className="course-adoption-panel">
+              <div>
+                <p className="eyebrow">Add to my courses</p>
+                <h3>How do you want to use this curriculum?</h3>
+              </div>
+              <div className="course-curriculum-choice">
+                <label className={adoptingInvitation.mode === 'collaborate' ? 'selected' : ''}>
+                  <input
+                    type="radio"
+                    checked={adoptingInvitation.mode === 'collaborate'}
+                    onChange={() => setAdoptingInvitation({ ...adoptingInvitation, mode: 'collaborate' })}
+                  />
+                  <span><strong>Collaborate on curriculum</strong><small>Edit the same curriculum together.</small></span>
+                </label>
+                <label className={adoptingInvitation.mode === 'copy' ? 'selected' : ''}>
+                  <input
+                    type="radio"
+                    checked={adoptingInvitation.mode === 'copy'}
+                    onChange={() => setAdoptingInvitation({ ...adoptingInvitation, mode: 'copy' })}
+                  />
+                  <span><strong>Use as my own course</strong><small>Create an independent version you can modify.</small></span>
+                </label>
+              </div>
+              <label>
+                <span>What do you call this course?</span>
+                <input
+                  className="input"
+                  value={adoptingInvitation.name}
+                  onChange={(event) => setAdoptingInvitation({ ...adoptingInvitation, name: event.target.value })}
+                  autoFocus
+                />
+              </label>
+              <div className="course-row-actions">
+                <button className="secondary" type="button" onClick={() => setAdoptingInvitation(null)}>Cancel</button>
+                <button type="button" disabled={saving || !adoptingInvitation.name.trim()} onClick={() => void respondToInvitation(adoptingInvitation.courseId, 'accept')}>
+                  {adoptingInvitation.mode === 'copy' ? 'Create my course' : 'Join curriculum'}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
       {createOpen ? (

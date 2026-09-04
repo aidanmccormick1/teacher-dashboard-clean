@@ -16,6 +16,7 @@ import type {
   ClassNotesUpsertResponse,
   ClassroomResumeResponse,
   CourseCreateRequest,
+  CourseInvitationAcceptRequest,
   CourseCurriculumCopyRequest,
   CourseCollaboratorInviteRequest,
   CourseCollaboratorsResponse,
@@ -324,10 +325,10 @@ export function useApiClient() {
         request<CourseListResponse>(`/v1/courses?status=${status}`, { method: 'GET' }, auth),
       listCourseInvitations: () =>
         request<CourseInvitationsResponse>('/v1/course-invitations', { method: 'GET' }, auth),
-      acceptCourseInvitation: (courseId: string) =>
+      acceptCourseInvitation: (courseId: string, body: CourseInvitationAcceptRequest) =>
         request<CourseDetailResponse>(
           `/v1/course-invitations/${courseId}/accept`,
-          { method: 'POST' },
+          { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
       declineCourseInvitation: (courseId: string) =>

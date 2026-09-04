@@ -28,6 +28,7 @@ import {
   CourseCollaboratorInviteRequestSchema,
   CourseCollaboratorsResponseSchema,
   CourseActivityResponseSchema,
+  CourseInvitationAcceptRequestSchema,
   CourseDeleteRequestSchema,
   CourseOwnershipTransferRequestSchema,
   CoursePacingResponseSchema,
@@ -122,6 +123,7 @@ import {
   sections,
   schools,
   teacherProfiles,
+  teacherCourses,
   teacherPreferences,
   units,
   users
@@ -803,6 +805,17 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
     .leftJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
     .where(and(eq(sections.teacherId, userId), isNull(courseCollaborators.archivedAt)));
 
+  const curriculumIds = [...new Set(rows.map((row) => row.courseId))];
+  const localCourseRows = curriculumIds.length
+    ? await db
+        .select({ curriculumId: teacherCourses.curriculumId, name: teacherCourses.name })
+        .from(teacherCourses)
+        .where(and(eq(teacherCourses.teacherId, userId), inArray(teacherCourses.curriculumId, curriculumIds)))
+    : [];
+  const localNameByCurriculumId = new Map(
+    localCourseRows.map((localCourse) => [localCourse.curriculumId, localCourse.name])
+  );
+
   const holidayRows = await db
     .select({
       id: schoolHolidays.id,
@@ -834,7 +847,9 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
       bySection.set(row.sectionId, {
         sectionId: row.sectionId,
         courseId: row.courseId,
-        courseName: row.courseName,
+        // This is a display label only. A class group always owns its own name
+        // and schedule, regardless of which course it uses.
+        courseName: localNameByCurriculumId.get(row.courseId) ?? row.courseName,
         sectionName: row.sectionName,
         meetings: []
       });
@@ -861,6 +876,11 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
 async function buildCourseDetail(userId: string, courseId: string) {
   const course = await findOwnedCourse(userId, courseId);
   if (!course) return null;
+  const [localCourse] = await db
+    .select()
+    .from(teacherCourses)
+    .where(and(eq(teacherCourses.teacherId, userId), eq(teacherCourses.curriculumId, courseId)))
+    .limit(1);
 
   const unitRows = await db
     .select({
@@ -938,16 +958,20 @@ async function buildCourseDetail(userId: string, courseId: string) {
     .from(sections)
     .where(and(eq(sections.courseId, courseId), eq(sections.teacherId, userId)));
   const linkedClassGroupCount = linkedSections.length;
-  const lifecycle = course.archivedAt ? 'ended' : linkedClassGroupCount > 0 ? 'active' : 'unlinked';
+  const archivedAt = localCourse?.archivedAt ?? course.archivedAt;
+  const lifecycle = archivedAt ? 'ended' : linkedClassGroupCount > 0 ? 'active' : 'unlinked';
 
   return CourseDetailResponseSchema.parse({
     course: {
       id: course.id,
-      name: course.name,
-      subject: course.subject,
-      gradeLevel: course.gradeLevel,
-      sortIndex: course.sortIndex,
-      archivedAt: course.archivedAt?.toISOString() ?? null,
+      curriculumId: course.id,
+      curriculumName: course.name,
+      relationshipType: localCourse?.relationshipType === 'shared' ? 'shared' : 'independent',
+      name: localCourse?.name ?? course.name,
+      subject: localCourse?.subject ?? course.subject,
+      gradeLevel: localCourse?.gradeLevel ?? course.gradeLevel,
+      sortIndex: localCourse?.sortIndex ?? course.sortIndex,
+      archivedAt: archivedAt?.toISOString() ?? null,
       createdAt: course.createdAt.toISOString(),
       updatedAt: course.updatedAt.toISOString(),
       accessRole: course.accessRole,
@@ -1005,16 +1029,21 @@ async function listCoursesForUser(userId: string, status: 'active' | 'archived' 
         eq(courseCollaborators.status, 'accepted')
       )
     )
-    .where(
-      status === 'active'
-        ? isNull(courseCollaborators.archivedAt)
-        : status === 'archived'
-          ? sql`${courseCollaborators.archivedAt} is not null`
-          : undefined
-    )
+    // Archive status is personal course state. Keep the collaborator join for
+    // access, then filter by teacher_courses below.
+    .where(undefined)
     .orderBy(asc(courses.sortIndex), asc(courses.name), asc(courses.createdAt));
 
   const courseIds = courseRows.map((course) => course.id);
+  const localCourseRows = courseIds.length
+    ? await db
+        .select()
+        .from(teacherCourses)
+        .where(and(eq(teacherCourses.teacherId, userId), inArray(teacherCourses.curriculumId, courseIds)))
+    : [];
+  const localByCurriculumId = new Map(
+    localCourseRows.map((localCourse) => [localCourse.curriculumId, localCourse])
+  );
   const localSections = courseIds.length
     ? await db
         .select({ courseId: sections.courseId })
@@ -1026,25 +1055,31 @@ async function listCoursesForUser(userId: string, status: 'active' | 'archived' 
     linkedByCourseId.set(section.courseId, (linkedByCourseId.get(section.courseId) ?? 0) + 1);
   }
 
-  return courseRows.map((course) => {
+  return courseRows.flatMap((course) => {
+    const localCourse = localByCurriculumId.get(course.id);
+    const archivedAt = localCourse?.archivedAt ?? course.archivedAt;
+    if ((status === 'active' && archivedAt) || (status === 'archived' && !archivedAt)) return [];
     const linkedClassGroupCount = linkedByCourseId.get(course.id) ?? 0;
-    return {
+    return [{
       id: course.id,
-      name: course.name,
-      subject: course.subject,
-      gradeLevel: course.gradeLevel,
-      sortIndex: course.sortIndex,
-      archivedAt: course.archivedAt?.toISOString() ?? null,
+      curriculumId: course.id,
+      curriculumName: course.name,
+      relationshipType: localCourse?.relationshipType === 'shared' ? 'shared' : 'independent',
+      name: localCourse?.name ?? course.name,
+      subject: localCourse?.subject ?? course.subject,
+      gradeLevel: localCourse?.gradeLevel ?? course.gradeLevel,
+      sortIndex: localCourse?.sortIndex ?? course.sortIndex,
+      archivedAt: archivedAt?.toISOString() ?? null,
       createdAt: course.createdAt.toISOString(),
       updatedAt: course.updatedAt.toISOString(),
       accessRole: course.accessRole as 'owner' | 'editor',
-      lifecycle: course.archivedAt
+      lifecycle: archivedAt
         ? ('ended' as const)
         : linkedClassGroupCount > 0
           ? ('active' as const)
           : ('unlinked' as const),
       linkedClassGroupCount
-    };
+    }];
   });
 }
 
@@ -2946,18 +2981,9 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const body = CourseOrderUpdateRequestSchema.parse(request.body);
       const owned = await db
-        .select({ id: courses.id })
-        .from(courses)
-        .innerJoin(
-          courseCollaborators,
-          and(
-            eq(courseCollaborators.courseId, courses.id),
-            eq(courseCollaborators.userId, user.id),
-            eq(courseCollaborators.role, 'owner'),
-            eq(courseCollaborators.status, 'accepted')
-          )
-        )
-        .where(inArray(courses.id, body.courseIds));
+        .select({ id: teacherCourses.curriculumId })
+        .from(teacherCourses)
+        .where(and(eq(teacherCourses.teacherId, user.id), inArray(teacherCourses.curriculumId, body.courseIds)));
       if (owned.length !== body.courseIds.length) {
         (reply as any).code(404);
         return { error: 'One or more courses were not found', requestId: request.id };
@@ -2967,9 +2993,9 @@ export async function v1Routes(app: FastifyInstance) {
         await Promise.all(
           body.courseIds.map((courseId, sortIndex) =>
             tx
-              .update(courses)
+              .update(teacherCourses)
               .set({ sortIndex, updatedAt: new Date() })
-              .where(eq(courses.id, courseId))
+              .where(and(eq(teacherCourses.teacherId, user.id), eq(teacherCourses.curriculumId, courseId)))
           )
         );
         await tx.insert(auditEvents).values({
@@ -3032,6 +3058,16 @@ export async function v1Routes(app: FastifyInstance) {
           status: 'accepted',
           invitedByUserId: user.id,
           joinedAt: new Date()
+        });
+        await tx.insert(teacherCourses).values({
+          teacherId: user.id,
+          curriculumId: created.id,
+          sourceCurriculumId: body.sourceCourseId ?? null,
+          name: body.name,
+          subject: body.subject,
+          gradeLevel: body.gradeLevel,
+          relationshipType: 'independent',
+          sortIndex: (lastCourse?.sortIndex ?? -1) + 1
         });
         return [created];
       });
@@ -3171,6 +3207,16 @@ export async function v1Routes(app: FastifyInstance) {
           invitedByUserId: user.id,
           joinedAt: new Date()
         });
+        await tx.insert(teacherCourses).values({
+          teacherId: user.id,
+          curriculumId: course.id,
+          sourceCurriculumId: source.id,
+          name: body.name,
+          subject: source.subject,
+          gradeLevel: source.gradeLevel,
+          relationshipType: 'independent',
+          sortIndex: (lastCourse?.sortIndex ?? -1) + 1
+        });
         return [course];
       });
       if (!created) throw new Error('Failed to duplicate course');
@@ -3187,16 +3233,15 @@ export async function v1Routes(app: FastifyInstance) {
     const user = await ensureUserFromPrincipal(principal);
     const { courseId } = CourseParamsSchema.parse(request.params);
     const [course] = await db
-      .update(courseCollaborators)
+      .update(teacherCourses)
       .set({ archivedAt: new Date(), updatedAt: new Date() })
       .where(
         and(
-          eq(courseCollaborators.courseId, courseId),
-          eq(courseCollaborators.userId, user.id),
-          eq(courseCollaborators.status, 'accepted')
+          eq(teacherCourses.curriculumId, courseId),
+          eq(teacherCourses.teacherId, user.id)
         )
       )
-      .returning({ courseId: courseCollaborators.courseId });
+      .returning({ courseId: teacherCourses.curriculumId });
     if (!course) {
       (reply as any).code(404);
       return { error: 'Course not found', requestId: request.id };
@@ -3210,16 +3255,15 @@ export async function v1Routes(app: FastifyInstance) {
     const user = await ensureUserFromPrincipal(principal);
     const { courseId } = CourseParamsSchema.parse(request.params);
     const [course] = await db
-      .update(courseCollaborators)
+      .update(teacherCourses)
       .set({ archivedAt: null, updatedAt: new Date() })
       .where(
         and(
-          eq(courseCollaborators.courseId, courseId),
-          eq(courseCollaborators.userId, user.id),
-          eq(courseCollaborators.status, 'accepted')
+          eq(teacherCourses.curriculumId, courseId),
+          eq(teacherCourses.teacherId, user.id)
         )
       )
-      .returning({ courseId: courseCollaborators.courseId });
+      .returning({ courseId: teacherCourses.curriculumId });
     if (!course) {
       (reply as any).code(404);
       return { error: 'Course not found', requestId: request.id };
@@ -3269,6 +3313,9 @@ export async function v1Routes(app: FastifyInstance) {
             {
               course: {
                 id: row.courseId,
+                curriculumId: row.courseId,
+                curriculumName: row.name,
+                relationshipType: 'shared',
                 name: row.name,
                 subject: row.subject,
                 gradeLevel: row.gradeLevel,
@@ -3293,6 +3340,16 @@ export async function v1Routes(app: FastifyInstance) {
     if (!principal) return;
     const user = await ensureUserFromPrincipal(principal);
     const { courseId } = CourseParamsSchema.parse(request.params);
+    const body = CourseInvitationAcceptRequestSchema.parse(request.body);
+    const [sourceCurriculum] = await db
+      .select()
+      .from(courses)
+      .where(eq(courses.id, courseId))
+      .limit(1);
+    if (!sourceCurriculum) {
+      (reply as any).code(404);
+      return { error: 'Course invitation not found', requestId: request.id };
+    }
     const [accepted] = await db
       .update(courseCollaborators)
       .set({ status: 'accepted', joinedAt: new Date(), archivedAt: null, updatedAt: new Date() })
@@ -3308,6 +3365,66 @@ export async function v1Routes(app: FastifyInstance) {
       (reply as any).code(404);
       return { error: 'Course invitation not found', requestId: request.id };
     }
+    let teacherCourseCurriculumId = courseId;
+    if (body.mode === 'copy') {
+      const [created] = await db.transaction(async (tx) => {
+        const [curriculum] = await tx
+          .insert(courses)
+          .values({
+            teacherId: user.id,
+            schoolId: sourceCurriculum.schoolId,
+            name: body.name,
+            subject: sourceCurriculum.subject,
+            gradeLevel: sourceCurriculum.gradeLevel,
+            sortIndex: sourceCurriculum.sortIndex
+          })
+          .returning({ id: courses.id });
+        if (!curriculum) throw new Error('Failed to create an independent curriculum copy');
+        await tx.insert(courseCollaborators).values({
+          courseId: curriculum.id,
+          userId: user.id,
+          role: 'owner',
+          status: 'accepted',
+          invitedByUserId: user.id,
+          joinedAt: new Date()
+        });
+        await tx.insert(teacherCourses).values({
+          teacherId: user.id,
+          curriculumId: curriculum.id,
+          sourceCurriculumId: courseId,
+          name: body.name,
+          subject: sourceCurriculum.subject,
+          gradeLevel: sourceCurriculum.gradeLevel,
+          relationshipType: 'independent',
+          sortIndex: sourceCurriculum.sortIndex
+        });
+        return [curriculum];
+      });
+      if (!created) throw new Error('Failed to create an independent curriculum copy');
+      await copyCourseCurriculum(user.id, courseId, created.id);
+      // The copy is now self-contained. Remove the temporary source membership
+      // so later shared edits cannot appear in this teacher's workspace.
+      await db
+        .delete(courseCollaborators)
+        .where(and(eq(courseCollaborators.courseId, courseId), eq(courseCollaborators.userId, user.id)));
+      teacherCourseCurriculumId = created.id;
+    } else {
+      await db
+        .insert(teacherCourses)
+        .values({
+          teacherId: user.id,
+          curriculumId: courseId,
+          name: body.name,
+          subject: sourceCurriculum.subject,
+          gradeLevel: sourceCurriculum.gradeLevel,
+          relationshipType: 'shared',
+          sortIndex: sourceCurriculum.sortIndex
+        })
+        .onConflictDoUpdate({
+          target: [teacherCourses.teacherId, teacherCourses.curriculumId],
+          set: { name: body.name, relationshipType: 'shared', archivedAt: null, updatedAt: new Date() }
+        });
+    }
     await recordCourseActivity(
       courseId,
       user.id,
@@ -3316,7 +3433,7 @@ export async function v1Routes(app: FastifyInstance) {
       courseId,
       'joined the course'
     );
-    const detail = await buildCourseDetail(user.id, courseId);
+    const detail = await buildCourseDetail(user.id, teacherCourseCurriculumId);
     if (!detail) throw new Error('Could not load accepted course');
     return detail;
   });
@@ -3792,7 +3909,7 @@ export async function v1Routes(app: FastifyInstance) {
       const params = CourseParamsSchema.parse(request.params);
       const body = CourseUpdateRequestSchema.parse(request.body);
 
-      const updates: Partial<typeof courses.$inferInsert> = {
+      const updates: Partial<typeof teacherCourses.$inferInsert> = {
         updatedAt: new Date()
       };
       if (body.name !== undefined) updates.name = body.name;
@@ -3806,10 +3923,15 @@ export async function v1Routes(app: FastifyInstance) {
       }
 
       const [updated] = await db
-        .update(courses)
+        .update(teacherCourses)
         .set(updates)
-        .where(eq(courses.id, params.courseId))
-        .returning({ id: courses.id });
+        .where(
+          and(
+            eq(teacherCourses.curriculumId, params.courseId),
+            eq(teacherCourses.teacherId, user.id)
+          )
+        )
+        .returning({ id: teacherCourses.id });
 
       if (!updated) {
         (reply as any).code(404);

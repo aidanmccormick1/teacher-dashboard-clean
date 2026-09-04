@@ -45,6 +45,9 @@ const previewCourseThreeId = '00000000-0000-4000-8000-000000000003';
 const previewCourses = [
   {
     id: previewCourseId,
+    curriculumId: previewCourseId,
+    curriculumName: 'Spanish 6',
+    relationshipType: 'independent' as const,
     name: 'Spanish 6',
     subject: 'Spanish',
     gradeLevel: 'Grade 6',
@@ -232,6 +235,9 @@ const previewCourses = [
   },
   {
     id: previewCourseTwoId,
+    curriculumId: previewCourseId,
+    curriculumName: 'Spanish 6',
+    relationshipType: 'shared' as const,
     name: 'Spanish 5',
     subject: 'Spanish',
     gradeLevel: 'Grade 5',
@@ -246,6 +252,9 @@ const previewCourses = [
   },
   {
     id: previewCourseThreeId,
+    curriculumId: previewCourseThreeId,
+    curriculumName: 'Advisory',
+    relationshipType: 'independent' as const,
     name: 'Advisory',
     subject: 'Student life',
     gradeLevel: 'Grade 6',
@@ -743,7 +752,13 @@ export function SharingPage() {
     }
     try {
       setSavingKey(`invitation-${courseId}`);
-      if (response === 'accept') await api.acceptCourseInvitation(courseId);
+      if (response === 'accept') {
+        const invitation = invitations.find((item) => item.course.id === courseId);
+        await api.acceptCourseInvitation(courseId, {
+          mode: 'collaborate',
+          name: invitation?.course.curriculumName ?? 'My course'
+        });
+      }
       else await api.declineCourseInvitation(courseId);
       await loadPage();
       if (response === 'accept') updateLocation(courseId);

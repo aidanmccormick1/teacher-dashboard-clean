@@ -627,6 +627,9 @@ export const AiJobControlResponseSchema = z.object({
 
 export const CourseSummarySchema = z.object({
   id: UuidSchema,
+  curriculumId: UuidSchema,
+  curriculumName: z.string(),
+  relationshipType: z.enum(['shared', 'independent']),
   name: z.string(),
   subject: z.string().nullable(),
   gradeLevel: z.string().nullable(),
@@ -692,6 +695,11 @@ export const CourseInvitationSchema = z.object({
 
 export const CourseInvitationsResponseSchema = z.object({
   invitations: z.array(CourseInvitationSchema)
+});
+
+export const CourseInvitationAcceptRequestSchema = z.object({
+  mode: z.enum(['collaborate', 'copy']),
+  name: z.string().min(1)
 });
 
 export const CourseActivitySchema = z.object({
@@ -1091,6 +1099,7 @@ export type CourseCollaboratorInviteRequest = z.infer<typeof CourseCollaboratorI
 export type CourseOwnershipTransferRequest = z.infer<typeof CourseOwnershipTransferRequestSchema>;
 export type CourseCollaboratorsResponse = z.infer<typeof CourseCollaboratorsResponseSchema>;
 export type CourseInvitationsResponse = z.infer<typeof CourseInvitationsResponseSchema>;
+export type CourseInvitationAcceptRequest = z.infer<typeof CourseInvitationAcceptRequestSchema>;
 export type CourseActivityResponse = z.infer<typeof CourseActivityResponseSchema>;
 export type LessonCommentsResponse = z.infer<typeof LessonCommentsResponseSchema>;
 export type LessonCommentCreateRequest = z.infer<typeof LessonCommentCreateRequestSchema>;

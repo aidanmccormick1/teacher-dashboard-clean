@@ -229,7 +229,15 @@ export function CoursePage() {
       {course ? (
         <>
           <div className="card stack">
+            <p className="eyebrow">My course</p>
             <h3>Course settings</h3>
+            <p className="muted">
+              {course.relationshipType === 'shared'
+                ? `Using shared curriculum: ${course.curriculumName}. Renaming this course only changes your workspace.`
+                : course.curriculumName !== course.name
+                  ? `Independent copy based on ${course.curriculumName}.`
+                  : 'This is your independent curriculum.'}
+            </p>
             <input
               className="input"
               value={courseName}

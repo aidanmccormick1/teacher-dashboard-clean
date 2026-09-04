@@ -5947,6 +5947,20 @@ button,
   border: 0;
 }
 
+.course-adoption-panel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-subtle, #f7faf8);
+}
+
+.course-adoption-panel h3 {
+  margin: 0.2rem 0 0;
+}
+
 .course-curriculum-choice legend {
   grid-column: 1 / -1;
   margin-bottom: 7px;

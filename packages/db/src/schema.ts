@@ -130,6 +130,38 @@ export const courses = pgTable(
   ]
 );
 
+// `courses` is the shared, reusable curriculum record. A teacher-facing course
+// is intentionally separate: teachers can call the same curriculum different
+// things without changing its title for anyone else.
+export const teacherCourses = pgTable(
+  'teacher_courses',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    teacherId: uuid('teacher_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    curriculumId: uuid('curriculum_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'cascade' }),
+    sourceCurriculumId: uuid('source_curriculum_id').references(() => courses.id, {
+      onDelete: 'set null'
+    }),
+    name: text('name').notNull(),
+    subject: text('subject'),
+    gradeLevel: text('grade_level'),
+    relationshipType: text('relationship_type').notNull().default('independent'),
+    sortIndex: integer('sort_index').notNull().default(0),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('teacher_courses_teacher_curriculum_unique').on(table.teacherId, table.curriculumId),
+    index('idx_teacher_courses_teacher_active').on(table.teacherId, table.archivedAt),
+    index('idx_teacher_courses_curriculum').on(table.curriculumId)
+  ]
+);
+
 // A curriculum can have many members while retaining one accountable owner.
 // Membership is deliberately independent from sections: members each create
 // and manage their own scheduled class groups.
@@ -665,14 +697,31 @@ export const auditEvents = pgTable(
 export const usersRelations = relations(users, ({ many, one }) => ({
   teacherProfile: one(teacherProfiles),
   courses: many(courses),
+  teacherCourses: many(teacherCourses),
   classNotes: many(classNotes)
 }));
 
 export const coursesRelations = relations(courses, ({ many, one }) => ({
   sections: many(sections),
   units: many(units),
+  teacherCourseUses: many(teacherCourses, { relationName: 'teacherCourseCurriculum' }),
+  teacherCourseCopies: many(teacherCourses, { relationName: 'teacherCourseSourceCurriculum' }),
   teacher: one(users, {
     fields: [courses.teacherId],
     references: [users.id]
+  })
+}));
+
+export const teacherCoursesRelations = relations(teacherCourses, ({ one }) => ({
+  teacher: one(users, { fields: [teacherCourses.teacherId], references: [users.id] }),
+  curriculum: one(courses, {
+    fields: [teacherCourses.curriculumId],
+    references: [courses.id],
+    relationName: 'teacherCourseCurriculum'
+  }),
+  sourceCurriculum: one(courses, {
+    fields: [teacherCourses.sourceCurriculumId],
+    references: [courses.id],
+    relationName: 'teacherCourseSourceCurriculum'
   })
 }));
