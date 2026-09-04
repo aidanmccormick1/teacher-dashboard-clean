@@ -17,7 +17,10 @@ import type {
   ClassroomResumeResponse,
   CourseCreateRequest,
   CourseCurriculumCopyRequest,
+  CourseCollaboratorInviteRequest,
+  CourseCollaboratorsResponse,
   CourseDetailResponse,
+  CourseInvitationsResponse,
   CourseListResponse,
   CourseShareResponse,
   CourseOrderUpdateRequest,
@@ -309,8 +312,46 @@ export function useApiClient() {
         ),
       listCourses: (status: 'active' | 'archived' | 'all' = 'active') =>
         request<CourseListResponse>(`/v1/courses?status=${status}`, { method: 'GET' }, auth),
+      listCourseInvitations: () =>
+        request<CourseInvitationsResponse>('/v1/course-invitations', { method: 'GET' }, auth),
+      acceptCourseInvitation: (courseId: string) =>
+        request<CourseDetailResponse>(
+          `/v1/course-invitations/${courseId}/accept`,
+          { method: 'POST' },
+          auth
+        ),
+      declineCourseInvitation: (courseId: string) =>
+        request<DeleteEntityResponse>(
+          `/v1/course-invitations/${courseId}`,
+          { method: 'DELETE' },
+          auth
+        ),
       getCourseDetail: (courseId: string) =>
         request<CourseDetailResponse>(`/v1/courses/${courseId}`, { method: 'GET' }, auth),
+      getCourseCollaborators: (courseId: string) =>
+        request<CourseCollaboratorsResponse>(
+          `/v1/courses/${courseId}/collaborators`,
+          { method: 'GET' },
+          auth
+        ),
+      inviteCourseCollaborator: (courseId: string, body: CourseCollaboratorInviteRequest) =>
+        request<CourseCollaboratorsResponse>(
+          `/v1/courses/${courseId}/collaborators`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      removeCourseCollaborator: (courseId: string, userId: string) =>
+        request<DeleteEntityResponse>(
+          `/v1/courses/${courseId}/collaborators/${userId}`,
+          { method: 'DELETE' },
+          auth
+        ),
+      leaveCourse: (courseId: string) =>
+        request<DeleteEntityResponse>(
+          `/v1/courses/${courseId}/membership`,
+          { method: 'DELETE' },
+          auth
+        ),
       createCourse: (body: CourseCreateRequest) =>
         request<CourseDetailResponse>(
           '/v1/courses',
@@ -336,7 +377,11 @@ export function useApiClient() {
           auth
         ),
       deleteCourse: (courseId: string) =>
-        request<DeleteEntityResponse>(`/v1/courses/${courseId}`, { method: 'DELETE' }, auth),
+        request<DeleteEntityResponse>(
+          `/v1/courses/${courseId}`,
+          { method: 'DELETE', body: JSON.stringify({ confirmation: 'DELETE' }) },
+          auth
+        ),
       duplicateCourse: (courseId: string, name: string) =>
         request<CourseDetailResponse>(
           `/v1/courses/${courseId}/duplicate`,

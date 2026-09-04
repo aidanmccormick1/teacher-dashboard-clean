@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type {
   CourseDetailResponse,
+  CourseInvitationsResponse,
   GetScheduleResponse,
   ScheduleImportResponse
 } from '@teacheros/contracts';
@@ -210,6 +211,7 @@ export function CoursesPage() {
   const [params, setParams] = useSearchParams();
   const [courses, setCourses] = useState<Course[]>([]);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
+  const [invitations, setInvitations] = useState<CourseInvitationsResponse['invitations']>([]);
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [grade, setGrade] = useState('');
@@ -218,6 +220,8 @@ export function CoursesPage() {
   const [sourceCourseId, setSourceCourseId] = useState('');
   const [curriculumTargetId, setCurriculumTargetId] = useState<string | null>(null);
   const [targetSourceCourseId, setTargetSourceCourseId] = useState('');
+  const [linkingCourseId, setLinkingCourseId] = useState<string | null>(null);
+  const [linkingSectionId, setLinkingSectionId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -226,9 +230,10 @@ export function CoursesPage() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [courseResult, scheduleResult] = await Promise.all([
+      const [courseResult, scheduleResult, invitationResult] = await Promise.all([
         api.listCourses('all'),
-        api.getSchedule()
+        api.getSchedule(),
+        api.listCourseInvitations()
       ]);
       setCourses(
         (
@@ -236,6 +241,7 @@ export function CoursesPage() {
         ).map((detail) => detail.course)
       );
       setSchedule(scheduleResult);
+      setInvitations(invitationResult.invitations);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not load courses.');
@@ -274,7 +280,7 @@ export function CoursesPage() {
 
   const runCourseAction = async (
     course: Course,
-    action: 'share' | 'duplicate' | 'archive' | 'restore'
+    action: 'share' | 'duplicate' | 'end' | 'restore'
   ) => {
     try {
       setSaving(true);
@@ -288,7 +294,7 @@ export function CoursesPage() {
         const nextName = window.prompt('New course name', `${course.name} copy`)?.trim();
         if (!nextName) return;
         await api.duplicateCourse(course.id, nextName);
-      } else if (action === 'archive') {
+      } else if (action === 'end') {
         await api.archiveCourse(course.id);
       } else {
         await api.restoreCourse(course.id);
@@ -296,6 +302,34 @@ export function CoursesPage() {
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not update this course.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const linkCourseToClass = async () => {
+    if (!linkingCourseId || !linkingSectionId) return;
+    try {
+      setSaving(true);
+      await api.updateSection(linkingSectionId, { courseId: linkingCourseId });
+      setLinkingCourseId(null);
+      setLinkingSectionId('');
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not link this class group.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const respondToInvitation = async (courseId: string, response: 'accept' | 'decline') => {
+    try {
+      setSaving(true);
+      if (response === 'accept') await api.acceptCourseInvitation(courseId);
+      else await api.declineCourseInvitation(courseId);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not update this invitation.');
     } finally {
       setSaving(false);
     }
@@ -325,19 +359,19 @@ export function CoursesPage() {
     return (
       <article
         key={course.id}
-        className={`course-hub-row ${course.archivedAt ? 'is-archived' : ''}`}
+        className={`course-hub-row ${course.lifecycle === 'ended' ? 'is-archived' : ''}`}
       >
         <div>
           <h2>{course.name}</h2>
           <p>{[course.subject, course.gradeLevel].filter(Boolean).join(' · ') || 'Course'}</p>
           <span>
-            {course.archivedAt
-              ? 'Archived'
+            {course.lifecycle === 'ended'
+              ? 'Ended'
               : sections.length
                 ? `${sections.length} ${sections.length === 1 ? 'class group' : 'class groups'} · ${sections
                     .map((section) => section.sectionName)
                     .join(' · ')}`
-                : 'No class groups yet'}
+                : 'Unlinked · no class groups yet'}
           </span>
           <span
             className={
@@ -350,7 +384,7 @@ export function CoursesPage() {
           </span>
         </div>
         <div className="course-row-actions">
-          {!course.archivedAt ? (
+          {course.lifecycle !== 'ended' ? (
             <>
               <Link className="button-link secondary" to={`/courses/${course.id}`}>
                 Open course
@@ -370,29 +404,41 @@ export function CoursesPage() {
                   Add curriculum
                 </button>
               )}
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  setLinkingCourseId(course.id);
+                  setLinkingSectionId('');
+                }}
+              >
+                Link to a class
+              </button>
             </>
           ) : null}
           <details className="course-actions-menu">
             <summary aria-label={`Actions for ${course.name}`}>•••</summary>
             <div>
-              {course.archivedAt ? (
+              {course.lifecycle === 'ended' ? (
                 <button type="button" onClick={() => void runCourseAction(course, 'restore')}>
-                  Restore course
+                  Restore to workspace
                 </button>
               ) : (
                 <>
-                  <button type="button" onClick={() => void runCourseAction(course, 'share')}>
-                    Share curriculum
-                  </button>
+                  {course.accessRole === 'owner' ? (
+                    <button type="button" onClick={() => void runCourseAction(course, 'share')}>
+                      Create public view link
+                    </button>
+                  ) : null}
                   <button type="button" onClick={() => void runCourseAction(course, 'duplicate')}>
-                    Duplicate curriculum
+                    Duplicate as independent copy
                   </button>
                   <button
                     className="danger"
                     type="button"
-                    onClick={() => void runCourseAction(course, 'archive')}
+                    onClick={() => void runCourseAction(course, 'end')}
                   >
-                    Archive course
+                    End course for me
                   </button>
                 </>
               )}
@@ -454,6 +500,42 @@ export function CoursesPage() {
             </div>
           </section>
         ) : null}
+        {linkingCourseId === course.id ? (
+          <section
+            className="course-add-curriculum"
+            aria-label={`Link ${course.name} to a class group`}
+          >
+            <div>
+              <strong>Link to a class</strong>
+              <span>Choose one of your scheduled class groups. Names do not need to match.</span>
+            </div>
+            <div className="course-add-curriculum-options">
+              <select
+                className="input"
+                aria-label="Class group to link"
+                value={linkingSectionId}
+                onChange={(event) => setLinkingSectionId(event.target.value)}
+              >
+                <option value="">Choose a class group…</option>
+                {(schedule?.sections ?? []).map((section) => (
+                  <option key={section.sectionId} value={section.sectionId}>
+                    {section.sectionName} · currently using {section.courseName}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={saving || !linkingSectionId}
+                onClick={() => void linkCourseToClass()}
+              >
+                {saving ? 'Linking…' : 'Link selected class'}
+              </button>
+              <button className="secondary" type="button" onClick={() => setLinkingCourseId(null)}>
+                Cancel
+              </button>
+            </div>
+          </section>
+        ) : null}
       </article>
     );
   };
@@ -481,6 +563,49 @@ export function CoursesPage() {
       {error ? <p className="notice warning">{error}</p> : null}
       {importOpen ? (
         <ScheduleImportPanel existingSections={schedule?.sections ?? []} onApplied={load} />
+      ) : null}
+      {invitations.length ? (
+        <section className="courses-create-panel" aria-labelledby="course-invitations-heading">
+          <div className="courses-create-heading">
+            <div>
+              <p className="eyebrow">Shared with you</p>
+              <h2 id="course-invitations-heading">Course invitations</h2>
+            </div>
+            <p className="muted">
+              Accept now and link the curriculum to a class whenever you are ready.
+            </p>
+          </div>
+          <div className="course-hub-list">
+            {invitations.map((invitation) => (
+              <article className="course-hub-row" key={invitation.course.id}>
+                <div>
+                  <h2>{invitation.course.name}</h2>
+                  <p>
+                    {invitation.invitedBy.fullName ?? invitation.invitedBy.email} invited you to
+                    collaborate.
+                  </p>
+                </div>
+                <div className="course-row-actions">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void respondToInvitation(invitation.course.id, 'accept')}
+                  >
+                    Accept collaboration
+                  </button>
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void respondToInvitation(invitation.course.id, 'decline')}
+                  >
+                    Decline
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
       ) : null}
       {createOpen ? (
         <section className="courses-create-panel" aria-labelledby="create-course-heading">
@@ -605,14 +730,25 @@ export function CoursesPage() {
           <p>Start with a course, then add its class groups and meeting times.</p>
         </section>
       ) : null}
-      <section className="course-hub-list">
-        {courses.filter((course) => !course.archivedAt).map(renderCourse)}
+      <section className="courses-archived">
+        <h2>Active courses</h2>
+        <div className="course-hub-list">
+          {courses.filter((course) => course.lifecycle === 'active').map(renderCourse)}
+        </div>
       </section>
-      {courses.some((course) => course.archivedAt) ? (
+      {courses.some((course) => course.lifecycle === 'unlinked') ? (
         <section className="courses-archived">
-          <h2>Archived courses</h2>
+          <h2>Unlinked courses</h2>
           <div className="course-hub-list">
-            {courses.filter((course) => course.archivedAt).map(renderCourse)}
+            {courses.filter((course) => course.lifecycle === 'unlinked').map(renderCourse)}
+          </div>
+        </section>
+      ) : null}
+      {courses.some((course) => course.lifecycle === 'ended') ? (
+        <section className="courses-archived">
+          <h2>Ended courses</h2>
+          <div className="course-hub-list">
+            {courses.filter((course) => course.lifecycle === 'ended').map(renderCourse)}
           </div>
         </section>
       ) : null}

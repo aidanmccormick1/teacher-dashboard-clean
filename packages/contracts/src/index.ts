@@ -196,6 +196,10 @@ export const SectionMutationRequestSchema = z.object({
 });
 
 export const SectionUpdateRequestSchema = z.object({
+  // Relinking only changes the curriculum used by this teacher's local class
+  // group. Its meetings, history, progress, and planning overrides remain
+  // attached to the group.
+  courseId: UuidSchema.optional(),
   sectionName: z.string().min(1).optional(),
   meetings: z.array(SectionMeetingSchema).optional()
 });
@@ -628,7 +632,11 @@ export const CourseSummarySchema = z.object({
   gradeLevel: z.string().nullable(),
   sortIndex: z.number().int(),
   archivedAt: z.string().nullable(),
-  createdAt: z.string()
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  accessRole: z.enum(['owner', 'editor']),
+  lifecycle: z.enum(['active', 'unlinked', 'ended']),
+  linkedClassGroupCount: z.number().int().nonnegative()
 });
 
 export const CourseListResponseSchema = z.object({
@@ -644,10 +652,46 @@ export const CourseCreateRequestSchema = z.object({
 
 export const CourseDuplicateRequestSchema = z.object({ name: z.string().min(1) });
 export const CourseCurriculumCopyRequestSchema = z.object({ sourceCourseId: UuidSchema });
+export const CourseDeleteRequestSchema = z.object({ confirmation: z.literal('DELETE') });
 export const CourseShareUpdateRequestSchema = z.object({ enabled: z.boolean() });
 export const CourseShareResponseSchema = z.object({
   enabled: z.boolean(),
   token: z.string().uuid().nullable()
+});
+
+export const CourseCollaboratorSchema = z.object({
+  userId: UuidSchema,
+  email: z.string().email(),
+  fullName: z.string().nullable(),
+  role: z.enum(['owner', 'editor']),
+  status: z.enum(['invited', 'accepted']),
+  invitedByUserId: UuidSchema.nullable(),
+  joinedAt: z.string().nullable()
+});
+
+export const CourseCollaboratorInviteRequestSchema = z.object({
+  email: z.string().email()
+});
+
+export const CourseOwnershipTransferRequestSchema = z.object({
+  email: z.string().email()
+});
+
+export const CourseCollaboratorsResponseSchema = z.object({
+  collaborators: z.array(CourseCollaboratorSchema)
+});
+
+export const CourseInvitationSchema = z.object({
+  course: CourseSummarySchema,
+  invitedBy: z.object({
+    userId: UuidSchema,
+    fullName: z.string().nullable(),
+    email: z.string().email()
+  })
+});
+
+export const CourseInvitationsResponseSchema = z.object({
+  invitations: z.array(CourseInvitationSchema)
 });
 
 export const CourseUpdateRequestSchema = z.object({
@@ -972,7 +1016,12 @@ export type CourseDetailResponse = z.infer<typeof CourseDetailResponseSchema>;
 export type CourseCreateRequest = z.infer<typeof CourseCreateRequestSchema>;
 export type CourseDuplicateRequest = z.infer<typeof CourseDuplicateRequestSchema>;
 export type CourseCurriculumCopyRequest = z.infer<typeof CourseCurriculumCopyRequestSchema>;
+export type CourseDeleteRequest = z.infer<typeof CourseDeleteRequestSchema>;
 export type CourseShareResponse = z.infer<typeof CourseShareResponseSchema>;
+export type CourseCollaboratorInviteRequest = z.infer<typeof CourseCollaboratorInviteRequestSchema>;
+export type CourseOwnershipTransferRequest = z.infer<typeof CourseOwnershipTransferRequestSchema>;
+export type CourseCollaboratorsResponse = z.infer<typeof CourseCollaboratorsResponseSchema>;
+export type CourseInvitationsResponse = z.infer<typeof CourseInvitationsResponseSchema>;
 export type CourseUpdateRequest = z.infer<typeof CourseUpdateRequestSchema>;
 export type CourseOrderUpdateRequest = z.infer<typeof CourseOrderUpdateRequestSchema>;
 export type UnitCreateRequest = z.infer<typeof UnitCreateRequestSchema>;

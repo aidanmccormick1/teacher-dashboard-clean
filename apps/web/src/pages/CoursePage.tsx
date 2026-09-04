@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
-import type { CourseDetailResponse, GetScheduleResponse } from '@teacheros/contracts';
+import type {
+  CourseCollaboratorsResponse,
+  CourseDetailResponse,
+  GetScheduleResponse
+} from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { timeRange } from '../lib/today.js';
@@ -43,6 +47,10 @@ export function CoursePage() {
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
+  const [collaborators, setCollaborators] = useState<CourseCollaboratorsResponse['collaborators']>(
+    []
+  );
+  const [collaboratorEmail, setCollaboratorEmail] = useState('');
 
   const [courseName, setCourseName] = useState('');
   const [courseSubject, setCourseSubject] = useState('');
@@ -91,6 +99,14 @@ export function CoursePage() {
       .catch(() => undefined);
   }, [api]);
 
+  useEffect(() => {
+    if (!courseId) return;
+    void api
+      .getCourseCollaborators(courseId)
+      .then((response) => setCollaborators(response.collaborators))
+      .catch(() => undefined);
+  }, [api, courseId]);
+
   const updateFromDetail = (detail: CourseDetailResponse) => {
     setCourse(detail.course);
     setCourseName(detail.course.name);
@@ -98,7 +114,7 @@ export function CoursePage() {
     setCourseGradeLevel(detail.course.gradeLevel ?? '');
   };
 
-  const courseAction = async (action: 'share' | 'duplicate' | 'archive') => {
+  const courseAction = async (action: 'share' | 'duplicate' | 'end' | 'leave' | 'delete') => {
     if (!course) return;
     try {
       setSaving(true);
@@ -114,8 +130,21 @@ export function CoursePage() {
         if (!name) return;
         const duplicate = await api.duplicateCourse(course.id, name);
         navigate(`/courses/${duplicate.course.id}`);
-      } else {
+      } else if (action === 'end') {
         await api.archiveCourse(course.id);
+        navigate('/courses');
+      } else if (action === 'leave') {
+        if (!window.confirm(`Leave ${course.name}? Unlink any class groups first.`)) return;
+        await api.leaveCourse(course.id);
+        navigate('/courses');
+      } else {
+        if (
+          !window.confirm(
+            `Delete ${course.name} for everyone? This permanently deletes all linked class groups and curriculum.`
+          )
+        )
+          return;
+        await api.deleteCourse(course.id);
         navigate('/courses');
       }
     } catch (err) {
@@ -142,8 +171,9 @@ export function CoursePage() {
           <p className="eyebrow">Shared curriculum</p>
           <h1>{course?.name ?? 'Course'}</h1>
           <p className="muted">
-            Shared curriculum for all of your Class Groups. Each group keeps its own schedule,
-            progress, and classroom history.
+            {course?.accessRole === 'editor'
+              ? 'Shared curriculum you can edit. Your class groups, schedules, progress, and classroom history stay private to you.'
+              : 'Shared curriculum for collaborators. Each teacher keeps their own class groups, schedules, progress, and classroom history.'}
           </p>
         </div>
         <div className="profile-actions">
@@ -159,15 +189,32 @@ export function CoursePage() {
           <details className="course-actions-menu">
             <summary aria-label="Course actions">•••</summary>
             <div>
-              <button type="button" onClick={() => void courseAction('share')}>
-                Share curriculum
-              </button>
+              {course?.accessRole === 'owner' ? (
+                <button type="button" onClick={() => void courseAction('share')}>
+                  Create public view link
+                </button>
+              ) : null}
               <button type="button" onClick={() => void courseAction('duplicate')}>
-                Duplicate curriculum
+                Duplicate as independent copy
               </button>
-              <button className="danger" type="button" onClick={() => void courseAction('archive')}>
-                Archive course
-              </button>
+              {course?.accessRole === 'editor' ? (
+                <button className="danger" type="button" onClick={() => void courseAction('leave')}>
+                  Leave course
+                </button>
+              ) : (
+                <>
+                  <button className="danger" type="button" onClick={() => void courseAction('end')}>
+                    End course for me
+                  </button>
+                  <button
+                    className="danger"
+                    type="button"
+                    onClick={() => void courseAction('delete')}
+                  >
+                    Delete permanently
+                  </button>
+                </>
+              )}
             </div>
           </details>
         </div>
@@ -222,6 +269,96 @@ export function CoursePage() {
                 Save course
               </button>
             </div>
+          </div>
+
+          <div className="card stack">
+            <div className="section-heading">
+              <div>
+                <h3>Collaborators</h3>
+                <p className="muted">
+                  Curriculum changes are shared. Scheduled class groups remain private to each
+                  teacher.
+                </p>
+              </div>
+            </div>
+            {collaborators.map((collaborator) => (
+              <div className="course-edit-meeting-row" key={collaborator.userId}>
+                <div>
+                  <strong>{collaborator.fullName ?? collaborator.email}</strong>
+                  <span>
+                    {collaborator.role === 'owner'
+                      ? 'Owner'
+                      : collaborator.status === 'invited'
+                        ? 'Invitation pending'
+                        : 'Can edit curriculum'}
+                  </span>
+                </div>
+                {course.accessRole === 'owner' && collaborator.role === 'editor' ? (
+                  <button
+                    className="button-link"
+                    type="button"
+                    disabled={saving}
+                    onClick={async () => {
+                      if (!window.confirm(`Remove ${collaborator.fullName ?? collaborator.email}?`))
+                        return;
+                      try {
+                        setSaving(true);
+                        const response = await api.removeCourseCollaborator(
+                          course.id,
+                          collaborator.userId
+                        );
+                        void response;
+                        setCollaborators((items) =>
+                          items.filter((item) => item.userId !== collaborator.userId)
+                        );
+                      } catch (err) {
+                        setError(
+                          err instanceof ApiError ? err.message : 'Could not remove collaborator.'
+                        );
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+            ))}
+            {course.accessRole === 'owner' ? (
+              <div className="profile-actions">
+                <input
+                  className="input"
+                  type="email"
+                  value={collaboratorEmail}
+                  onChange={(event) => setCollaboratorEmail(event.target.value)}
+                  placeholder="teacher@school.edu"
+                  aria-label="Collaborator email"
+                />
+                <button
+                  type="button"
+                  disabled={saving || !collaboratorEmail.trim()}
+                  onClick={async () => {
+                    try {
+                      setSaving(true);
+                      const response = await api.inviteCourseCollaborator(course.id, {
+                        email: collaboratorEmail.trim()
+                      });
+                      setCollaborators(response.collaborators);
+                      setCollaboratorEmail('');
+                    } catch (err) {
+                      setError(
+                        err instanceof ApiError ? err.message : 'Could not invite collaborator.'
+                      );
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                >
+                  Invite collaborator
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="card stack">

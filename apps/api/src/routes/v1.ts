@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -25,9 +25,14 @@ import {
   CreateUploadUrlResponseSchema,
   CourseCreateRequestSchema,
   CourseCurriculumCopyRequestSchema,
+  CourseCollaboratorInviteRequestSchema,
+  CourseCollaboratorsResponseSchema,
+  CourseDeleteRequestSchema,
+  CourseOwnershipTransferRequestSchema,
   CourseDuplicateRequestSchema,
   CourseDetailResponseSchema,
   CourseListResponseSchema,
+  CourseInvitationsResponseSchema,
   CourseShareResponseSchema,
   CourseShareUpdateRequestSchema,
   CourseOrderUpdateRequestSchema,
@@ -93,6 +98,7 @@ import {
   classNotes,
   classMeetings,
   courses,
+  courseCollaborators,
   courseShares,
   db,
   lessonSegments,
@@ -521,6 +527,9 @@ function nextOrderIndex(items: Array<{ orderIndex: number }>) {
   return items.reduce((largest, item) => Math.max(largest, item.orderIndex), -1) + 1;
 }
 
+// Course membership determines curriculum access. Course ownership is only
+// used for high-impact actions such as inviting collaborators or deleting the
+// shared course; it never determines ownership of a class group.
 async function findOwnedCourse(userId: string, courseId: string) {
   const [course] = await db
     .select({
@@ -530,13 +539,28 @@ async function findOwnedCourse(userId: string, courseId: string) {
       subject: courses.subject,
       gradeLevel: courses.gradeLevel,
       sortIndex: courses.sortIndex,
-      archivedAt: courses.archivedAt,
-      createdAt: courses.createdAt
+      archivedAt: courseCollaborators.archivedAt,
+      createdAt: courses.createdAt,
+      updatedAt: courses.updatedAt,
+      accessRole: courseCollaborators.role
     })
     .from(courses)
-    .where(and(eq(courses.id, courseId), eq(courses.teacherId, userId)))
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .where(eq(courses.id, courseId))
     .limit(1);
   return course ?? null;
+}
+
+async function findCourseOwnedBy(userId: string, courseId: string) {
+  const course = await findOwnedCourse(userId, courseId);
+  return course?.accessRole === 'owner' ? course : null;
 }
 
 async function findOwnedCourseIdForUnit(userId: string, unitId: string) {
@@ -546,7 +570,15 @@ async function findOwnedCourseIdForUnit(userId: string, unitId: string) {
     })
     .from(units)
     .innerJoin(courses, eq(units.courseId, courses.id))
-    .where(and(eq(units.id, unitId), eq(courses.teacherId, userId)))
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .where(eq(units.id, unitId))
     .limit(1);
 
   return row?.courseId ?? null;
@@ -560,7 +592,15 @@ async function findOwnedCourseIdForLesson(userId: string, lessonId: string) {
     .from(lessons)
     .innerJoin(units, eq(lessons.unitId, units.id))
     .innerJoin(courses, eq(units.courseId, courses.id))
-    .where(and(eq(lessons.id, lessonId), eq(courses.teacherId, userId)))
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .where(eq(lessons.id, lessonId))
     .limit(1);
 
   return row?.courseId ?? null;
@@ -575,7 +615,15 @@ async function findOwnedCourseIdForSegment(userId: string, segmentId: string) {
     .innerJoin(lessons, eq(lessonSegments.lessonId, lessons.id))
     .innerJoin(units, eq(lessons.unitId, units.id))
     .innerJoin(courses, eq(units.courseId, courses.id))
-    .where(and(eq(lessonSegments.id, segmentId), eq(courses.teacherId, userId)))
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .where(eq(lessonSegments.id, segmentId))
     .limit(1);
 
   return row?.courseId ?? null;
@@ -591,11 +639,19 @@ async function findOwnedSection(userId: string, sectionId: string) {
     })
     .from(sections)
     .innerJoin(courses, eq(sections.courseId, courses.id))
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
     .where(
       and(
         eq(sections.id, sectionId),
-        eq(courses.teacherId, userId),
-        sql`${courses.archivedAt} is null`
+        eq(sections.teacherId, userId),
+        isNull(courseCollaborators.archivedAt)
       )
     )
     .limit(1);
@@ -611,9 +667,24 @@ async function findOwnedLessonInSectionCourse(userId: string, sectionId: string,
     })
     .from(sections)
     .innerJoin(courses, eq(sections.courseId, courses.id))
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
     .innerJoin(units, eq(units.courseId, courses.id))
     .innerJoin(lessons, eq(lessons.unitId, units.id))
-    .where(and(eq(sections.id, sectionId), eq(lessons.id, lessonId), eq(courses.teacherId, userId)))
+    .where(
+      and(
+        eq(sections.id, sectionId),
+        eq(sections.teacherId, userId),
+        eq(lessons.id, lessonId),
+        isNull(courseCollaborators.archivedAt)
+      )
+    )
     .limit(1);
 
   return row ?? null;
@@ -640,8 +711,16 @@ async function buildLessonWorkspace(userId: string, lessonId: string) {
     .from(lessons)
     .innerJoin(units, eq(lessons.unitId, units.id))
     .innerJoin(courses, eq(units.courseId, courses.id))
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
     .leftJoin(lessonShares, eq(lessonShares.lessonId, lessons.id))
-    .where(and(eq(lessons.id, lessonId), eq(courses.teacherId, userId)))
+    .where(and(eq(lessons.id, lessonId), isNull(courseCollaborators.archivedAt)))
     .limit(1);
   if (!row) return null;
   const segmentRows = await db
@@ -668,7 +747,7 @@ async function buildLessonWorkspace(userId: string, lessonId: string) {
       sectionLessonState,
       and(eq(sectionLessonState.sectionId, sections.id), eq(sectionLessonState.lessonId, lessonId))
     )
-    .where(eq(sections.courseId, row.courseId))
+    .where(and(eq(sections.courseId, row.courseId), eq(sections.teacherId, userId)))
     .orderBy(asc(sections.name));
   return LessonWorkspaceResponseSchema.parse({
     course: { id: row.courseId, name: row.courseName },
@@ -703,8 +782,16 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
     })
     .from(sections)
     .innerJoin(courses, eq(sections.courseId, courses.id))
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
     .leftJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
-    .where(and(eq(courses.teacherId, userId), sql`${courses.archivedAt} is null`));
+    .where(and(eq(sections.teacherId, userId), isNull(courseCollaborators.archivedAt)));
 
   const holidayRows = await db
     .select({
@@ -836,6 +923,13 @@ async function buildCourseDetail(userId: string, courseId: string) {
     lessonsByUnitId.set(lesson.unitId, [lesson]);
   });
 
+  const linkedSections = await db
+    .select({ id: sections.id })
+    .from(sections)
+    .where(and(eq(sections.courseId, courseId), eq(sections.teacherId, userId)));
+  const linkedClassGroupCount = linkedSections.length;
+  const lifecycle = course.archivedAt ? 'ended' : linkedClassGroupCount > 0 ? 'active' : 'unlinked';
+
   return CourseDetailResponseSchema.parse({
     course: {
       id: course.id,
@@ -845,6 +939,10 @@ async function buildCourseDetail(userId: string, courseId: string) {
       sortIndex: course.sortIndex,
       archivedAt: course.archivedAt?.toISOString() ?? null,
       createdAt: course.createdAt.toISOString(),
+      updatedAt: course.updatedAt.toISOString(),
+      accessRole: course.accessRole,
+      lifecycle,
+      linkedClassGroupCount,
       units: unitRows.map((unit) => ({
         id: unit.id,
         title: unit.title,
@@ -872,6 +970,97 @@ async function buildCourseDetail(userId: string, courseId: string) {
         }))
       }))
     }
+  });
+}
+
+async function listCoursesForUser(userId: string, status: 'active' | 'archived' | 'all') {
+  const courseRows = await db
+    .select({
+      id: courses.id,
+      name: courses.name,
+      subject: courses.subject,
+      gradeLevel: courses.gradeLevel,
+      sortIndex: courses.sortIndex,
+      archivedAt: courseCollaborators.archivedAt,
+      createdAt: courses.createdAt,
+      updatedAt: courses.updatedAt,
+      accessRole: courseCollaborators.role
+    })
+    .from(courses)
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .where(
+      status === 'active'
+        ? isNull(courseCollaborators.archivedAt)
+        : status === 'archived'
+          ? sql`${courseCollaborators.archivedAt} is not null`
+          : undefined
+    )
+    .orderBy(asc(courses.sortIndex), asc(courses.name), asc(courses.createdAt));
+
+  const courseIds = courseRows.map((course) => course.id);
+  const localSections = courseIds.length
+    ? await db
+        .select({ courseId: sections.courseId })
+        .from(sections)
+        .where(and(eq(sections.teacherId, userId), inArray(sections.courseId, courseIds)))
+    : [];
+  const linkedByCourseId = new Map<string, number>();
+  for (const section of localSections) {
+    linkedByCourseId.set(section.courseId, (linkedByCourseId.get(section.courseId) ?? 0) + 1);
+  }
+
+  return courseRows.map((course) => {
+    const linkedClassGroupCount = linkedByCourseId.get(course.id) ?? 0;
+    return {
+      id: course.id,
+      name: course.name,
+      subject: course.subject,
+      gradeLevel: course.gradeLevel,
+      sortIndex: course.sortIndex,
+      archivedAt: course.archivedAt?.toISOString() ?? null,
+      createdAt: course.createdAt.toISOString(),
+      updatedAt: course.updatedAt.toISOString(),
+      accessRole: course.accessRole as 'owner' | 'editor',
+      lifecycle: course.archivedAt
+        ? ('ended' as const)
+        : linkedClassGroupCount > 0
+          ? ('active' as const)
+          : ('unlinked' as const),
+      linkedClassGroupCount
+    };
+  });
+}
+
+async function buildCourseCollaborators(courseId: string) {
+  const rows = await db
+    .select({
+      userId: users.id,
+      email: users.email,
+      fullName: users.fullName,
+      role: courseCollaborators.role,
+      status: courseCollaborators.status,
+      invitedByUserId: courseCollaborators.invitedByUserId,
+      joinedAt: courseCollaborators.joinedAt
+    })
+    .from(courseCollaborators)
+    .innerJoin(users, eq(courseCollaborators.userId, users.id))
+    .where(eq(courseCollaborators.courseId, courseId))
+    .orderBy(asc(courseCollaborators.createdAt));
+  return CourseCollaboratorsResponseSchema.parse({
+    collaborators: rows.map((row) => ({
+      ...row,
+      role: row.role as 'owner' | 'editor',
+      status: row.status as 'invited' | 'accepted',
+      invitedByUserId: row.invitedByUserId ?? null,
+      joinedAt: row.joinedAt?.toISOString() ?? null
+    }))
   });
 }
 
@@ -1541,7 +1730,7 @@ export async function v1Routes(app: FastifyInstance) {
         .select({ name: sections.name })
         .from(sections)
         .innerJoin(courses, eq(sections.courseId, courses.id))
-        .where(eq(courses.teacherId, user.id));
+        .where(eq(sections.teacherId, user.id));
       // One structured call reads the calendar, identifies the instructional
       // year, and extracts exceptions. The previous two-pass flow uploaded the
       // same document twice and routinely exceeded the request deadline.
@@ -1648,7 +1837,7 @@ export async function v1Routes(app: FastifyInstance) {
           .select({ id: sections.id, name: sections.name })
           .from(sections)
           .innerJoin(courses, eq(sections.courseId, courses.id))
-          .where(eq(courses.teacherId, user.id));
+          .where(eq(sections.teacherId, user.id));
         for (const override of body.overrides) {
           const section = ownedSections.find(
             (candidate) => importNameKey(candidate.name) === importNameKey(override.classGroup)
@@ -1771,6 +1960,7 @@ export async function v1Routes(app: FastifyInstance) {
           .insert(sections)
           .values({
             courseId: body.courseId,
+            teacherId: user.id,
             name: body.sectionName
           })
           .returning({ id: sections.id });
@@ -1818,7 +2008,18 @@ export async function v1Routes(app: FastifyInstance) {
         return { error: 'Section not found', requestId: request.id };
       }
 
+      if (body.courseId !== undefined && !(await findOwnedCourse(user.id, body.courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+
       await db.transaction(async (tx) => {
+        if (body.courseId !== undefined && body.courseId !== ownedSection.courseId) {
+          await tx
+            .update(sections)
+            .set({ courseId: body.courseId, updatedAt: new Date() })
+            .where(eq(sections.id, params.sectionId));
+        }
         if (body.sectionName !== undefined) {
           await tx
             .update(sections)
@@ -2469,40 +2670,7 @@ export async function v1Routes(app: FastifyInstance) {
         .object({ status: z.enum(['active', 'archived', 'all']).default('active') })
         .parse(request.query).status;
 
-      const courseRows = await db
-        .select({
-          id: courses.id,
-          name: courses.name,
-          subject: courses.subject,
-          gradeLevel: courses.gradeLevel,
-          sortIndex: courses.sortIndex,
-          archivedAt: courses.archivedAt,
-          createdAt: courses.createdAt
-        })
-        .from(courses)
-        .where(
-          and(
-            eq(courses.teacherId, user.id),
-            status === 'active'
-              ? sql`${courses.archivedAt} is null`
-              : status === 'archived'
-                ? sql`${courses.archivedAt} is not null`
-                : undefined
-          )
-        )
-        .orderBy(asc(courses.sortIndex), asc(courses.name), asc(courses.createdAt));
-
-      return {
-        courses: courseRows.map((course) => ({
-          id: course.id,
-          name: course.name,
-          subject: course.subject,
-          gradeLevel: course.gradeLevel,
-          sortIndex: course.sortIndex,
-          archivedAt: course.archivedAt?.toISOString() ?? null,
-          createdAt: course.createdAt.toISOString()
-        }))
-      };
+      return { courses: await listCoursesForUser(user.id, status) };
     }
   );
 
@@ -2522,7 +2690,16 @@ export async function v1Routes(app: FastifyInstance) {
       const owned = await db
         .select({ id: courses.id })
         .from(courses)
-        .where(and(eq(courses.teacherId, user.id), inArray(courses.id, body.courseIds)));
+        .innerJoin(
+          courseCollaborators,
+          and(
+            eq(courseCollaborators.courseId, courses.id),
+            eq(courseCollaborators.userId, user.id),
+            eq(courseCollaborators.role, 'owner'),
+            eq(courseCollaborators.status, 'accepted')
+          )
+        )
+        .where(inArray(courses.id, body.courseIds));
       if (owned.length !== body.courseIds.length) {
         (reply as any).code(404);
         return { error: 'One or more courses were not found', requestId: request.id };
@@ -2534,7 +2711,7 @@ export async function v1Routes(app: FastifyInstance) {
             tx
               .update(courses)
               .set({ sortIndex, updatedAt: new Date() })
-              .where(and(eq(courses.id, courseId), eq(courses.teacherId, user.id)))
+              .where(eq(courses.id, courseId))
           )
         );
         await tx.insert(auditEvents).values({
@@ -2546,26 +2723,7 @@ export async function v1Routes(app: FastifyInstance) {
         });
       });
 
-      const ordered = await db
-        .select({
-          id: courses.id,
-          name: courses.name,
-          subject: courses.subject,
-          gradeLevel: courses.gradeLevel,
-          sortIndex: courses.sortIndex,
-          archivedAt: courses.archivedAt,
-          createdAt: courses.createdAt
-        })
-        .from(courses)
-        .where(eq(courses.teacherId, user.id))
-        .orderBy(asc(courses.sortIndex), asc(courses.name), asc(courses.createdAt));
-      return {
-        courses: ordered.map((course) => ({
-          ...course,
-          archivedAt: course.archivedAt?.toISOString() ?? null,
-          createdAt: course.createdAt.toISOString()
-        }))
-      };
+      return { courses: await listCoursesForUser(user.id, 'all') };
     }
   );
 
@@ -2596,17 +2754,29 @@ export async function v1Routes(app: FastifyInstance) {
         .orderBy(desc(courses.sortIndex))
         .limit(1);
 
-      const [course] = await db
-        .insert(courses)
-        .values({
-          teacherId: user.id,
-          schoolId,
-          name: body.name,
-          subject: body.subject,
-          gradeLevel: body.gradeLevel,
-          sortIndex: (lastCourse?.sortIndex ?? -1) + 1
-        })
-        .returning({ id: courses.id });
+      const [course] = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(courses)
+          .values({
+            teacherId: user.id,
+            schoolId,
+            name: body.name,
+            subject: body.subject,
+            gradeLevel: body.gradeLevel,
+            sortIndex: (lastCourse?.sortIndex ?? -1) + 1
+          })
+          .returning({ id: courses.id });
+        if (!created) throw new Error('Failed to create course');
+        await tx.insert(courseCollaborators).values({
+          courseId: created.id,
+          userId: user.id,
+          role: 'owner',
+          status: 'accepted',
+          invitedByUserId: user.id,
+          joinedAt: new Date()
+        });
+        return [created];
+      });
 
       if (!course) throw new Error('Failed to create course');
 
@@ -2692,17 +2862,29 @@ export async function v1Routes(app: FastifyInstance) {
         .where(eq(courses.teacherId, user.id))
         .orderBy(desc(courses.sortIndex))
         .limit(1);
-      const [created] = await db
-        .insert(courses)
-        .values({
-          teacherId: user.id,
-          schoolId: source.schoolId,
-          name: body.name,
-          subject: source.subject,
-          gradeLevel: source.gradeLevel,
-          sortIndex: (lastCourse?.sortIndex ?? -1) + 1
-        })
-        .returning({ id: courses.id });
+      const [created] = await db.transaction(async (tx) => {
+        const [course] = await tx
+          .insert(courses)
+          .values({
+            teacherId: user.id,
+            schoolId: source.schoolId,
+            name: body.name,
+            subject: source.subject,
+            gradeLevel: source.gradeLevel,
+            sortIndex: (lastCourse?.sortIndex ?? -1) + 1
+          })
+          .returning({ id: courses.id });
+        if (!course) throw new Error('Failed to duplicate course');
+        await tx.insert(courseCollaborators).values({
+          courseId: course.id,
+          userId: user.id,
+          role: 'owner',
+          status: 'accepted',
+          invitedByUserId: user.id,
+          joinedAt: new Date()
+        });
+        return [course];
+      });
       if (!created) throw new Error('Failed to duplicate course');
       await copyCourseCurriculum(user.id, source.id, created.id);
       const detail = await buildCourseDetail(user.id, created.id);
@@ -2717,10 +2899,16 @@ export async function v1Routes(app: FastifyInstance) {
     const user = await ensureUserFromPrincipal(principal);
     const { courseId } = CourseParamsSchema.parse(request.params);
     const [course] = await db
-      .update(courses)
+      .update(courseCollaborators)
       .set({ archivedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(courses.id, courseId), eq(courses.teacherId, user.id)))
-      .returning({ id: courses.id });
+      .where(
+        and(
+          eq(courseCollaborators.courseId, courseId),
+          eq(courseCollaborators.userId, user.id),
+          eq(courseCollaborators.status, 'accepted')
+        )
+      )
+      .returning({ courseId: courseCollaborators.courseId });
     if (!course) {
       (reply as any).code(404);
       return { error: 'Course not found', requestId: request.id };
@@ -2734,16 +2922,343 @@ export async function v1Routes(app: FastifyInstance) {
     const user = await ensureUserFromPrincipal(principal);
     const { courseId } = CourseParamsSchema.parse(request.params);
     const [course] = await db
-      .update(courses)
+      .update(courseCollaborators)
       .set({ archivedAt: null, updatedAt: new Date() })
-      .where(and(eq(courses.id, courseId), eq(courses.teacherId, user.id)))
-      .returning({ id: courses.id });
+      .where(
+        and(
+          eq(courseCollaborators.courseId, courseId),
+          eq(courseCollaborators.userId, user.id),
+          eq(courseCollaborators.status, 'accepted')
+        )
+      )
+      .returning({ courseId: courseCollaborators.courseId });
     if (!course) {
       (reply as any).code(404);
       return { error: 'Course not found', requestId: request.id };
     }
     return { archived: false };
   });
+
+  app.get(
+    '/v1/course-invitations',
+    { schema: { response: { 200: CourseInvitationsResponseSchema } } },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const rows = await db
+        .select({
+          courseId: courses.id,
+          name: courses.name,
+          subject: courses.subject,
+          gradeLevel: courses.gradeLevel,
+          sortIndex: courses.sortIndex,
+          createdAt: courses.createdAt,
+          updatedAt: courses.updatedAt,
+          invitedByUserId: courseCollaborators.invitedByUserId
+        })
+        .from(courseCollaborators)
+        .innerJoin(courses, eq(courseCollaborators.courseId, courses.id))
+        .where(
+          and(eq(courseCollaborators.userId, user.id), eq(courseCollaborators.status, 'invited'))
+        )
+        .orderBy(desc(courseCollaborators.createdAt));
+      const inviterIds = rows
+        .map((row) => row.invitedByUserId)
+        .filter((id): id is string => id !== null);
+      const inviters = inviterIds.length
+        ? await db
+            .select({ id: users.id, fullName: users.fullName, email: users.email })
+            .from(users)
+            .where(inArray(users.id, inviterIds))
+        : [];
+      const inviterById = new Map(inviters.map((inviter) => [inviter.id, inviter]));
+      return CourseInvitationsResponseSchema.parse({
+        invitations: rows.flatMap((row) => {
+          const inviter = row.invitedByUserId ? inviterById.get(row.invitedByUserId) : null;
+          if (!inviter) return [];
+          return [
+            {
+              course: {
+                id: row.courseId,
+                name: row.name,
+                subject: row.subject,
+                gradeLevel: row.gradeLevel,
+                sortIndex: row.sortIndex,
+                archivedAt: null,
+                createdAt: row.createdAt.toISOString(),
+                updatedAt: row.updatedAt.toISOString(),
+                accessRole: 'editor',
+                lifecycle: 'unlinked',
+                linkedClassGroupCount: 0
+              },
+              invitedBy: { userId: inviter.id, fullName: inviter.fullName, email: inviter.email }
+            }
+          ];
+        })
+      });
+    }
+  );
+
+  app.post('/v1/course-invitations/:courseId/accept', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const { courseId } = CourseParamsSchema.parse(request.params);
+    const [accepted] = await db
+      .update(courseCollaborators)
+      .set({ status: 'accepted', joinedAt: new Date(), archivedAt: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(courseCollaborators.courseId, courseId),
+          eq(courseCollaborators.userId, user.id),
+          eq(courseCollaborators.status, 'invited')
+        )
+      )
+      .returning({ courseId: courseCollaborators.courseId });
+    if (!accepted) {
+      (reply as any).code(404);
+      return { error: 'Course invitation not found', requestId: request.id };
+    }
+    const detail = await buildCourseDetail(user.id, courseId);
+    if (!detail) throw new Error('Could not load accepted course');
+    return detail;
+  });
+
+  app.delete('/v1/course-invitations/:courseId', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const { courseId } = CourseParamsSchema.parse(request.params);
+    const [declined] = await db
+      .delete(courseCollaborators)
+      .where(
+        and(
+          eq(courseCollaborators.courseId, courseId),
+          eq(courseCollaborators.userId, user.id),
+          eq(courseCollaborators.status, 'invited')
+        )
+      )
+      .returning({ courseId: courseCollaborators.courseId });
+    if (!declined) {
+      (reply as any).code(404);
+      return { error: 'Course invitation not found', requestId: request.id };
+    }
+    return { deleted: true };
+  });
+
+  app.get(
+    '/v1/courses/:courseId/collaborators',
+    {
+      schema: { params: CourseParamsSchema, response: { 200: CourseCollaboratorsResponseSchema } }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { courseId } = CourseParamsSchema.parse(request.params);
+      if (!(await findOwnedCourse(user.id, courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+      return buildCourseCollaborators(courseId);
+    }
+  );
+
+  app.post(
+    '/v1/courses/:courseId/collaborators',
+    {
+      schema: {
+        params: CourseParamsSchema,
+        body: CourseCollaboratorInviteRequestSchema,
+        response: { 200: CourseCollaboratorsResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { courseId } = CourseParamsSchema.parse(request.params);
+      const body = CourseCollaboratorInviteRequestSchema.parse(request.body);
+      if (!(await findCourseOwnedBy(user.id, courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+      const [recipient] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(sql`lower(${users.email}) = lower(${body.email})`)
+        .limit(1);
+      if (!recipient) {
+        (reply as any).code(404);
+        return {
+          error: 'That teacher needs a TeacherOS account before you can invite them.',
+          requestId: request.id
+        };
+      }
+      if (recipient.id === user.id) {
+        (reply as any).code(400);
+        return { error: 'You already own this course.', requestId: request.id };
+      }
+      await db
+        .insert(courseCollaborators)
+        .values({
+          courseId,
+          userId: recipient.id,
+          role: 'editor',
+          status: 'invited',
+          invitedByUserId: user.id
+        })
+        .onConflictDoUpdate({
+          target: [courseCollaborators.courseId, courseCollaborators.userId],
+          set: {
+            role: 'editor',
+            status: 'invited',
+            invitedByUserId: user.id,
+            joinedAt: null,
+            archivedAt: null,
+            updatedAt: new Date()
+          }
+        });
+      return buildCourseCollaborators(courseId);
+    }
+  );
+
+  app.delete('/v1/courses/:courseId/collaborators/:userId', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const { courseId } = CourseParamsSchema.parse(request.params);
+    const collaboratorId = z.object({ userId: UuidSchema }).parse(request.params).userId;
+    if (!(await findCourseOwnedBy(user.id, courseId))) {
+      (reply as any).code(404);
+      return { error: 'Course not found', requestId: request.id };
+    }
+    const linked = await db
+      .select({ id: sections.id })
+      .from(sections)
+      .where(and(eq(sections.courseId, courseId), eq(sections.teacherId, collaboratorId)))
+      .limit(1);
+    if (linked.length) {
+      (reply as any).code(409);
+      return {
+        error: 'This collaborator must unlink their class groups before access can be removed.',
+        requestId: request.id
+      };
+    }
+    const [removed] = await db
+      .delete(courseCollaborators)
+      .where(
+        and(
+          eq(courseCollaborators.courseId, courseId),
+          eq(courseCollaborators.userId, collaboratorId),
+          eq(courseCollaborators.role, 'editor')
+        )
+      )
+      .returning({ userId: courseCollaborators.userId });
+    if (!removed) {
+      (reply as any).code(404);
+      return { error: 'Collaborator not found', requestId: request.id };
+    }
+    return { deleted: true };
+  });
+
+  app.delete('/v1/courses/:courseId/membership', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const { courseId } = CourseParamsSchema.parse(request.params);
+    const member = await findOwnedCourse(user.id, courseId);
+    if (!member) {
+      (reply as any).code(404);
+      return { error: 'Course not found', requestId: request.id };
+    }
+    if (member.accessRole === 'owner') {
+      (reply as any).code(400);
+      return { error: 'Transfer ownership before leaving this course.', requestId: request.id };
+    }
+    const linked = await db
+      .select({ id: sections.id })
+      .from(sections)
+      .where(and(eq(sections.courseId, courseId), eq(sections.teacherId, user.id)))
+      .limit(1);
+    if (linked.length) {
+      (reply as any).code(409);
+      return {
+        error: 'Unlink your class groups before leaving this course.',
+        requestId: request.id
+      };
+    }
+    await db
+      .delete(courseCollaborators)
+      .where(
+        and(eq(courseCollaborators.courseId, courseId), eq(courseCollaborators.userId, user.id))
+      );
+    return { deleted: true };
+  });
+
+  app.patch(
+    '/v1/courses/:courseId/ownership',
+    { schema: { params: CourseParamsSchema, body: CourseOwnershipTransferRequestSchema } },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { courseId } = CourseParamsSchema.parse(request.params);
+      const body = CourseOwnershipTransferRequestSchema.parse(request.body);
+      if (!(await findCourseOwnedBy(user.id, courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+      const [nextOwner] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(sql`lower(${users.email}) = lower(${body.email})`)
+        .limit(1);
+      if (!nextOwner) {
+        (reply as any).code(404);
+        return { error: 'Collaborator not found', requestId: request.id };
+      }
+      const [membership] = await db
+        .select({ userId: courseCollaborators.userId })
+        .from(courseCollaborators)
+        .where(
+          and(
+            eq(courseCollaborators.courseId, courseId),
+            eq(courseCollaborators.userId, nextOwner.id),
+            eq(courseCollaborators.status, 'accepted'),
+            eq(courseCollaborators.role, 'editor')
+          )
+        )
+        .limit(1);
+      if (!membership) {
+        (reply as any).code(400);
+        return { error: 'Choose an accepted course collaborator.', requestId: request.id };
+      }
+      await db.transaction(async (tx) => {
+        await tx
+          .update(courses)
+          .set({ teacherId: nextOwner.id, updatedAt: new Date() })
+          .where(eq(courses.id, courseId));
+        await tx
+          .update(courseCollaborators)
+          .set({ role: 'editor', updatedAt: new Date() })
+          .where(
+            and(eq(courseCollaborators.courseId, courseId), eq(courseCollaborators.userId, user.id))
+          );
+        await tx
+          .update(courseCollaborators)
+          .set({ role: 'owner', updatedAt: new Date() })
+          .where(
+            and(
+              eq(courseCollaborators.courseId, courseId),
+              eq(courseCollaborators.userId, nextOwner.id)
+            )
+          );
+      });
+      return buildCourseCollaborators(courseId);
+    }
+  );
 
   app.get(
     '/v1/courses/:courseId',
@@ -2796,10 +3311,15 @@ export async function v1Routes(app: FastifyInstance) {
       if (body.gradeLevel !== undefined) updates.gradeLevel = body.gradeLevel;
       if (body.sortIndex !== undefined) updates.sortIndex = body.sortIndex;
 
+      if (!(await findOwnedCourse(user.id, params.courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+
       const [updated] = await db
         .update(courses)
         .set(updates)
-        .where(and(eq(courses.id, params.courseId), eq(courses.teacherId, user.id)))
+        .where(eq(courses.id, params.courseId))
         .returning({ id: courses.id });
 
       if (!updated) {
@@ -2818,6 +3338,7 @@ export async function v1Routes(app: FastifyInstance) {
     {
       schema: {
         params: CourseParamsSchema,
+        body: CourseDeleteRequestSchema,
         response: {
           200: DeleteEntityResponseSchema
         }
@@ -2828,10 +3349,18 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
       const params = CourseParamsSchema.parse(request.params);
+      CourseDeleteRequestSchema.parse(request.body);
+
+      // Deleting a shared curriculum also deletes every linked class group,
+      // including other teachers' local history. Only its owner may do that.
+      if (!(await findCourseOwnedBy(user.id, params.courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
 
       const [deleted] = await db
         .delete(courses)
-        .where(and(eq(courses.id, params.courseId), eq(courses.teacherId, user.id)))
+        .where(eq(courses.id, params.courseId))
         .returning({ id: courses.id });
 
       if (!deleted) {
@@ -3283,7 +3812,7 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const { courseId } = CourseParamsSchema.parse(request.params);
       const body = CourseShareUpdateRequestSchema.parse(request.body);
-      if (!(await findOwnedCourse(user.id, courseId))) {
+      if (!(await findCourseOwnedBy(user.id, courseId))) {
         (reply as any).code(404);
         return { error: 'Course not found', requestId: request.id };
       }
@@ -3723,7 +4252,7 @@ export async function v1Routes(app: FastifyInstance) {
           .select({ id: sections.id, courseId: sections.courseId, sectionName: sections.name })
           .from(sections)
           .innerJoin(courses, eq(sections.courseId, courses.id))
-          .where(eq(courses.teacherId, user.id));
+          .where(eq(sections.teacherId, user.id));
         const sectionsByKey = new Map(
           existingSections.map((section) => [
             `${section.courseId}|${importNameKey(section.sectionName)}`,
@@ -3749,6 +4278,14 @@ export async function v1Routes(app: FastifyInstance) {
               .returning({ id: courses.id });
             if (!course) throw new Error('Failed to create course');
             courseId = course.id;
+            await tx.insert(courseCollaborators).values({
+              courseId,
+              userId: user.id,
+              role: 'owner',
+              status: 'accepted',
+              invitedByUserId: user.id,
+              joinedAt: new Date()
+            });
             coursesByName.set(courseKey, courseId);
           }
 
@@ -3795,7 +4332,7 @@ export async function v1Routes(app: FastifyInstance) {
           }
           const [section] = await tx
             .insert(sections)
-            .values({ courseId, name: firstClass.period })
+            .values({ courseId, teacherId: user.id, name: firstClass.period })
             .returning({ id: sections.id });
           if (!section) throw new Error('Failed to create class group');
           if (meetings.length) {

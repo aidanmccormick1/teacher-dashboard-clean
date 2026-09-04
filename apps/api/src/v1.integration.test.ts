@@ -53,7 +53,9 @@ async function runMigrations() {
     '0008_lesson_workspace_sharing.sql',
     '0009_class_meetings.sql',
     '0010_school_timezone.sql',
-    '0011_planning_and_meeting_history.sql'
+    '0011_planning_and_meeting_history.sql',
+    '0012_course_lifecycle_and_sharing.sql',
+    '0013_collaborative_courses.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -128,6 +130,108 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
   });
 
   describe('v1 curriculum CRUD', () => {
+    it('shares one curriculum while collaborators keep independently named local class groups', async () => {
+      await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: onboardingBody
+      });
+      await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: otherTeacherHeaders,
+        payload: {
+          ...onboardingBody,
+          fullName: 'Teacher Two',
+          workEmail: 'teacher2@example.com'
+        }
+      });
+
+      const created = await app.inject({
+        method: 'POST',
+        url: '/v1/courses',
+        headers: teacherHeaders,
+        payload: { name: 'Spanish 5', subject: 'World language', gradeLevel: '5' }
+      });
+      const course = created.json<{ course: { id: string } }>().course;
+      const unit = await app.inject({
+        method: 'POST',
+        url: `/v1/courses/${course.id}/units`,
+        headers: teacherHeaders,
+        payload: { title: 'Introductions', description: null }
+      });
+      const unitId = unit.json<{ course: { units: Array<{ id: string }> } }>().course.units[0]!.id;
+
+      const invited = await app.inject({
+        method: 'POST',
+        url: `/v1/courses/${course.id}/collaborators`,
+        headers: teacherHeaders,
+        payload: { email: 'teacher2@example.com' }
+      });
+      expect(invited.statusCode).toBe(200);
+      expect(invited.json<{ collaborators: Array<{ status: string }> }>().collaborators).toEqual(
+        expect.arrayContaining([expect.objectContaining({ status: 'invited' })])
+      );
+
+      const pending = await app.inject({
+        method: 'GET',
+        url: '/v1/course-invitations',
+        headers: otherTeacherHeaders
+      });
+      expect(pending.json<{ invitations: Array<{ course: { id: string } }> }>().invitations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ course: expect.objectContaining({ id: course.id }) })
+        ])
+      );
+      const accepted = await app.inject({
+        method: 'POST',
+        url: `/v1/course-invitations/${course.id}/accept`,
+        headers: otherTeacherHeaders
+      });
+      expect(accepted.statusCode).toBe(200);
+      expect(accepted.json<{ course: { accessRole: string; lifecycle: string } }>().course).toMatchObject({
+        accessRole: 'editor',
+        lifecycle: 'unlinked'
+      });
+
+      const linked = await app.inject({
+        method: 'POST',
+        url: '/v1/sections',
+        headers: otherTeacherHeaders,
+        payload: {
+          courseId: course.id,
+          sectionName: 'Spanish V Honors · Period 4',
+          meetings: [{ day: 'Thursday', time: '13:10', endTime: '14:00', room: '204' }]
+        }
+      });
+      expect(linked.statusCode).toBe(200);
+      expect(linked.json<{ sections: Array<{ sectionName: string; courseId: string }> }>().sections).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            sectionName: 'Spanish V Honors · Period 4',
+            courseId: course.id
+          })
+        ])
+      );
+
+      const edited = await app.inject({
+        method: 'PATCH',
+        url: `/v1/units/${unitId}`,
+        headers: otherTeacherHeaders,
+        payload: { title: 'Shared introductions' }
+      });
+      expect(edited.statusCode).toBe(200);
+      const sourceView = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${course.id}`,
+        headers: teacherHeaders
+      });
+      expect(
+        sourceView.json<{ course: { units: Array<{ title: string }> } }>().course.units[0]!.title
+      ).toBe('Shared introductions');
+    });
+
     it('updates reviewed imports in place without duplicating a class group or its history identity', async () => {
       await app.inject({
         method: 'POST',

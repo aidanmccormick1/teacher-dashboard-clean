@@ -117,6 +117,9 @@ export const courses = pgTable(
     subject: text('subject'),
     gradeLevel: text('grade_level'),
     sortIndex: integer('sort_index').notNull().default(0),
+    // `teacherId` remains the canonical owner during this incremental
+    // migration. Access is granted through courseCollaborators below, rather
+    // than inferred from this field.
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
@@ -127,6 +130,37 @@ export const courses = pgTable(
   ]
 );
 
+// A curriculum can have many members while retaining one accountable owner.
+// Membership is deliberately independent from sections: members each create
+// and manage their own scheduled class groups.
+export const courseCollaborators = pgTable(
+  'course_collaborators',
+  {
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: text('role').notNull(),
+    status: text('status').notNull().default('invited'),
+    invitedByUserId: uuid('invited_by_user_id').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    joinedAt: timestamp('joined_at', { withTimezone: true }),
+    // Ending a course is a personal workspace decision. It must not hide the
+    // same shared curriculum from another teacher's active schedule.
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.courseId, table.userId] }),
+    index('idx_course_collaborators_user_status').on(table.userId, table.status),
+    index('idx_course_collaborators_course_status').on(table.courseId, table.status)
+  ]
+);
+
 export const sections = pgTable(
   'sections',
   {
@@ -134,11 +168,19 @@ export const sections = pgTable(
     courseId: uuid('course_id')
       .notNull()
       .references(() => courses.id, { onDelete: 'cascade' }),
+    // A class group is local to one teacher even when its curriculum is
+    // shared with collaborators.
+    teacherId: uuid('teacher_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
-  (table) => [index('idx_sections_course').on(table.courseId)]
+  (table) => [
+    index('idx_sections_course').on(table.courseId),
+    index('idx_sections_teacher').on(table.teacherId)
+  ]
 );
 
 export const sectionMeetings = pgTable(

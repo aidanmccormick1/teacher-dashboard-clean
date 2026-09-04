@@ -5,6 +5,7 @@ import { meetingOccursOn } from './weekly-meetings.js';
 import { localDateFor } from './schedule-resolution.js';
 import {
   courses,
+  courseCollaborators,
   db,
   schoolCalendarEvents,
   schoolHolidays,
@@ -68,11 +69,19 @@ export async function buildMeetingInstances(
     })
     .from(sections)
     .innerJoin(courses, eq(sections.courseId, courses.id))
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
     .leftJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
     .where(
       and(
-        eq(courses.teacherId, userId),
-        isNull(courses.archivedAt),
+        eq(sections.teacherId, userId),
+        isNull(courseCollaborators.archivedAt),
         ...(options.sectionId ? [eq(sections.id, options.sectionId)] : [])
       )
     );
