@@ -694,6 +694,75 @@ export const CourseInvitationsResponseSchema = z.object({
   invitations: z.array(CourseInvitationSchema)
 });
 
+export const CourseActivitySchema = z.object({
+  id: UuidSchema,
+  action: z.string(),
+  summary: z.string(),
+  subjectType: z.enum(['course', 'unit', 'lesson']),
+  subjectId: UuidSchema.nullable(),
+  actor: z
+    .object({
+      userId: UuidSchema,
+      fullName: z.string().nullable(),
+      email: z.string().email()
+    })
+    .nullable(),
+  createdAt: z.string()
+});
+
+export const CourseActivityResponseSchema = z.object({
+  activity: z.array(CourseActivitySchema)
+});
+
+export const LessonCommentSchema = z.object({
+  id: UuidSchema,
+  courseId: UuidSchema,
+  lessonId: UuidSchema,
+  body: z.string(),
+  author: z
+    .object({
+      userId: UuidSchema,
+      fullName: z.string().nullable(),
+      email: z.string().email()
+    })
+    .nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+export const LessonCommentsResponseSchema = z.object({
+  comments: z.array(LessonCommentSchema)
+});
+
+export const LessonCommentCreateRequestSchema = z.object({
+  body: z.string().trim().min(1).max(10_000)
+});
+
+export const CoursePacingSharingUpdateRequestSchema = z.object({ enabled: z.boolean() });
+
+export const CoursePacingResponseSchema = z.object({
+  sharingEnabled: z.boolean(),
+  participants: z.array(
+    z.object({
+      userId: UuidSchema,
+      fullName: z.string().nullable(),
+      email: z.string().email(),
+      isCurrentUser: z.boolean(),
+      classGroups: z.array(
+        z.object({
+          sectionId: UuidSchema,
+          sectionName: z.string(),
+          lessonId: UuidSchema.nullable(),
+          lessonTitle: z.string().nullable(),
+          lessonOrderIndex: z.number().int().nullable(),
+          status: LessonProgressStatusSchema.nullable(),
+          lastTaughtDate: IsoDateSchema.nullable()
+        })
+      )
+    })
+  )
+});
+
 export const CourseUpdateRequestSchema = z.object({
   name: z.string().min(1).optional(),
   subject: z.string().nullable().optional(),
@@ -1022,6 +1091,13 @@ export type CourseCollaboratorInviteRequest = z.infer<typeof CourseCollaboratorI
 export type CourseOwnershipTransferRequest = z.infer<typeof CourseOwnershipTransferRequestSchema>;
 export type CourseCollaboratorsResponse = z.infer<typeof CourseCollaboratorsResponseSchema>;
 export type CourseInvitationsResponse = z.infer<typeof CourseInvitationsResponseSchema>;
+export type CourseActivityResponse = z.infer<typeof CourseActivityResponseSchema>;
+export type LessonCommentsResponse = z.infer<typeof LessonCommentsResponseSchema>;
+export type LessonCommentCreateRequest = z.infer<typeof LessonCommentCreateRequestSchema>;
+export type CoursePacingResponse = z.infer<typeof CoursePacingResponseSchema>;
+export type CoursePacingSharingUpdateRequest = z.infer<
+  typeof CoursePacingSharingUpdateRequestSchema
+>;
 export type CourseUpdateRequest = z.infer<typeof CourseUpdateRequestSchema>;
 export type CourseOrderUpdateRequest = z.infer<typeof CourseOrderUpdateRequestSchema>;
 export type UnitCreateRequest = z.infer<typeof UnitCreateRequestSchema>;

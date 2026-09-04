@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import type {
+  CourseActivityResponse,
   CourseCollaboratorsResponse,
   CourseDetailResponse,
   GetScheduleResponse
@@ -51,6 +52,7 @@ export function CoursePage() {
     []
   );
   const [collaboratorEmail, setCollaboratorEmail] = useState('');
+  const [activity, setActivity] = useState<CourseActivityResponse['activity']>([]);
 
   const [courseName, setCourseName] = useState('');
   const [courseSubject, setCourseSubject] = useState('');
@@ -107,11 +109,23 @@ export function CoursePage() {
       .catch(() => undefined);
   }, [api, courseId]);
 
+  useEffect(() => {
+    if (!courseId) return;
+    void api
+      .getCourseActivity(courseId)
+      .then((response) => setActivity(response.activity))
+      .catch(() => undefined);
+  }, [api, courseId, course?.updatedAt]);
+
   const updateFromDetail = (detail: CourseDetailResponse) => {
     setCourse(detail.course);
     setCourseName(detail.course.name);
     setCourseSubject(detail.course.subject ?? '');
     setCourseGradeLevel(detail.course.gradeLevel ?? '');
+    void api
+      .getCourseActivity(detail.course.id)
+      .then((response) => setActivity(response.activity))
+      .catch(() => undefined);
   };
 
   const courseAction = async (action: 'share' | 'duplicate' | 'end' | 'leave' | 'delete') => {
@@ -269,6 +283,37 @@ export function CoursePage() {
                 Save course
               </button>
             </div>
+          </div>
+
+          <div className="card stack">
+            <div className="section-heading">
+              <div>
+                <h3>Activity</h3>
+                <p className="muted">Recent shared-curriculum changes and discussion.</p>
+              </div>
+            </div>
+            {activity.length ? (
+              activity.map((event) => (
+                <div className="course-edit-meeting-row" key={event.id}>
+                  <div>
+                    <strong>
+                      {event.actor?.fullName ?? event.actor?.email ?? 'A collaborator'}
+                    </strong>
+                    <span>{event.summary}</span>
+                  </div>
+                  <time className="muted" dateTime={event.createdAt}>
+                    {new Intl.DateTimeFormat(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit'
+                    }).format(new Date(event.createdAt))}
+                  </time>
+                </div>
+              ))
+            ) : (
+              <p className="muted">Shared curriculum activity will appear here.</p>
+            )}
           </div>
 
           <div className="card stack">

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -27,8 +27,11 @@ import {
   CourseCurriculumCopyRequestSchema,
   CourseCollaboratorInviteRequestSchema,
   CourseCollaboratorsResponseSchema,
+  CourseActivityResponseSchema,
   CourseDeleteRequestSchema,
   CourseOwnershipTransferRequestSchema,
+  CoursePacingResponseSchema,
+  CoursePacingSharingUpdateRequestSchema,
   CourseDuplicateRequestSchema,
   CourseDetailResponseSchema,
   CourseListResponseSchema,
@@ -75,6 +78,8 @@ import {
   LessonShareResponseSchema,
   LessonShareUpdateRequestSchema,
   LessonWorkspaceResponseSchema,
+  LessonCommentCreateRequestSchema,
+  LessonCommentsResponseSchema,
   PublicLessonResponseSchema,
   PublicCurriculumResponseSchema,
   MeetingInstancesQuerySchema,
@@ -97,11 +102,13 @@ import {
   auditEvents,
   classNotes,
   classMeetings,
+  courseActivity,
   courses,
   courseCollaborators,
   courseShares,
   db,
   lessonSegments,
+  lessonComments,
   lessonShares,
   lessons,
   schoolCalendarEvents,
@@ -1060,6 +1067,254 @@ async function buildCourseCollaborators(courseId: string) {
       status: row.status as 'invited' | 'accepted',
       invitedByUserId: row.invitedByUserId ?? null,
       joinedAt: row.joinedAt?.toISOString() ?? null
+    }))
+  });
+}
+
+type CourseActivitySubjectType = 'course' | 'unit' | 'lesson';
+
+async function recordCourseActivity(
+  courseId: string,
+  actorUserId: string,
+  action: string,
+  subjectType: CourseActivitySubjectType,
+  subjectId: string | null,
+  summary: string,
+  options: { dedupe?: boolean; metadata?: Record<string, unknown> } = {}
+) {
+  // Rich-text autosave can issue several writes in a short burst. Preserve a
+  // useful feed by coalescing identical edit events, while never coalescing
+  // comments or membership changes.
+  if (options.dedupe !== false) {
+    const [recent] = await db
+      .select({ createdAt: courseActivity.createdAt })
+      .from(courseActivity)
+      .where(
+        and(
+          eq(courseActivity.courseId, courseId),
+          eq(courseActivity.actorUserId, actorUserId),
+          eq(courseActivity.action, action),
+          eq(courseActivity.subjectType, subjectType),
+          subjectId ? eq(courseActivity.subjectId, subjectId) : isNull(courseActivity.subjectId)
+        )
+      )
+      .orderBy(desc(courseActivity.createdAt))
+      .limit(1);
+    if (recent && Date.now() - recent.createdAt.getTime() < 5 * 60 * 1000) return;
+  }
+  await db.insert(courseActivity).values({
+    courseId,
+    actorUserId,
+    action,
+    subjectType,
+    subjectId,
+    summary,
+    metadata: options.metadata ?? {}
+  });
+}
+
+async function buildCourseActivity(courseId: string, limit: number) {
+  const rows = await db
+    .select({
+      id: courseActivity.id,
+      action: courseActivity.action,
+      summary: courseActivity.summary,
+      subjectType: courseActivity.subjectType,
+      subjectId: courseActivity.subjectId,
+      createdAt: courseActivity.createdAt,
+      actorUserId: users.id,
+      actorFullName: users.fullName,
+      actorEmail: users.email
+    })
+    .from(courseActivity)
+    .leftJoin(users, eq(courseActivity.actorUserId, users.id))
+    .where(eq(courseActivity.courseId, courseId))
+    .orderBy(desc(courseActivity.createdAt))
+    .limit(limit);
+  return CourseActivityResponseSchema.parse({
+    activity: rows.map((row) => ({
+      id: row.id,
+      action: row.action,
+      summary: row.summary,
+      subjectType: row.subjectType as CourseActivitySubjectType,
+      subjectId: row.subjectId ?? null,
+      actor:
+        row.actorUserId && row.actorEmail
+          ? { userId: row.actorUserId, fullName: row.actorFullName, email: row.actorEmail }
+          : null,
+      createdAt: row.createdAt.toISOString()
+    }))
+  });
+}
+
+async function buildLessonComments(courseId: string, lessonId: string) {
+  const rows = await db
+    .select({
+      id: lessonComments.id,
+      courseId: lessonComments.courseId,
+      lessonId: lessonComments.lessonId,
+      body: lessonComments.body,
+      createdAt: lessonComments.createdAt,
+      updatedAt: lessonComments.updatedAt,
+      authorUserId: users.id,
+      authorFullName: users.fullName,
+      authorEmail: users.email
+    })
+    .from(lessonComments)
+    .leftJoin(users, eq(lessonComments.authorUserId, users.id))
+    .where(and(eq(lessonComments.courseId, courseId), eq(lessonComments.lessonId, lessonId)))
+    .orderBy(asc(lessonComments.createdAt));
+  return LessonCommentsResponseSchema.parse({
+    comments: rows.map((row) => ({
+      id: row.id,
+      courseId: row.courseId,
+      lessonId: row.lessonId,
+      body: row.body,
+      author:
+        row.authorUserId && row.authorEmail
+          ? { userId: row.authorUserId, fullName: row.authorFullName, email: row.authorEmail }
+          : null,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString()
+    }))
+  });
+}
+
+async function buildCoursePacing(userId: string, courseId: string) {
+  const [membership] = await db
+    .select({ shareProgress: courseCollaborators.shareProgress })
+    .from(courseCollaborators)
+    .where(
+      and(
+        eq(courseCollaborators.courseId, courseId),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .limit(1);
+  if (!membership) return null;
+
+  const members = await db
+    .select({
+      userId: users.id,
+      fullName: users.fullName,
+      email: users.email
+    })
+    .from(courseCollaborators)
+    .innerJoin(users, eq(courseCollaborators.userId, users.id))
+    .where(
+      and(
+        eq(courseCollaborators.courseId, courseId),
+        eq(courseCollaborators.status, 'accepted'),
+        or(
+          eq(courseCollaborators.userId, userId),
+          and(eq(courseCollaborators.shareProgress, true), isNull(courseCollaborators.archivedAt))
+        )
+      )
+    )
+    .orderBy(asc(users.fullName), asc(users.email));
+
+  const lessonRows = await db
+    .select({
+      id: lessons.id,
+      title: lessons.title,
+      unitOrderIndex: units.orderIndex,
+      lessonOrderIndex: lessons.orderIndex
+    })
+    .from(lessons)
+    .innerJoin(units, eq(lessons.unitId, units.id))
+    .where(eq(units.courseId, courseId))
+    .orderBy(asc(units.orderIndex), asc(lessons.orderIndex), asc(lessons.createdAt));
+  const lessonById = new Map(lessonRows.map((lesson, index) => [lesson.id, { ...lesson, index }]));
+  const visibleUserIds = members.map((member) => member.userId);
+  const sectionRows = visibleUserIds.length
+    ? await db
+        .select({ id: sections.id, teacherId: sections.teacherId, name: sections.name })
+        .from(sections)
+        .where(and(eq(sections.courseId, courseId), inArray(sections.teacherId, visibleUserIds)))
+        .orderBy(asc(sections.name))
+    : [];
+  const sectionIds = sectionRows.map((section) => section.id);
+  const states =
+    sectionIds.length && lessonRows.length
+      ? await db
+          .select({
+            sectionId: sectionLessonState.sectionId,
+            lessonId: sectionLessonState.lessonId,
+            status: sectionLessonState.status,
+            lastTaughtDate: sectionLessonState.lastTaughtDate,
+            updatedAt: sectionLessonState.updatedAt
+          })
+          .from(sectionLessonState)
+          .where(
+            and(
+              inArray(sectionLessonState.sectionId, sectionIds),
+              inArray(
+                sectionLessonState.lessonId,
+                lessonRows.map((lesson) => lesson.id)
+              )
+            )
+          )
+      : [];
+  const statesBySection = new Map<string, typeof states>();
+  for (const state of states) {
+    const entries = statesBySection.get(state.sectionId) ?? [];
+    entries.push(state);
+    statesBySection.set(state.sectionId, entries);
+  }
+
+  const progressStates = new Set([
+    'in_progress',
+    'stopped_at_segment',
+    'carried_over',
+    'needs_reteach'
+  ]);
+  const classGroupsByUser = new Map<
+    string,
+    Array<{
+      sectionId: string;
+      sectionName: string;
+      lessonId: string | null;
+      lessonTitle: string | null;
+      lessonOrderIndex: number | null;
+      status: (typeof states)[number]['status'] | null;
+      lastTaughtDate: string | null;
+    }>
+  >();
+  for (const section of sectionRows) {
+    const sectionStates = statesBySection.get(section.id) ?? [];
+    const active = sectionStates
+      .filter((state) => progressStates.has(state.status))
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
+    const completedLessonIds = new Set(
+      sectionStates.filter((state) => state.status === 'completed').map((state) => state.lessonId)
+    );
+    const current =
+      active ??
+      lessonRows
+        .map((lesson) => ({ lessonId: lesson.id, status: null, lastTaughtDate: null }))
+        .find((state) => !completedLessonIds.has(state.lessonId)) ??
+      null;
+    const lesson = current ? lessonById.get(current.lessonId) : null;
+    const groups = classGroupsByUser.get(section.teacherId) ?? [];
+    groups.push({
+      sectionId: section.id,
+      sectionName: section.name,
+      lessonId: lesson?.id ?? null,
+      lessonTitle: lesson?.title ?? null,
+      lessonOrderIndex: lesson?.index ?? null,
+      status: current?.status ?? null,
+      lastTaughtDate: current?.lastTaughtDate ?? null
+    });
+    classGroupsByUser.set(section.teacherId, groups);
+  }
+
+  return CoursePacingResponseSchema.parse({
+    sharingEnabled: membership.shareProgress,
+    participants: members.map((member) => ({
+      ...member,
+      isCurrentUser: member.userId === userId,
+      classGroups: classGroupsByUser.get(member.userId) ?? []
     }))
   });
 }
@@ -2780,8 +3035,29 @@ export async function v1Routes(app: FastifyInstance) {
 
       if (!course) throw new Error('Failed to create course');
 
+      await recordCourseActivity(
+        course.id,
+        user.id,
+        'course_created',
+        'course',
+        course.id,
+        'created the course',
+        {
+          dedupe: false
+        }
+      );
+
       if (body.sourceCourseId) {
         await copyCourseCurriculum(user.id, body.sourceCourseId, course.id);
+        await recordCourseActivity(
+          course.id,
+          user.id,
+          'curriculum_imported',
+          'course',
+          course.id,
+          'imported curriculum from another course',
+          { dedupe: false }
+        );
       }
 
       const detail = await buildCourseDetail(user.id, course.id);
@@ -2830,6 +3106,15 @@ export async function v1Routes(app: FastifyInstance) {
         };
       }
       await copyCourseCurriculum(user.id, body.sourceCourseId, courseId);
+      await recordCourseActivity(
+        courseId,
+        user.id,
+        'curriculum_imported',
+        'course',
+        courseId,
+        'imported curriculum from another course',
+        { dedupe: false }
+      );
       const detail = await buildCourseDetail(user.id, courseId);
       if (!detail) throw new Error('Failed to load copied curriculum');
       return detail;
@@ -3020,6 +3305,14 @@ export async function v1Routes(app: FastifyInstance) {
       (reply as any).code(404);
       return { error: 'Course invitation not found', requestId: request.id };
     }
+    await recordCourseActivity(
+      courseId,
+      user.id,
+      'collaboration_joined',
+      'course',
+      courseId,
+      'joined the course'
+    );
     const detail = await buildCourseDetail(user.id, courseId);
     if (!detail) throw new Error('Could not load accepted course');
     return detail;
@@ -3120,6 +3413,15 @@ export async function v1Routes(app: FastifyInstance) {
             updatedAt: new Date()
           }
         });
+      await recordCourseActivity(
+        courseId,
+        user.id,
+        'collaborator_invited',
+        'course',
+        courseId,
+        `invited ${body.email} to collaborate`,
+        { dedupe: false }
+      );
       return buildCourseCollaborators(courseId);
     }
   );
@@ -3160,6 +3462,15 @@ export async function v1Routes(app: FastifyInstance) {
       (reply as any).code(404);
       return { error: 'Collaborator not found', requestId: request.id };
     }
+    await recordCourseActivity(
+      courseId,
+      user.id,
+      'collaborator_removed',
+      'course',
+      courseId,
+      'removed a collaborator',
+      { dedupe: false }
+    );
     return { deleted: true };
   });
 
@@ -3189,6 +3500,17 @@ export async function v1Routes(app: FastifyInstance) {
         requestId: request.id
       };
     }
+    await recordCourseActivity(
+      courseId,
+      user.id,
+      'collaboration_left',
+      'course',
+      courseId,
+      'left the course',
+      {
+        dedupe: false
+      }
+    );
     await db
       .delete(courseCollaborators)
       .where(
@@ -3256,7 +3578,171 @@ export async function v1Routes(app: FastifyInstance) {
             )
           );
       });
+      await recordCourseActivity(
+        courseId,
+        user.id,
+        'ownership_transferred',
+        'course',
+        courseId,
+        `transferred ownership to ${body.email}`,
+        { dedupe: false }
+      );
       return buildCourseCollaborators(courseId);
+    }
+  );
+
+  app.get(
+    '/v1/courses/:courseId/activity',
+    {
+      schema: {
+        params: CourseParamsSchema,
+        querystring: z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) }),
+        response: { 200: CourseActivityResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { courseId } = CourseParamsSchema.parse(request.params);
+      const { limit } = z
+        .object({ limit: z.coerce.number().int().min(1).max(100).default(20) })
+        .parse(request.query);
+      if (!(await findOwnedCourse(user.id, courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+      return buildCourseActivity(courseId, limit);
+    }
+  );
+
+  app.get(
+    '/v1/courses/:courseId/pacing',
+    {
+      schema: { params: CourseParamsSchema, response: { 200: CoursePacingResponseSchema } }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { courseId } = CourseParamsSchema.parse(request.params);
+      const pacing = await buildCoursePacing(user.id, courseId);
+      if (!pacing) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+      return pacing;
+    }
+  );
+
+  app.patch(
+    '/v1/courses/:courseId/pacing-sharing',
+    {
+      schema: {
+        params: CourseParamsSchema,
+        body: CoursePacingSharingUpdateRequestSchema,
+        response: { 200: CoursePacingResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { courseId } = CourseParamsSchema.parse(request.params);
+      const body = CoursePacingSharingUpdateRequestSchema.parse(request.body);
+      const [membership] = await db
+        .update(courseCollaborators)
+        .set({ shareProgress: body.enabled, updatedAt: new Date() })
+        .where(
+          and(
+            eq(courseCollaborators.courseId, courseId),
+            eq(courseCollaborators.userId, user.id),
+            eq(courseCollaborators.status, 'accepted')
+          )
+        )
+        .returning({ courseId: courseCollaborators.courseId });
+      if (!membership) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+      await recordCourseActivity(
+        courseId,
+        user.id,
+        body.enabled ? 'pacing_sharing_enabled' : 'pacing_sharing_disabled',
+        'course',
+        courseId,
+        body.enabled
+          ? 'started sharing their class-group progress'
+          : 'stopped sharing their class-group progress',
+        { dedupe: false }
+      );
+      const pacing = await buildCoursePacing(user.id, courseId);
+      if (!pacing) throw new Error('Failed to load course pacing');
+      return pacing;
+    }
+  );
+
+  app.get(
+    '/v1/lessons/:lessonId/comments',
+    {
+      schema: { params: LessonParamsSchema, response: { 200: LessonCommentsResponseSchema } }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { lessonId } = LessonParamsSchema.parse(request.params);
+      const courseId = await findOwnedCourseIdForLesson(user.id, lessonId);
+      if (!courseId) {
+        (reply as any).code(404);
+        return { error: 'Lesson not found', requestId: request.id };
+      }
+      return buildLessonComments(courseId, lessonId);
+    }
+  );
+
+  app.post(
+    '/v1/lessons/:lessonId/comments',
+    {
+      schema: {
+        params: LessonParamsSchema,
+        body: LessonCommentCreateRequestSchema,
+        response: { 200: LessonCommentsResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { lessonId } = LessonParamsSchema.parse(request.params);
+      const body = LessonCommentCreateRequestSchema.parse(request.body);
+      const courseId = await findOwnedCourseIdForLesson(user.id, lessonId);
+      if (!courseId) {
+        (reply as any).code(404);
+        return { error: 'Lesson not found', requestId: request.id };
+      }
+      const [lesson] = await db
+        .select({ title: lessons.title })
+        .from(lessons)
+        .where(eq(lessons.id, lessonId))
+        .limit(1);
+      if (!lesson) {
+        (reply as any).code(404);
+        return { error: 'Lesson not found', requestId: request.id };
+      }
+      await db
+        .insert(lessonComments)
+        .values({ courseId, lessonId, authorUserId: user.id, body: body.body });
+      await recordCourseActivity(
+        courseId,
+        user.id,
+        'lesson_comment_added',
+        'lesson',
+        lessonId,
+        `commented on ${lesson.title}`,
+        { dedupe: false }
+      );
+      return buildLessonComments(courseId, lessonId);
     }
   );
 
@@ -3326,6 +3812,17 @@ export async function v1Routes(app: FastifyInstance) {
         (reply as any).code(404);
         return { error: 'Course not found', requestId: request.id };
       }
+
+      await recordCourseActivity(
+        params.courseId,
+        user.id,
+        'course_updated',
+        'course',
+        params.courseId,
+        body.sortIndex !== undefined && Object.keys(body).length === 1
+          ? 'reordered the course'
+          : 'edited course details'
+      );
 
       const detail = await buildCourseDetail(user.id, params.courseId);
       if (!detail) throw new Error('Failed to load course detail');
@@ -3412,6 +3909,16 @@ export async function v1Routes(app: FastifyInstance) {
         plannedMeetingCount: body.plannedMeetingCount ?? null
       });
 
+      await recordCourseActivity(
+        params.courseId,
+        user.id,
+        'unit_created',
+        'unit',
+        null,
+        `added Unit: ${body.title}`,
+        { dedupe: false }
+      );
+
       const detail = await buildCourseDetail(user.id, params.courseId);
       if (!detail) throw new Error('Failed to load course detail');
       return detail;
@@ -3455,6 +3962,19 @@ export async function v1Routes(app: FastifyInstance) {
 
       await db.update(units).set(updates).where(eq(units.id, params.unitId));
 
+      await recordCourseActivity(
+        ownedCourseId,
+        user.id,
+        body.orderIndex !== undefined && Object.keys(body).length === 1
+          ? 'unit_reordered'
+          : 'unit_updated',
+        'unit',
+        params.unitId,
+        body.orderIndex !== undefined && Object.keys(body).length === 1
+          ? 'reordered a unit'
+          : `edited Unit${body.title ? `: ${body.title}` : ''}`
+      );
+
       const detail = await buildCourseDetail(user.id, ownedCourseId);
       if (!detail) throw new Error('Failed to load course detail');
       return detail;
@@ -3484,6 +4004,17 @@ export async function v1Routes(app: FastifyInstance) {
       }
 
       await db.delete(units).where(eq(units.id, params.unitId));
+      await recordCourseActivity(
+        courseId,
+        user.id,
+        'unit_deleted',
+        'unit',
+        params.unitId,
+        'deleted a unit',
+        {
+          dedupe: false
+        }
+      );
       return { deleted: true };
     }
   );
@@ -3615,6 +4146,16 @@ export async function v1Routes(app: FastifyInstance) {
         plannedMeetingCount: body.plannedMeetingCount ?? null
       });
 
+      await recordCourseActivity(
+        courseId,
+        user.id,
+        'lesson_created',
+        'lesson',
+        null,
+        `added Lesson: ${body.title}`,
+        { dedupe: false }
+      );
+
       const detail = await buildCourseDetail(user.id, courseId);
       if (!detail) throw new Error('Failed to load course detail');
       return detail;
@@ -3669,6 +4210,19 @@ export async function v1Routes(app: FastifyInstance) {
       }
 
       await db.update(lessons).set(updates).where(eq(lessons.id, params.lessonId));
+
+      await recordCourseActivity(
+        ownedCourseId,
+        user.id,
+        body.orderIndex !== undefined && Object.keys(body).length === 1
+          ? 'lesson_reordered'
+          : 'lesson_updated',
+        'lesson',
+        params.lessonId,
+        body.orderIndex !== undefined && Object.keys(body).length === 1
+          ? 'reordered a lesson'
+          : `edited Lesson${body.title ? `: ${body.title}` : ''}`
+      );
 
       const detail = await buildCourseDetail(user.id, ownedCourseId);
       if (!detail) throw new Error('Failed to load course detail');
@@ -3985,6 +4539,17 @@ export async function v1Routes(app: FastifyInstance) {
       }
 
       await db.delete(lessons).where(eq(lessons.id, params.lessonId));
+      await recordCourseActivity(
+        courseId,
+        user.id,
+        'lesson_deleted',
+        'lesson',
+        params.lessonId,
+        'deleted a lesson',
+        {
+          dedupe: false
+        }
+      );
       return { deleted: true };
     }
   );

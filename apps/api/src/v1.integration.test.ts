@@ -55,7 +55,8 @@ async function runMigrations() {
     '0010_school_timezone.sql',
     '0011_planning_and_meeting_history.sql',
     '0012_course_lifecycle_and_sharing.sql',
-    '0013_collaborative_courses.sql'
+    '0013_collaborative_courses.sql',
+    '0014_collaboration_activity_comments_pacing.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -179,7 +180,9 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         url: '/v1/course-invitations',
         headers: otherTeacherHeaders
       });
-      expect(pending.json<{ invitations: Array<{ course: { id: string } }> }>().invitations).toEqual(
+      expect(
+        pending.json<{ invitations: Array<{ course: { id: string } }> }>().invitations
+      ).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ course: expect.objectContaining({ id: course.id }) })
         ])
@@ -190,7 +193,9 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         headers: otherTeacherHeaders
       });
       expect(accepted.statusCode).toBe(200);
-      expect(accepted.json<{ course: { accessRole: string; lifecycle: string } }>().course).toMatchObject({
+      expect(
+        accepted.json<{ course: { accessRole: string; lifecycle: string } }>().course
+      ).toMatchObject({
         accessRole: 'editor',
         lifecycle: 'unlinked'
       });
@@ -206,7 +211,9 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         }
       });
       expect(linked.statusCode).toBe(200);
-      expect(linked.json<{ sections: Array<{ sectionName: string; courseId: string }> }>().sections).toEqual(
+      expect(
+        linked.json<{ sections: Array<{ sectionName: string; courseId: string }> }>().sections
+      ).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             sectionName: 'Spanish V Honors · Period 4',
@@ -230,6 +237,96 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       expect(
         sourceView.json<{ course: { units: Array<{ title: string }> } }>().course.units[0]!.title
       ).toBe('Shared introductions');
+
+      const lessonResponse = await app.inject({
+        method: 'POST',
+        url: `/v1/units/${unitId}/lessons`,
+        headers: teacherHeaders,
+        payload: { title: 'Greetings', description: 'First shared lesson' }
+      });
+      const lessonId = lessonResponse.json<{
+        course: { units: Array<{ lessons: Array<{ id: string }> }> };
+      }>().course.units[0]!.lessons[0]!.id;
+
+      const comment = await app.inject({
+        method: 'POST',
+        url: `/v1/lessons/${lessonId}/comments`,
+        headers: otherTeacherHeaders,
+        payload: { body: 'I will add a conversation warm-up for Period 4.' }
+      });
+      expect(comment.statusCode).toBe(200);
+      const comments = await app.inject({
+        method: 'GET',
+        url: `/v1/lessons/${lessonId}/comments`,
+        headers: teacherHeaders
+      });
+      expect(
+        comments.json<{ comments: Array<{ body: string; author: { fullName: string } | null }> }>()
+          .comments
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            body: 'I will add a conversation warm-up for Period 4.',
+            author: expect.objectContaining({ fullName: 'Teacher Two' })
+          })
+        ])
+      );
+
+      const activity = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${course.id}/activity`,
+        headers: teacherHeaders
+      });
+      expect(
+        activity.json<{ activity: Array<{ action: string; summary: string }> }>().activity
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ action: 'unit_updated' }),
+          expect.objectContaining({ action: 'lesson_comment_added' })
+        ])
+      );
+
+      const privatePacing = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${course.id}/pacing`,
+        headers: teacherHeaders
+      });
+      expect(
+        privatePacing.json<{ participants: Array<{ fullName: string }> }>().participants
+      ).toHaveLength(1);
+
+      const sharedPacing = await app.inject({
+        method: 'PATCH',
+        url: `/v1/courses/${course.id}/pacing-sharing`,
+        headers: otherTeacherHeaders,
+        payload: { enabled: true }
+      });
+      expect(sharedPacing.statusCode).toBe(200);
+      const comparedPacing = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${course.id}/pacing`,
+        headers: teacherHeaders
+      });
+      expect(
+        comparedPacing.json<{
+          participants: Array<{
+            fullName: string;
+            classGroups: Array<{ sectionName: string; lessonTitle: string | null }>;
+          }>;
+        }>().participants
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            fullName: 'Teacher Two',
+            classGroups: expect.arrayContaining([
+              expect.objectContaining({
+                sectionName: 'Spanish V Honors · Period 4',
+                lessonTitle: 'Greetings'
+              })
+            ])
+          })
+        ])
+      );
     });
 
     it('updates reviewed imports in place without duplicating a class group or its history identity', async () => {

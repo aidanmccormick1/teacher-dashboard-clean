@@ -151,6 +151,9 @@ export const courseCollaborators = pgTable(
     // Ending a course is a personal workspace decision. It must not hide the
     // same shared curriculum from another teacher's active schedule.
     archivedAt: timestamp('archived_at', { withTimezone: true }),
+    // Progress is private by default. A collaborator explicitly enables this
+    // before their class-group markers appear in shared pacing comparison.
+    shareProgress: boolean('share_progress').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
@@ -406,6 +409,55 @@ export const courseShares = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => [unique('uniq_course_share_course').on(table.courseId)]
+);
+
+// A compact, human-readable feed for shared-curriculum activity. This is
+// intentionally distinct from auditEvents: audit events include operational
+// and private actions, while this table only records collaboration-relevant
+// curriculum changes and comments.
+export const courseActivity = pgTable(
+  'course_activity',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'cascade' }),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    subjectType: text('subject_type').notNull(),
+    subjectId: uuid('subject_id'),
+    summary: text('summary').notNull(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index('idx_course_activity_course_created').on(table.courseId, table.createdAt),
+    index('idx_course_activity_subject').on(table.subjectType, table.subjectId)
+  ]
+);
+
+// Lesson comments are shared planning discussion, never classroom notes.
+// They live beside the curriculum and do not touch any section's progress or
+// meeting history.
+export const lessonComments = pgTable(
+  'lesson_comments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'cascade' }),
+    lessonId: uuid('lesson_id')
+      .notNull()
+      .references(() => lessons.id, { onDelete: 'cascade' }),
+    authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index('idx_lesson_comments_lesson_created').on(table.lessonId, table.createdAt),
+    index('idx_lesson_comments_course_created').on(table.courseId, table.createdAt)
+  ]
 );
 
 export const sectionLessonState = pgTable(

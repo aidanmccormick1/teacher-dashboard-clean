@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import type { LessonWorkspaceResponse } from '@teacheros/contracts';
+import type { LessonCommentsResponse, LessonWorkspaceResponse } from '@teacheros/contracts';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 type Workspace = LessonWorkspaceResponse;
@@ -205,6 +205,10 @@ export function LessonWorkspacePage() {
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [activeRichFieldId, setActiveRichFieldId] = useState<string | null>(null);
+  const [comments, setComments] = useState<LessonCommentsResponse['comments']>([]);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [commentSaving, setCommentSaving] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
   const draftVersion = useRef(0);
   const retryTimer = useRef<number | null>(null);
   useEffect(() => {
@@ -222,6 +226,13 @@ export function LessonWorkspacePage() {
         setData(restored);
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load this lesson.'));
+  }, [api, lessonId]);
+  useEffect(() => {
+    if (!lessonId) return;
+    void api
+      .getLessonComments(lessonId)
+      .then((response) => setComments(response.comments))
+      .catch(() => undefined);
   }, [api, lessonId]);
   const queue = (next: Workspace, delay = 650) => {
     const version = ++draftVersion.current;
@@ -288,6 +299,21 @@ export function LessonWorkspacePage() {
     },
     []
   );
+  const addComment = async () => {
+    const body = commentDraft.trim();
+    if (!body) return;
+    try {
+      setCommentSaving(true);
+      const response = await api.createLessonComment(lessonId, { body });
+      setComments(response.comments);
+      setCommentDraft('');
+      setCommentError(null);
+    } catch (err) {
+      setCommentError(err instanceof ApiError ? err.message : 'Could not add comment.');
+    } finally {
+      setCommentSaving(false);
+    }
+  };
   if (error) return <p className="notice warning">{error}</p>;
   if (!data) return <p className="muted">Loading lesson…</p>;
   const returnTo = params.get('returnTo');
@@ -922,6 +948,56 @@ export function LessonWorkspacePage() {
             activeFieldId={activeRichFieldId}
             setActiveFieldId={setActiveRichFieldId}
           />
+        </section>
+        <section className="lesson-field-card lesson-field-card-wide">
+          <div className="lesson-field-card-heading">
+            <p className="eyebrow">Collaborator comments</p>
+            <span>Discuss this shared lesson without changing classroom notes.</span>
+          </div>
+          {comments.length ? (
+            <div className="stack">
+              {comments.map((comment) => (
+                <div className="course-edit-meeting-row" key={comment.id}>
+                  <div>
+                    <strong>
+                      {comment.author?.fullName ?? comment.author?.email ?? 'Collaborator'}
+                    </strong>
+                    <span>{comment.body}</span>
+                  </div>
+                  <time className="muted" dateTime={comment.createdAt}>
+                    {new Intl.DateTimeFormat(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit'
+                    }).format(new Date(comment.createdAt))}
+                  </time>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="lesson-empty-state">No collaborator comments yet.</p>
+          )}
+          <label className="stack">
+            <span className="visually-hidden">Add a collaborator comment</span>
+            <textarea
+              className="input"
+              rows={3}
+              value={commentDraft}
+              onChange={(event) => setCommentDraft(event.target.value)}
+              placeholder="Ask a question or leave planning context for collaborators…"
+            />
+          </label>
+          {commentError ? <p className="notice warning">{commentError}</p> : null}
+          <div className="profile-actions">
+            <button
+              type="button"
+              disabled={commentSaving || !commentDraft.trim()}
+              onClick={() => void addComment()}
+            >
+              {commentSaving ? 'Adding…' : 'Add comment'}
+            </button>
+          </div>
         </section>
         <aside className="section-context">
           <strong>Sections using this lesson</strong>

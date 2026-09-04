@@ -19,10 +19,13 @@ import type {
   CourseCurriculumCopyRequest,
   CourseCollaboratorInviteRequest,
   CourseCollaboratorsResponse,
+  CourseActivityResponse,
   CourseDetailResponse,
   CourseInvitationsResponse,
   CourseListResponse,
   CourseShareResponse,
+  CoursePacingResponse,
+  CoursePacingSharingUpdateRequest,
   CourseOrderUpdateRequest,
   CourseUpdateRequest,
   CurriculumRangeCreateRequest,
@@ -44,6 +47,8 @@ import type {
   LessonCreateRequest,
   LessonUpdateRequest,
   LessonShareResponse,
+  LessonCommentsResponse,
+  LessonCommentCreateRequest,
   LessonWorkspaceResponse,
   PublicLessonResponse,
   PublicCurriculumResponse,
@@ -334,6 +339,20 @@ export function useApiClient() {
           { method: 'GET' },
           auth
         ),
+      getCourseActivity: (courseId: string) =>
+        request<CourseActivityResponse>(
+          `/v1/courses/${courseId}/activity`,
+          { method: 'GET' },
+          auth
+        ),
+      getCoursePacing: (courseId: string) =>
+        request<CoursePacingResponse>(`/v1/courses/${courseId}/pacing`, { method: 'GET' }, auth),
+      updateCoursePacingSharing: (courseId: string, body: CoursePacingSharingUpdateRequest) =>
+        request<CoursePacingResponse>(
+          `/v1/courses/${courseId}/pacing-sharing`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
       inviteCourseCollaborator: (courseId: string, body: CourseCollaboratorInviteRequest) =>
         request<CourseCollaboratorsResponse>(
           `/v1/courses/${courseId}/collaborators`,
@@ -450,6 +469,18 @@ export function useApiClient() {
         request<LessonWorkspaceResponse>(
           `/v1/lessons/${lessonId}/workspace`,
           { method: 'GET' },
+          auth
+        ),
+      getLessonComments: (lessonId: string) =>
+        request<LessonCommentsResponse>(
+          `/v1/lessons/${lessonId}/comments`,
+          { method: 'GET' },
+          auth
+        ),
+      createLessonComment: (lessonId: string, body: LessonCommentCreateRequest) =>
+        request<LessonCommentsResponse>(
+          `/v1/lessons/${lessonId}/comments`,
+          { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
       updateLessonShare: (lessonId: string, enabled: boolean) =>
