@@ -823,7 +823,6 @@ export function SharingPage() {
         <div>
           <p className="eyebrow">Sharing</p>
           <h1>Share {selectedCourse.name}</h1>
-          <p>Collaborate on the curriculum or share individual lessons.</p>
         </div>
         <div className="sharing-boundary" aria-label="What stays private">
           {isDesignPreview ? (

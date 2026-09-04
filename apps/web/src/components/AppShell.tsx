@@ -182,11 +182,6 @@ export function AppShell() {
       return currentWidth;
     });
   };
-  const openFeedback = () => {
-    feedbackReturnFocusRef.current = document.activeElement as HTMLElement | null;
-    setFeedbackEntries(readFeedbackEntries());
-    setIsFeedbackOpen(true);
-  };
   const closeFeedback = () => {
     setIsFeedbackOpen(false);
     window.setTimeout(() => feedbackReturnFocusRef.current?.focus(), 0);
@@ -412,16 +407,6 @@ export function AppShell() {
             >
               <span className="sidebar-nav-label">Profile</span>
             </NavLink>
-            <button
-              className="sidebar-secondary-action feedback-button"
-              type="button"
-              onClick={() => {
-                openFeedback();
-                closeMobileNavigation();
-              }}
-            >
-              <span className="sidebar-nav-label">Feedback</span>
-            </button>
             <button
               className="sidebar-secondary-action secondary"
               type="button"
