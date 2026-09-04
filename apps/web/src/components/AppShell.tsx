@@ -75,6 +75,7 @@ export function AppShell() {
   const [feedbackApiStatus, setFeedbackApiStatus] = useState<string | null>(null);
   const [feedbackEntries, setFeedbackEntries] = useState<FeedbackEntry[]>([]);
   const [isSyncingFeedback, setIsSyncingFeedback] = useState(false);
+  const [showAppIntro, setShowAppIntro] = useState(true);
   const mobileNavigationRef = useRef<HTMLDivElement>(null);
   const mobileToggleRef = useRef<HTMLButtonElement>(null);
   const feedbackPanelRef = useRef<HTMLDivElement>(null);
@@ -295,8 +296,22 @@ export function AppShell() {
     (entry) => entry.syncStatus !== 'synced'
   ).length;
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowAppIntro(false), 2_000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <div className={`app-shell${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
+      {showAppIntro ? (
+        <div className="app-intro" aria-hidden="true">
+          <div className="app-intro-lockup">
+            <span className="app-intro-slash" />
+            <span className="app-intro-word">TeacherDesk</span>
+            <span className="app-intro-underline" />
+          </div>
+        </div>
+      ) : null}
       <aside
         className={`sidebar${isSidebarCollapsed ? ' sidebar-collapsed' : ''}${
           isSidebarHoverExpanded ? ' sidebar-hover-expanded' : ''

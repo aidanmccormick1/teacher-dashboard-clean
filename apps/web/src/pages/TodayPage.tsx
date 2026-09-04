@@ -32,7 +32,11 @@ function occurrenceKey(sectionId: string, meetingTime: string | null) {
 
 function TodayLoading() {
   return (
-    <main className="today-workspace today-loading" aria-busy="true" aria-label="Loading Today">
+    <main
+      className="today-workspace today-loading today-page-enter"
+      aria-busy="true"
+      aria-label="Loading Today"
+    >
       <header className="today-header">
         <div className="workspace-skeleton workspace-skeleton-title" />
         <div className="workspace-skeleton workspace-skeleton-action" />
@@ -189,7 +193,7 @@ export function TodayPage() {
   if (loading) return <TodayLoading />;
   if (error)
     return (
-      <main className="today-workspace">
+      <main className="today-workspace today-page-enter">
         <section className="today-empty" role="alert">
           <p className="eyebrow">Today is unavailable</p>
           <h2>We could not load your teaching day.</h2>
@@ -199,7 +203,7 @@ export function TodayPage() {
     );
 
   return (
-    <main className="today-workspace">
+    <main className="today-workspace today-page-enter">
       <header className="today-header">
         <div>
           <p className="eyebrow">{dateLabel}</p>
