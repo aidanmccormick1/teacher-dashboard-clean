@@ -165,13 +165,13 @@ export function YearPlanPage() {
           </label>
           {courseSections.length > 1 ? (
             <label>
-              <span className="visually-hidden">Class Group date projection</span>
+              <span className="visually-hidden">View a specific class group</span>
               <select
                 className="input"
                 value={selectedSection?.sectionId ?? ''}
                 onChange={(event) => updateContext({ sectionId: event.target.value || null })}
               >
-                <option value="">Choose Class Group…</option>
+                <option value="">View a specific class group…</option>
                 {courseSections.map((section) => (
                   <option key={section.sectionId} value={section.sectionId}>
                     {section.sectionName}
