@@ -808,17 +808,17 @@ export function SharingPage() {
     <main className="sharing-page page-entry">
       <header className="sharing-page-header">
         <div>
-          <p className="eyebrow">Curriculum collaboration</p>
-          <h1>Sharing</h1>
-          <p>Share the curriculum. Keep every teacher’s classes, pace, and history their own.</p>
+          <p className="eyebrow">Sharing</p>
+          <h1>Share {selectedCourse.name}</h1>
+          <p>Collaborate on the curriculum or share individual lessons.</p>
         </div>
         <div className="sharing-boundary" aria-label="What stays private">
           {isDesignPreview ? (
             <span className="sharing-preview-label">Design preview data</span>
           ) : null}
-          <span>✓ Shared curriculum</span>
-          <span>• Private schedules</span>
-          <span>• Private class notes</span>
+            <span>Shared curriculum</span>
+            <span>Private schedules</span>
+            <span>Private notes</span>
         </div>
       </header>
 
@@ -903,8 +903,7 @@ export function SharingPage() {
                   aria-pressed={isSelected}
                   onClick={() => updateLocation(course.id)}
                 >
-                  <span className="sharing-course-spine" aria-hidden="true" />
-                  <span className="sharing-course-copy">
+                <span className="sharing-course-copy">
                     <strong>{course.name}</strong>
                     <small>
                       {course.units.length} unit{course.units.length === 1 ? '' : 's'} · {count}{' '}
@@ -927,16 +926,10 @@ export function SharingPage() {
           <div className="sharing-course-header">
             <div>
               <div className="sharing-course-kicker">
-                <span>
-                  {selectedCourse.accessRole === 'owner' ? 'Course owner' : 'Course collaborator'}
-                </span>
+                <span>{selectedCourse.relationshipType === 'shared' ? `Using curriculum: ${selectedCourse.curriculumName}` : 'My curriculum'}</span>
                 {courseLoading ? <span>Refreshing…</span> : null}
               </div>
               <h2>{selectedCourse.name}</h2>
-              <p>
-                {[selectedCourse.subject, selectedCourse.gradeLevel].filter(Boolean).join(' · ') ||
-                  'Shared curriculum'}
-              </p>
             </div>
             <Link className="button-link secondary" to={`/courses/${selectedCourse.id}`}>
               Edit curriculum ↗
@@ -949,17 +942,15 @@ export function SharingPage() {
               type="button"
               onClick={() => updateLocation(selectedCourse.id, 'course')}
             >
-              <span>01</span>
-              <strong>Course collaboration</strong>
-              <small>Teachers, classes &amp; pacing</small>
+              <strong>Share course</strong>
+              <small>Collaborators, classes, and optional progress</small>
             </button>
             <button
               className={view === 'lessons' ? 'active' : ''}
               type="button"
               onClick={() => updateLocation(selectedCourse.id, 'lessons')}
             >
-              <span>02</span>
-              <strong>Individual lessons</strong>
+              <strong>Share lessons</strong>
               <small>
                 {view === 'lessons' && !lessonSharesLoading
                   ? `${sharedLessonCount} view-only links active`
@@ -974,19 +965,11 @@ export function SharingPage() {
                 <section className="sharing-panel sharing-collaborator-panel">
                   <div className="sharing-panel-heading">
                     <div>
-                      <p className="eyebrow">People</p>
-                      <h3>Collaborate on this course</h3>
-                      <p>Everyone here edits the same units and lessons.</p>
+                      <p className="eyebrow">Collaborators</p>
+                      <h3>Everyone here can edit this curriculum.</h3>
+                      <p>Classes, schedules, progress, and notes stay private.</p>
                     </div>
                     <span className="sharing-count-badge">{collaborators.length}</span>
-                  </div>
-
-                  <div className="sharing-privacy-rule">
-                    <span aria-hidden="true">◇</span>
-                    <p>
-                      <strong>The boundary is simple:</strong> curriculum edits are shared; class
-                      groups, schedules, progress, and classroom notes are not.
-                    </p>
                   </div>
 
                   <div className="sharing-people-list">
@@ -1064,7 +1047,7 @@ export function SharingPage() {
                       }}
                     >
                       <label>
-                        <span>Invite a teacher by email</span>
+                        <span>Invite collaborator</span>
                         <input
                           className="input"
                           type="email"
@@ -1087,20 +1070,14 @@ export function SharingPage() {
                 <section className="sharing-panel sharing-class-panel">
                   <div className="sharing-panel-heading">
                     <div>
-                      <p className="eyebrow">Your classroom</p>
-                      <h3>Use this curriculum with my classes</h3>
-                      <p>
-                        A class connects to the shared course but keeps its own teaching record.
-                      </p>
+                      <p className="eyebrow">My classes</p>
+                      <h3>Classes using this curriculum</h3>
                     </div>
                   </div>
                   <div className="sharing-linked-classes">
                     {linkedClasses.length ? (
                       linkedClasses.map((classGroup) => (
                         <article key={classGroup.sectionId}>
-                          <span className="sharing-class-icon" aria-hidden="true">
-                            ⌂
-                          </span>
                           <div>
                             <strong>{classGroup.sectionName}</strong>
                             <span>
@@ -1109,20 +1086,20 @@ export function SharingPage() {
                                 : 'Schedule not added yet'}
                             </span>
                           </div>
-                          <span className="sharing-connected-status">✓ Connected</span>
+                          <span className="sharing-connected-status">Connected</span>
                         </article>
                       ))
                     ) : (
                       <div className="sharing-inline-empty">
-                        <strong>No class is using this curriculum yet</strong>
-                        <span>Connect one below when you are ready to teach it.</span>
+                        <strong>No class is connected yet</strong>
+                        <span>Connect a scheduled class when you are ready.</span>
                       </div>
                     )}
                   </div>
                   {availableClasses.length ? (
                     <div className="sharing-class-linker">
                       <label>
-                        <span>Add this curriculum to another class</span>
+                        <span>Connect another class</span>
                         <select
                           className="input"
                           value={classToLink}
@@ -1141,7 +1118,7 @@ export function SharingPage() {
                         disabled={!classToLink || savingKey === 'class'}
                         onClick={() => void linkClass()}
                       >
-                        {savingKey === 'class' ? 'Connecting…' : 'Connect class'}
+                        {savingKey === 'class' ? 'Connecting…' : 'Connect'}
                       </button>
                     </div>
                   ) : (
@@ -1156,8 +1133,8 @@ export function SharingPage() {
                 <section className="sharing-panel sharing-public-panel">
                   <div className="sharing-panel-heading compact">
                     <div>
-                      <p className="eyebrow">Outside TeacherDesk</p>
-                      <h3>View-only course link</h3>
+                      <p className="eyebrow">Course link</p>
+                      <h3>Share a view-only copy</h3>
                     </div>
                   </div>
                   <p>For a substitute, department lead, or anyone who should not edit.</p>
@@ -1208,15 +1185,15 @@ export function SharingPage() {
                 <section className="sharing-panel sharing-pacing-panel">
                   <div className="sharing-panel-heading compact">
                     <div>
-                      <p className="eyebrow">Optional</p>
-                      <h3>Compare pacing</h3>
+                      <p className="eyebrow">Pace sharing</p>
+                      <h3>Share my class progress</h3>
                     </div>
                   </div>
-                  <p>Let collaborators see which lesson each of your connected classes is on.</p>
+                  <p>Let collaborators see where my classes are in the curriculum.</p>
                   <label className="sharing-toggle-row">
                     <span>
-                      <strong>Share my class positions</strong>
-                      <small>Never changes anyone’s plan</small>
+                      <strong>{pacing?.sharingEnabled ? 'Share progress' : 'Share progress'}</strong>
+                      <small>Progress stays private unless you turn this on.</small>
                     </span>
                     <input
                       type="checkbox"
@@ -1281,8 +1258,8 @@ export function SharingPage() {
                 <section className="sharing-panel sharing-activity-panel">
                   <div className="sharing-panel-heading compact">
                     <div>
-                      <p className="eyebrow">Live history</p>
-                      <h3>Recent changes</h3>
+                      <p className="eyebrow">Activity</p>
+                      <h3>Recent curriculum changes</h3>
                     </div>
                   </div>
                   {activity.length ? (

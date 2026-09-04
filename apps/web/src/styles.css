@@ -7613,12 +7613,12 @@ button,
 .sharing-course-list button {
   position: relative;
   display: grid;
-  grid-template-columns: 5px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 11px;
   align-items: center;
   width: 100%;
   min-height: 68px;
-  padding: 11px 10px 11px 5px;
+  padding: 11px 10px;
   overflow: hidden;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -7862,6 +7862,13 @@ button,
   color: #6f7b81;
   font-size: 0.82rem;
   line-height: 1.45;
+}
+
+/* Course collaboration and lesson links are the two sharing actions. The old
+   public-course link stays supported by the API but is deliberately kept out
+   of this teacher workflow so it does not compete with collaboration. */
+.sharing-public-panel {
+  display: none;
 }
 
 .sharing-count-badge {
