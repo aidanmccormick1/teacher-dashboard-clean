@@ -302,7 +302,11 @@ export function AppShell() {
   }, []);
 
   return (
-    <div className={`app-shell${isSidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
+    <div
+      className={`app-shell${isSidebarCollapsed ? ' sidebar-collapsed' : ''}${
+        showAppIntro ? ' app-shell-intro' : ''
+      }`}
+    >
       {showAppIntro ? (
         <div className="app-intro" aria-hidden="true">
           <div className="app-intro-lockup">
