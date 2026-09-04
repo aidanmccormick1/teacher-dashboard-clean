@@ -338,10 +338,8 @@ export function AppShell() {
               TD
             </span>
             <div className="brand-copy">
-              <span className="brand-slash" aria-hidden="true" />
               <h2>TeacherDesk</h2>
               <span>Calico EDU</span>
-              <span className="brand-underline" aria-hidden="true" />
             </div>
           </div>
           <button
