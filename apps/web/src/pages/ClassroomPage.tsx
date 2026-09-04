@@ -9,6 +9,25 @@ import type {
 import { ApiError, useApiClient } from '../lib/api.js';
 import { timeRange } from '../lib/today.js';
 
+function safeHtml(value: string | null) {
+  const doc = new DOMParser().parseFromString(value ?? '', 'text/html');
+  for (const node of Array.from(doc.body.querySelectorAll('*'))) {
+    if (
+      !['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'A'].includes(
+        node.tagName
+      )
+    ) {
+      node.replaceWith(...Array.from(node.childNodes));
+    } else {
+      for (const attribute of Array.from(node.attributes)) {
+        if (node.tagName !== 'A' || attribute.name !== 'href' || !/^https?:/i.test(attribute.value))
+          node.removeAttribute(attribute.name);
+      }
+    }
+  }
+  return doc.body.innerHTML;
+}
+
 export function ClassroomPage() {
   const api = useApiClient();
   const [params, setParams] = useSearchParams();
@@ -282,6 +301,19 @@ export function ClassroomPage() {
     if (timer.current) clearTimeout(timer.current);
     timer.current = window.setTimeout(() => persist(), 500);
   };
+  const completeLessonAndMoveOn = () => {
+    if (!lesson) return;
+    const nextChecks = lesson.segments
+      .filter((step) => !prior.includes(step.id))
+      .map((step) => step.id);
+    if (timer.current) clearTimeout(timer.current);
+    draftVersion.current += 1;
+    latest.current = { checks: nextChecks, note, version: draftVersion.current };
+    if (draftStorageKey)
+      window.localStorage.setItem(draftStorageKey, JSON.stringify({ checks: nextChecks, note }));
+    setChecks(nextChecks);
+    persist(true);
+  };
   useEffect(
     () => () => {
       if (timer.current) {
@@ -435,19 +467,20 @@ export function ClassroomPage() {
         <>
           <section className="live-now">
             <p className="eyebrow">{context.courseName}</p>
-            <h2>{context.sectionName}</h2>
-            <p>{timeRange(context.meetingTime, context.endTime)}</p>
             {lesson ? (
               <>
-                <strong>
-                  Lesson {lesson.orderIndex + 1} · {lesson.title}
-                </strong>
-                <Link className="button-link" to={`/lessons/${lesson.id}`}>
-                  Open full lesson
-                </Link>
+                <h2>{lesson.title}</h2>
+                <div className="live-now-meta">
+                  <span>{context.sectionName}</span>
+                  <span>{timeRange(context.meetingTime, context.endTime)}</span>
+                  {lesson.estimatedDurationMinutes ? (
+                    <span>{lesson.estimatedDurationMinutes} min</span>
+                  ) : null}
+                </div>
               </>
             ) : (
               <>
+                <h2>{context.sectionName}</h2>
                 <strong>No lesson planned</strong>
                 <Link
                   className="button-link"
@@ -460,151 +493,210 @@ export function ClassroomPage() {
           </section>
           {lesson ? (
             <>
-              <section className="live-last">
-                <p className="eyebrow">Last time</p>
-                <strong>
-                  {resume?.state?.lastTaughtDate ?? 'This is the first time teaching this lesson.'}
-                </strong>
-                {lastStop ? <p>Stopped after: {lastStop.title}</p> : null}
-                {resume?.lastNote?.content ? (
-                  <blockquote>{resume.lastNote.content}</blockquote>
-                ) : null}
-              </section>
-              <section className="live-steps">
-                <div className="live-section-heading">
-                  <div>
-                    <p className="eyebrow">Today’s lesson</p>
-                    <h3>Check off what you teach</h3>
-                  </div>
-                  <span
-                    className="live-progress"
-                    aria-label={`${allChecked.length} of ${lesson.segments.length} steps complete`}
-                  >
-                    {allChecked.length}/{lesson.segments.length}
-                  </span>
-                </div>
-                {lesson.segments.length ? (
-                  lesson.segments.map((step) => (
-                    <label key={step.id}>
-                      <input
-                        type="checkbox"
-                        checked={allChecked.includes(step.id)}
-                        onChange={(e) =>
-                          queue(
-                            e.target.checked
-                              ? [...checks, step.id]
-                              : checks.filter((id) => id !== step.id),
-                            note
-                          )
-                        }
-                        disabled={prior.includes(step.id)}
-                      />
-                      <span>
-                        {prior.includes(step.id) ? '✓ Previously completed · ' : ''}
-                        {step.title}
-                      </span>
-                    </label>
-                  ))
-                ) : (
-                  <p>
-                    No lesson steps yet. <Link to={`/lessons/${lesson.id}`}>Open lesson</Link>
-                  </p>
-                )}
-              </section>
-              <section className="live-note">
-                <label>
-                  Note for next time
-                  <textarea
-                    className="input"
-                    rows={3}
-                    value={note}
-                    placeholder="Anything you want to remember before the next class?"
-                    onChange={(e) => queue(checks, e.target.value)}
-                  />
-                </label>
-                <span className="autosave" aria-live="polite">
-                  {state === 'saving'
-                    ? 'Saving your progress…'
-                    : state === 'error'
-                      ? 'Saved on this device — retrying when possible'
-                      : 'Progress saves automatically'}
-                </span>
-              </section>
-              {ending ? (
-                <section className="live-wrapup live-end-summary" aria-live="polite">
-                  <div className="live-wrapup-copy">
-                    <p className="eyebrow">Ready to wrap up?</p>
-                    <h3>Review and end today’s class</h3>
-                    <p>
-                      Your checklist and note are already saved. Ending class records where to pick
-                      up next time.
-                    </p>
-                  </div>
-                  <div className="live-end-details">
-                    <p>
-                      <strong>Completed today</strong>
-                      <span>
-                        {checks.length
-                          ? checks
-                              .map((id) => lesson.segments.find((step) => step.id === id)?.title)
-                              .filter(Boolean)
-                              .join(', ')
-                          : 'No new steps'}
-                      </span>
-                    </p>
-                    <p>
-                      <strong>Next time</strong>
-                      <span>
-                        {lesson.segments
-                          .filter((step) => !allChecked.includes(step.id))
-                          .map((step) => step.title)
-                          .join(', ') || 'This lesson is complete — the next lesson will be ready.'}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="live-wrapup-actions">
-                    <button className="live-end" type="button" onClick={() => persist(true)}>
-                      Save and end class
-                    </button>
-                    <button className="secondary" type="button" onClick={() => setEnding(false)}>
-                      Keep teaching
-                    </button>
-                  </div>
-                </section>
-              ) : (
-                <section className="live-wrapup">
-                  <div className="live-wrapup-copy">
-                    <p className="eyebrow">When you’re ready</p>
-                    <h3>Wrap up this class</h3>
-                    <p>
-                      Progress saves as you go. End class when you want to set the next starting
-                      point.
-                    </p>
-                  </div>
-                  <div className="live-wrapup-actions">
-                    <button className="live-end" type="button" onClick={() => setEnding(true)}>
-                      Review and end class
-                    </button>
-                    <button
-                      className="secondary"
-                      type="button"
-                      onClick={() =>
-                        queue(
-                          lesson.segments
-                            .filter((step) => !prior.includes(step.id))
-                            .map((step) => step.id),
-                          note
-                        )
-                      }
+              <div className="classroom-teaching-grid">
+                <section className="live-steps" aria-labelledby="lesson-steps-heading">
+                  <div className="live-section-heading">
+                    <div>
+                      <p className="eyebrow">Lesson flow</p>
+                      <h3 id="lesson-steps-heading">Teach from the plan</h3>
+                    </div>
+                    <span
+                      className="live-progress"
+                      aria-label={`${allChecked.length} of ${lesson.segments.length} steps complete`}
                     >
-                      Finish remaining steps
-                    </button>
+                      {allChecked.length}/{lesson.segments.length}
+                    </span>
                   </div>
-                  <p className="live-wrapup-hint">
-                    Finish remaining steps only checks the lesson checklist; it does not end class.
-                  </p>
+                  {lesson.segments.length ? (
+                    <div className="live-step-list">
+                      {lesson.segments.map((step, index) => {
+                        const complete = allChecked.includes(step.id);
+                        return (
+                          <article
+                            className={`live-step-card${complete ? ' is-complete' : ''}`}
+                            key={step.id}
+                          >
+                            <label className="live-step-check">
+                              <input
+                                type="checkbox"
+                                checked={complete}
+                                onChange={(e) =>
+                                  queue(
+                                    e.target.checked
+                                      ? [...checks, step.id]
+                                      : checks.filter((id) => id !== step.id),
+                                    note
+                                  )
+                                }
+                                disabled={prior.includes(step.id)}
+                              />
+                              <span className="live-step-number">{index + 1}</span>
+                            </label>
+                            <div className="live-step-content">
+                              <div className="live-step-title-row">
+                                <h4>{step.title}</h4>
+                                <span>
+                                  {[
+                                    step.stepType,
+                                    step.durationMinutes ? `${step.durationMinutes} min` : ''
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                </span>
+                              </div>
+                              {step.description ? (
+                                <div
+                                  className="live-step-description"
+                                  dangerouslySetInnerHTML={{ __html: safeHtml(step.description) }}
+                                />
+                              ) : null}
+                              {prior.includes(step.id) ? <small>Previously completed</small> : null}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p>
+                      No lesson steps yet. <Link to={`/lessons/${lesson.id}`}>Edit lesson</Link>
+                    </p>
+                  )}
                 </section>
-              )}
+                <aside className="classroom-lesson-rail" aria-label="Lesson details and tools">
+                  <div className="lesson-rail-actions">
+                    <Link className="button-link secondary" to={`/lessons/${lesson.id}`}>
+                      Edit lesson
+                    </Link>
+                  </div>
+                  {lesson.lessonPlan.objective ? (
+                    <section className="lesson-rail-card">
+                      <p className="eyebrow">Objective</p>
+                      <div
+                        dangerouslySetInnerHTML={{
+                          __html: safeHtml(lesson.lessonPlan.objective)
+                        }}
+                      />
+                    </section>
+                  ) : null}
+                  {lesson.lessonPlan.studentDirections ? (
+                    <section className="lesson-rail-card">
+                      <p className="eyebrow">Student directions</p>
+                      <div
+                        dangerouslySetInnerHTML={{
+                          __html: safeHtml(lesson.lessonPlan.studentDirections)
+                        }}
+                      />
+                    </section>
+                  ) : null}
+                  {lesson.lessonPlan.materials ? (
+                    <section className="lesson-rail-card">
+                      <p className="eyebrow">Materials</p>
+                      <div
+                        dangerouslySetInnerHTML={{
+                          __html: safeHtml(lesson.lessonPlan.materials)
+                        }}
+                      />
+                    </section>
+                  ) : null}
+                  {lesson.lessonPlan.links.length ? (
+                    <section className="lesson-rail-card lesson-rail-resources">
+                      <p className="eyebrow">Resources</p>
+                      {lesson.lessonPlan.links.map((link) => (
+                        <a href={link.url} key={link.url} rel="noreferrer" target="_blank">
+                          {link.title} <span aria-hidden="true">↗</span>
+                        </a>
+                      ))}
+                    </section>
+                  ) : null}
+                  <section className="lesson-rail-card live-last">
+                    <p className="eyebrow">Last time</p>
+                    <strong>
+                      {resume?.state?.lastTaughtDate ?? 'First time teaching this lesson'}
+                    </strong>
+                    {lastStop ? <p>Stopped after {lastStop.title}</p> : null}
+                    {resume?.lastNote?.content ? (
+                      <blockquote>{resume.lastNote.content}</blockquote>
+                    ) : null}
+                  </section>
+                  <section className="lesson-rail-card live-note">
+                    <label>
+                      Note for next time
+                      <textarea
+                        className="input"
+                        rows={5}
+                        value={note}
+                        placeholder="Add a note"
+                        onChange={(e) => queue(checks, e.target.value)}
+                      />
+                    </label>
+                    <span
+                      className={`autosave${state === 'error' ? ' error' : ''}`}
+                      aria-live="polite"
+                    >
+                      {state === 'saving'
+                        ? 'Saving…'
+                        : state === 'error'
+                          ? 'Saved locally'
+                          : 'Saved'}
+                    </span>
+                  </section>
+                </aside>
+              </div>
+              <div className="live-footer-actions">
+                <button className="live-end" type="button" onClick={() => setEnding(true)}>
+                  Review & end class
+                </button>
+                <button className="secondary" type="button" onClick={completeLessonAndMoveOn}>
+                  Complete lesson & move on
+                </button>
+              </div>
+              {ending ? (
+                <div className="classroom-review-backdrop" role="presentation">
+                  <section
+                    aria-labelledby="classroom-review-title"
+                    aria-modal="true"
+                    className="classroom-review"
+                    role="dialog"
+                  >
+                    <div className="classroom-review-heading">
+                      <p className="eyebrow">Class recap</p>
+                      <h2 id="classroom-review-title">{lesson.title}</h2>
+                    </div>
+                    <div className="classroom-review-grid">
+                      <div>
+                        <span>Completed</span>
+                        <strong>
+                          {allChecked.length}/{lesson.segments.length} steps
+                        </strong>
+                        <p>
+                          {checks.length
+                            ? checks
+                                .map((id) => lesson.segments.find((step) => step.id === id)?.title)
+                                .filter(Boolean)
+                                .join(', ')
+                            : 'No new steps'}
+                        </p>
+                      </div>
+                      <div>
+                        <span>Next</span>
+                        <strong>
+                          {lesson.segments.find((step) => !allChecked.includes(step.id))?.title ??
+                            'Next lesson'}
+                        </strong>
+                        {note.trim() ? <p>{note}</p> : null}
+                      </div>
+                    </div>
+                    <div className="classroom-review-actions">
+                      <button className="live-end" type="button" onClick={() => persist(true)}>
+                        End class
+                      </button>
+                      <button className="secondary" type="button" onClick={() => setEnding(false)}>
+                        Back to lesson
+                      </button>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
               {endedSummary ? <p className="notice success">{endedSummary}</p> : null}
             </>
           ) : null}
