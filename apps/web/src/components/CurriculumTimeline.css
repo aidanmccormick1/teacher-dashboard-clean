@@ -574,6 +574,12 @@
   padding: 6px 9px;
 }
 
+.curriculum-zoom-hint {
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
 .curriculum-pacing span {
   border: 0;
   border-radius: 4px;

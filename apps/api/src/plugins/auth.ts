@@ -2,14 +2,43 @@ import { createHash } from 'node:crypto';
 
 import fp from 'fastify-plugin';
 import { eq } from 'drizzle-orm';
-import { verifyToken } from '@clerk/backend';
+import { createClerkClient, verifyToken } from '@clerk/backend';
 
 import { db, testAccounts } from '@teacheros/db';
 
 const pilotToken = 'teacher-dashboard-pilot-2026';
+const clerkEmailCache = new Map<string, { email: string; expiresAt: number }>();
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+async function resolveClerkEmail(
+  claims: Record<string, unknown>,
+  clerkUserId: string,
+  clerkSecretKey: string | undefined
+): Promise<string | null> {
+  const claimEmail = [claims.email, claims.email_address].find(
+    (value): value is string => typeof value === 'string' && value.includes('@')
+  );
+  if (claimEmail) return claimEmail;
+  if (!clerkSecretKey) return null;
+
+  const cached = clerkEmailCache.get(clerkUserId);
+  if (cached && cached.expiresAt > Date.now()) return cached.email;
+
+  try {
+    const clerk = createClerkClient({ secretKey: clerkSecretKey });
+    const user = await clerk.users.getUser(clerkUserId);
+    const primary = user.emailAddresses.find((address) => address.id === user.primaryEmailAddressId);
+    const email = primary?.emailAddress ?? user.emailAddresses[0]?.emailAddress ?? null;
+    if (email) clerkEmailCache.set(clerkUserId, { email, expiresAt: Date.now() + 5 * 60_000 });
+    return email;
+  } catch {
+    // A valid session remains valid even if Clerk's user lookup is temporarily
+    // unavailable. Onboarding will still require the teacher's work email.
+    return null;
+  }
 }
 
 export const authPlugin = fp(async (app) => {
@@ -94,9 +123,14 @@ export const authPlugin = fp(async (app) => {
         )
       });
 
+      const clerkUserId = tokenClaims.sub;
       request.principal = {
-        clerkUserId: tokenClaims.sub,
-        email: typeof tokenClaims.email === 'string' ? tokenClaims.email : null
+        clerkUserId,
+        email: await resolveClerkEmail(
+          tokenClaims as Record<string, unknown>,
+          clerkUserId,
+          app.config.CLERK_SECRET_KEY
+        )
       };
     } catch {
       reply.code(401).send({ error: 'Invalid authentication token', requestId: request.id });

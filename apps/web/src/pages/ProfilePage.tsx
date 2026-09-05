@@ -46,24 +46,29 @@ function roleLabel(role: ProfileForm['role']) {
       ? 'Administrator'
       : 'Teacher';
 }
+function isGeneratedPlaceholderEmail(email: string | null | undefined) {
+  return Boolean(email?.endsWith('@placeholder.local'));
+}
 function loadDraft(email: string | null): ProfileForm {
   try {
     return {
       ...emptyProfile,
-      workEmail: email ?? '',
+      workEmail: isGeneratedPlaceholderEmail(email) ? '' : (email ?? ''),
       ...(JSON.parse(
         window.localStorage.getItem(PROFILE_STORAGE_KEY) ?? '{}'
       ) as Partial<ProfileForm>)
     };
   } catch {
-    return { ...emptyProfile, workEmail: email ?? '' };
+    return { ...emptyProfile, workEmail: isGeneratedPlaceholderEmail(email) ? '' : (email ?? '') };
   }
 }
 function mergeApiProfile(current: ProfileForm, profile: ProfileResponse): ProfileForm {
   return {
     ...current,
     fullName: profile.user.fullName ?? current.fullName,
-    workEmail: profile.profile?.workEmail ?? profile.user.email ?? current.workEmail,
+    workEmail:
+      profile.profile?.workEmail ??
+      (isGeneratedPlaceholderEmail(profile.user.email) ? current.workEmail : profile.user.email),
     phone: profile.profile?.phone ?? current.phone,
     role: profile.profile?.role ?? current.role,
     schoolName: profile.school?.name ?? current.schoolName,
@@ -110,7 +115,7 @@ export function ProfilePage() {
   const canSave = Boolean(
     form.fullName.trim() &&
     form.schoolName.trim() &&
-    (!form.workEmail || form.workEmail.includes('@'))
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.workEmail.trim())
   );
   const save = useCallback(async () => {
     if (!canSave) return;
@@ -120,7 +125,7 @@ export function ProfilePage() {
       await api.updateProfile({
         fullName: form.fullName.trim(),
         phone: form.phone.trim() || null,
-        workEmail: form.workEmail.trim() || null,
+        workEmail: form.workEmail.trim(),
         role: form.role,
         schoolName: form.schoolName.trim(),
         district: form.district.trim() || null,
@@ -220,14 +225,18 @@ export function ProfilePage() {
               />
             </label>
             <label>
-              Work email
+              Work email <span className="field-required">Required</span>
               <input
                 className="input"
                 type="email"
                 value={form.workEmail}
                 onChange={(event) => update('workEmail', event.target.value)}
                 placeholder="teacher@school.edu"
+                required
               />
+              <span className="field-help">
+                Used for collaborator invitations and shared curriculum.
+              </span>
             </label>
             <label>
               Phone <span className="field-optional">Optional</span>

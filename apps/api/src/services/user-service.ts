@@ -24,15 +24,41 @@ export async function getUserByClerkId(clerkUserId: string) {
 export async function ensureUserFromPrincipal(principal: Principal) {
   const fallbackEmail = principal.email ?? `${principal.clerkUserId}@placeholder.local`;
 
+  const existingUser = await getUserByClerkId(principal.clerkUserId);
+  if (existingUser) {
+    // A work email chosen during onboarding is the address we use for sharing
+    // and collaboration. Do not replace it with an absent Clerk claim (which
+    // previously reverted Google users to a generated placeholder address).
+    // A generated placeholder is upgraded from the saved work email first,
+    // then from Clerk's verified sign-in email when no profile exists yet.
+    const [profile] = await db
+      .select({ workEmail: teacherProfiles.workEmail })
+      .from(teacherProfiles)
+      .where(eq(teacherProfiles.userId, existingUser.id))
+      .limit(1);
+    const preferredEmail = profile?.workEmail ?? principal.email;
+
+    if (
+      preferredEmail &&
+      existingUser.email.endsWith('@placeholder.local') &&
+      existingUser.email !== preferredEmail
+    ) {
+      const [updatedUser] = await db
+        .update(users)
+        .set({ email: preferredEmail, updatedAt: new Date() })
+        .where(eq(users.id, existingUser.id))
+        .returning({ id: users.id, email: users.email });
+      if (updatedUser) return updatedUser;
+    }
+
+    return existingUser;
+  }
+
   const [user] = await db
     .insert(users)
     .values({
       clerkUserId: principal.clerkUserId,
       email: fallbackEmail
-    })
-    .onConflictDoUpdate({
-      target: users.clerkUserId,
-      set: { email: fallbackEmail, updatedAt: new Date() }
     })
     .returning({
       id: users.id,
@@ -100,7 +126,7 @@ export async function upsertOnboarding(principal: Principal, payload: Onboarding
       .update(users)
       .set({
         fullName: payload.fullName,
-        email: payload.workEmail ?? user.email,
+        email: payload.workEmail,
         updatedAt: new Date()
       })
       .where(eq(users.id, user.id));

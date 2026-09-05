@@ -37,7 +37,12 @@ type SchoolYearSettings = {
   meetingDays: string[];
   bellScheduleType: 'weekly' | 'block' | 'ab' | 'rotating';
 };
-type Zoom = 'year' | 'day' | 'month' | 'week';
+type Zoom = 'year' | 'month' | 'week' | 'meeting';
+type TimelineSlot = {
+  startMeeting: number;
+  endMeeting: number;
+  label: string;
+};
 type Selection = { type: 'unit' | 'lesson'; id: string } | null;
 type ContextMenu = { type: 'unit' | 'lesson'; id: string; x: number; y: number } | null;
 type PositionedUnit = { unit: Unit; start: number; span: number };
@@ -56,7 +61,12 @@ type LessonDrag = {
 };
 type OutlineDropPosition = { unitId: string; index: number } | null;
 type OutlineUnitDropPosition = number | null;
-type RangeDrag = { originIndex: number; originX: number; unitId: string | null; laneTop: number };
+type RangeDrag = {
+  originSlotIndex: number;
+  originX: number;
+  unitId: string | null;
+  laneTop: number;
+};
 type RangeDraft = PlanningRange & { unitId: string | null };
 type LessonPlanDraft = {
   title: string;
@@ -83,11 +93,12 @@ const emptyLessonPlan = (): LessonPlanDraft => ({
 const nullable = (value: string) => value.trim() || null;
 
 const zoomLabels: Array<{ id: Zoom; label: string }> = [
-  { id: 'year', label: 'Year' },
+  { id: 'meeting', label: 'Meetings' },
+  { id: 'week', label: 'Weeks' },
   { id: 'month', label: 'Month' },
-  { id: 'week', label: 'Week' },
-  { id: 'day', label: 'Day' }
+  { id: 'year', label: 'Year' },
 ];
+const zoomOrder: Zoom[] = ['year', 'month', 'week', 'meeting'];
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -108,7 +119,7 @@ function unitMeetingCount(unit: Unit) {
 
 function positionUnits(units: Unit[]): PositionedUnit[] {
   let cursor = 0;
-  return units.map((unit) => {
+  return [...units].sort((left, right) => left.orderIndex - right.orderIndex).map((unit) => {
     const span = unitMeetingCount(unit);
     const start = unit.plannedStartMeeting ?? cursor;
     cursor = Math.max(cursor, start + span);
@@ -121,13 +132,62 @@ function overlaps(a: PositionedUnit, b: PositionedUnit) {
 }
 
 function dateLabel(date: Date | undefined, zoom: Zoom, index: number) {
-  if (zoom === 'day') return `M${index + 1}`;
-  if (!date) return zoom === 'week' ? `Week ${index + 1}` : `M${index + 1}`;
-  if (zoom === 'week')
-    return `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${date.getDate()}`;
+  if (zoom === 'meeting') return `Meeting ${index + 1}`;
+  if (!date) return `Meeting ${index + 1}`;
   if (zoom === 'month')
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return date.toLocaleDateString(undefined, { month: 'short' });
+}
+
+function mondayKey(date: Date) {
+  const monday = new Date(date);
+  const day = monday.getDay() || 7;
+  monday.setDate(monday.getDate() - day + 1);
+  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(
+    monday.getDate()
+  ).padStart(2, '0')}`;
+}
+
+function buildTimelineSlots(zoom: Zoom, meetingCount: number, meetings: Date[]): TimelineSlot[] {
+  if (zoom !== 'week') {
+    return Array.from({ length: meetingCount }, (_, index) => ({
+      startMeeting: index,
+      endMeeting: index + 1,
+      label: dateLabel(meetings[index], zoom, index)
+    }));
+  }
+
+  if (!meetings.length) {
+    return Array.from({ length: meetingCount }, (_, index) => ({
+      startMeeting: index,
+      endMeeting: index + 1,
+      label: `Week ${index + 1}`
+    }));
+  }
+
+  const slots: TimelineSlot[] = [];
+  for (let index = 0; index < meetingCount; index += 1) {
+    const date = meetings[index];
+    const key = date ? mondayKey(date) : `sequence-${index}`;
+    const current = slots[slots.length - 1];
+    const currentKey = current && meetings[current.startMeeting]
+      ? mondayKey(meetings[current.startMeeting]!)
+      : current
+        ? `sequence-${current.startMeeting}`
+        : null;
+    if (current && currentKey === key) {
+      current.endMeeting = index + 1;
+      continue;
+    }
+    slots.push({
+      startMeeting: index,
+      endMeeting: index + 1,
+      label: date
+        ? `Week of ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+        : `Week ${index + 1}`
+    });
+  }
+  return slots;
 }
 
 function nextOrder(items: Array<{ orderIndex: number }>) {
@@ -183,7 +243,7 @@ export function CurriculumTimeline({
 }) {
   const api = useApiClient();
   const navigate = useNavigate();
-  const [zoom, setZoom] = useState<Zoom>('year');
+  const [zoom, setZoom] = useState<Zoom>('meeting');
   const [selection, setSelection] = useState<Selection>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenu>(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState<string[]>(() =>
@@ -333,6 +393,24 @@ export function CurriculumTimeline({
     return () => canvas.removeEventListener('scroll', persistScroll);
   }, [scrollStorageKey]);
 
+  useEffect(() => {
+    const canvas = canvasWrapRef.current;
+    if (!canvas) return;
+    const handleWheel = (event: WheelEvent) => {
+      // Browsers expose a trackpad pinch as Ctrl + wheel. Keep ordinary
+      // two-finger horizontal and vertical scrolling untouched.
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      setZoom((current) => {
+        const currentIndex = zoomOrder.indexOf(current);
+        const nextIndex = clamp(currentIndex + (event.deltaY < 0 ? 1 : -1), 0, zoomOrder.length - 1);
+        return zoomOrder[nextIndex] ?? current;
+      });
+    };
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, []);
+
   const positions = useMemo(() => positionUnits(course.units), [course.units]);
   const sectionPlanByLesson = useMemo(
     () => new Map(sectionPlans.map((plan) => [plan.lessonId, plan])),
@@ -374,13 +452,13 @@ export function CurriculumTimeline({
       )
     : 52;
   // Zoom changes density, never scope. Every view represents the complete
-  // instructional year so moving between Year, Day, Month, and Week cannot
+  // instructional year so moving between Meeting, Week, Month, and Year cannot
   // hide later meetings or change the meeting index beneath a lesson.
   const visibleMeetings = Math.max(
     furthestMeeting,
     selectedSection ? sectionMeetings.length : schoolYearWeeks
   );
-  const slotWidth = zoom === 'year' ? 34 : zoom === 'day' ? 128 : zoom === 'month' ? 78 : 108;
+  const slotWidth = zoom === 'year' ? 34 : zoom === 'month' ? 78 : zoom === 'week' ? 132 : 116;
   const courseMeetingSlots = useMemo(
     () =>
       Array.from(
@@ -389,6 +467,22 @@ export function CurriculumTimeline({
       ),
     [furthestMeeting, visibleMeetings]
   );
+  const timelineSlots = useMemo(
+    () => buildTimelineSlots(zoom, visibleMeetings, meetings),
+    [meetings, visibleMeetings, zoom]
+  );
+  const displaySlotForMeeting = (meetingIndex: number) =>
+    Math.max(
+      0,
+      timelineSlots.findIndex(
+        (slot) => meetingIndex >= slot.startMeeting && meetingIndex < slot.endMeeting
+      )
+    );
+  const displayRangeForMeetings = (start: number, span: number) => {
+    const startSlot = displaySlotForMeeting(start);
+    const endSlot = displaySlotForMeeting(Math.max(start, start + span - 1));
+    return { start: startSlot, span: Math.max(1, endSlot - startSlot + 1) };
+  };
   const conflicts = positions.flatMap((position, index) =>
     positions
       .slice(index + 1)
@@ -421,22 +515,24 @@ export function CurriculumTimeline({
   // Course planning is expressed as a shared sequence of meeting numbers.
   // A selected section contributes real dates, but is never required to plan.
   const rangeMeetings = selectedSection ? sectionMeetings : courseMeetingSlots;
-  const rangeFromPointer = (clientX: number) => {
+  const slotFromPointer = (clientX: number) => {
     const canvas = canvasWrapRef.current;
     if (!canvas || !rangeMeetings.length) return null;
     const bounds = canvas.getBoundingClientRect();
     const index = Math.floor((clientX - bounds.left + canvas.scrollLeft) / slotWidth);
-    return clamp(index, 0, Math.min(visibleMeetings, rangeMeetings.length) - 1);
+    return clamp(index, 0, timelineSlots.length - 1);
   };
   const beginRangeDrag = (event: ReactPointerEvent<HTMLDivElement>, unitId: string | null) => {
     if (!rangeMeetings.length || saving) return;
-    const index = rangeFromPointer(event.clientX);
-    if (index === null) return;
+    const slotIndex = slotFromPointer(event.clientX);
+    if (slotIndex === null) return;
+    const slot = timelineSlots[slotIndex];
+    if (!slot) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const canvas = event.currentTarget.closest('.curriculum-canvas');
     setRangeDrag({
-      originIndex: index,
+      originSlotIndex: slotIndex,
       originX: event.clientX,
       unitId,
       laneTop: canvas
@@ -447,9 +543,17 @@ export function CurriculumTimeline({
   };
   const updateRangeDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!rangeDrag) return;
-    const index = rangeFromPointer(event.clientX);
-    if (index === null || Math.abs(event.clientX - rangeDrag.originX) < 6) return;
-    const range = normalizePlanningRange(rangeDrag.originIndex, index, rangeMeetings);
+    const slotIndex = slotFromPointer(event.clientX);
+    if (slotIndex === null || Math.abs(event.clientX - rangeDrag.originX) < 6) return;
+    const slot = timelineSlots[slotIndex];
+    if (!slot) return;
+    const originSlot = timelineSlots[rangeDrag.originSlotIndex];
+    if (!originSlot) return;
+    const range = normalizePlanningRange(
+      Math.min(originSlot.startMeeting, slot.startMeeting),
+      Math.max(originSlot.endMeeting, slot.endMeeting) - 1,
+      rangeMeetings
+    );
     if (range) setRangePreview({ ...range, unitId: rangeDrag.unitId });
   };
   const finishRangeDrag = () => {
@@ -479,7 +583,9 @@ export function CurriculumTimeline({
     const targetIndex = rangeMeetings.findIndex(
       (meeting) => Boolean(meeting.date) && meeting.date! >= todayDate
     );
-    const index = targetIndex === -1 ? rangeMeetings.length - 1 : targetIndex;
+    const index = displaySlotForMeeting(
+      targetIndex === -1 ? rangeMeetings.length - 1 : targetIndex
+    );
     canvas.scrollTo({
       left: Math.max(0, index * slotWidth - Math.max(slotWidth, canvas.clientWidth * 0.28)),
       behavior: 'smooth'
@@ -1521,6 +1627,7 @@ export function CurriculumTimeline({
             </button>
           ))}
         </div>
+        <span className="curriculum-zoom-hint">Pinch on the timeline to zoom</span>
         <div className="curriculum-timeline-navigation" aria-label="Timeline navigation">
           <button
             className="secondary"
@@ -2324,12 +2431,10 @@ export function CurriculumTimeline({
         </aside>
 
         <div className="curriculum-canvas-wrap" ref={canvasWrapRef}>
-          <div className="curriculum-scale" style={{ minWidth: visibleMeetings * slotWidth }}>
-            {Array.from({ length: visibleMeetings }, (_, index) => (
-              <span key={index} style={{ width: slotWidth }}>
-                {index % (zoom === 'year' ? 5 : 1) === 0
-                  ? dateLabel(meetings[index], zoom, index)
-                  : ''}
+          <div className="curriculum-scale" style={{ minWidth: timelineSlots.length * slotWidth }}>
+            {timelineSlots.map((slot, index) => (
+              <span key={`${slot.startMeeting}-${slot.endMeeting}`} style={{ width: slotWidth }}>
+                {index % (zoom === 'year' ? 5 : 1) === 0 ? slot.label : ''}
               </span>
             ))}
           </div>
@@ -2337,7 +2442,7 @@ export function CurriculumTimeline({
             className="curriculum-canvas"
             style={
               {
-                minWidth: visibleMeetings * slotWidth,
+                minWidth: timelineSlots.length * slotWidth,
                 '--slot-width': `${slotWidth}px`
               } as CSSProperties
             }
@@ -2360,6 +2465,7 @@ export function CurriculumTimeline({
                   other.start < start + span
               );
               const expanded = expandedUnitIds.includes(position.unit.id);
+              const displayRange = displayRangeForMeetings(start, span);
               const orderedLessons = [...position.unit.lessons].sort(
                 (left, right) => left.orderIndex - right.orderIndex
               );
@@ -2391,7 +2497,7 @@ export function CurriculumTimeline({
                         .filter(Boolean)
                         .join(' ')}
                       style={{
-                        gridColumn: `${start + 1} / span ${Math.min(span, visibleMeetings - start)}`
+                        gridColumn: `${displayRange.start + 1} / span ${displayRange.span}`
                       }}
                       aria-label={`Unit ${position.unit.title}, meetings ${start + 1} through ${start + span}`}
                       onContextMenu={(event) => openContextMenu(event, 'unit', position.unit.id)}
@@ -2466,6 +2572,10 @@ export function CurriculumTimeline({
                           isLessonDragging && lessonDragPreview
                             ? lessonDragPreview.span
                             : lessonSpan;
+                        const lessonDisplayRange = displayRangeForMeetings(
+                          displayStart,
+                          displaySpan
+                        );
                         return (
                           <div
                             key={lesson.id}
@@ -2482,7 +2592,7 @@ export function CurriculumTimeline({
                                 .filter(Boolean)
                                 .join(' ')}
                               style={{
-                                gridColumn: `${displayStart + 1} / span ${Math.max(1, Math.min(displaySpan, visibleMeetings - displayStart))}`,
+                                gridColumn: `${lessonDisplayRange.start + 1} / span ${lessonDisplayRange.span}`,
                                 transform:
                                   isLessonDragging && lessonDrag?.mode === 'move'
                                     ? `translateX(${lessonDragRemainder}px)`
@@ -2575,11 +2685,17 @@ export function CurriculumTimeline({
             {rangePreview ? (
               <div
                 className={`curriculum-range-preview${rangeOverlapsExistingPlan(rangePreview) ? ' conflict' : ''}`}
-                style={{
-                  left: rangePreview.start * slotWidth,
-                  width: rangePreview.meetingCount * slotWidth,
-                  top: rangeDrag ? rangeDrag.laneTop : 0
-                }}
+                style={(() => {
+                  const displayRange = displayRangeForMeetings(
+                    rangePreview.start,
+                    rangePreview.meetingCount
+                  );
+                  return {
+                    left: displayRange.start * slotWidth,
+                    width: displayRange.span * slotWidth,
+                    top: rangeDrag ? rangeDrag.laneTop : 0
+                  };
+                })()}
               >
                 <span>{planningRangeLabel(rangePreview, rangeMeetings)}</span>
                 {rangeOverlapsExistingPlan(rangePreview) ? <small>Existing plan</small> : null}

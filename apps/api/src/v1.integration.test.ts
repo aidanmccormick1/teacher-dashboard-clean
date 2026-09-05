@@ -138,6 +138,40 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
     await app.close();
   });
 
+  describe('account email', () => {
+    it('keeps a saved work email when an auth request has no email claim', async () => {
+      const onboarding = await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: { ...onboardingBody, workEmail: 'aidan@school.edu' }
+      });
+      expect(onboarding.statusCode).toBe(200);
+
+      await db
+        .update(users)
+        .set({ email: 'teacher-dev-1@placeholder.local' })
+        .where(eq(users.clerkUserId, teacherHeaders['x-dev-user-id']));
+
+      const noEmailClaimHeaders = { 'x-dev-user-id': teacherHeaders['x-dev-user-id'] };
+      const profile = await app.inject({
+        method: 'GET',
+        url: '/v1/profile',
+        headers: noEmailClaimHeaders
+      });
+
+      expect(profile.statusCode).toBe(200);
+      expect(profile.json<{ user: { email: string } }>().user.email).toBe('aidan@school.edu');
+
+      const [user] = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.clerkUserId, teacherHeaders['x-dev-user-id']))
+        .limit(1);
+      expect(user?.email).toBe('aidan@school.edu');
+    });
+  });
+
   describe('v1 curriculum CRUD', () => {
     it('shares one curriculum while collaborators keep independently named local class groups', async () => {
       await app.inject({

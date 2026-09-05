@@ -3539,6 +3539,20 @@ body.course-editor-open {
   font-weight: 650;
 }
 
+.field-required {
+  margin-left: 4px;
+  color: var(--green);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.field-help {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
 .profile-save-bar {
   display: flex;
   align-items: center;
@@ -10813,6 +10827,30 @@ button:disabled,
 .curriculum-workspace .curriculum-canvas {
   gap: 0;
   padding-top: 0;
+}
+
+/* The curriculum outline is a full-height partner to the planning bars. */
+.year-plan-canvas-page .curriculum-split-view {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+  align-items: stretch;
+}
+
+.year-plan-canvas-page .curriculum-tree-scroll {
+  max-height: none;
+  overflow: visible;
+}
+
+.year-plan-canvas-page .curriculum-tree,
+.year-plan-canvas-page .curriculum-canvas-wrap {
+  align-self: stretch;
+}
+
+.year-plan-canvas-page .curriculum-canvas-wrap {
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 /* Keep the full-screen lesson editor spacious without wasting the first viewport. */

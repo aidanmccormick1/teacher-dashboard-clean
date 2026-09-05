@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { useAppAuth } from '../lib/auth.js';
 
 type OnboardingForm = {
   fullName: string;
@@ -46,6 +47,7 @@ function splitList(value: string): string[] {
 }
 
 export function OnboardingPage() {
+  const auth = useAppAuth();
   const api = useApiClient();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
@@ -56,11 +58,21 @@ export function OnboardingPage() {
     window.localStorage.setItem(ONBOARDING_DRAFT_KEY, JSON.stringify(form));
   }, [form]);
 
+  useEffect(() => {
+    if (!auth.email) return;
+    setForm((current) =>
+      current.workEmail.trim() ? current : { ...current, workEmail: auth.email as string }
+    );
+  }, [auth.email]);
+
   const update = <TKey extends keyof OnboardingForm>(key: TKey, value: OnboardingForm[TKey]) => {
     setForm((previous) => ({ ...previous, [key]: value }));
   };
 
-  const canSubmit = form.fullName.trim().length > 0 && form.schoolName.trim().length > 0;
+  const canSubmit =
+    form.fullName.trim().length > 0 &&
+    form.schoolName.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.workEmail.trim());
 
   return (
     <div className="onboarding-page stack">
@@ -94,13 +106,18 @@ export function OnboardingPage() {
             />
           </label>
           <label>
-            Work email
+            Work email <span className="field-required">Required</span>
             <input
               className="input"
               type="email"
               value={form.workEmail}
               onChange={(event) => update('workEmail', event.target.value)}
+              placeholder="teacher@school.edu"
+              required
             />
+            <span className="field-help">
+              This is the email collaborators use. You can use the same email you signed in with.
+            </span>
           </label>
           <label>
             Phone
@@ -201,7 +218,7 @@ export function OnboardingPage() {
                 await api.onboarding({
                   fullName: form.fullName.trim(),
                   phone: form.phone.trim() || null,
-                  workEmail: form.workEmail.trim() || null,
+                  workEmail: form.workEmail.trim(),
                   role: form.role,
                   schoolName: form.schoolName.trim(),
                   district: form.district.trim() || null,
@@ -222,7 +239,7 @@ export function OnboardingPage() {
           </button>
         </div>
         {!canSubmit ? (
-          <p className="muted">Add at least your full name and school name to finish setup.</p>
+          <p className="muted">Add your full name, work email, and school name to finish setup.</p>
         ) : null}
       </section>
     </div>

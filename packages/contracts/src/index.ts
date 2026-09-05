@@ -76,7 +76,7 @@ export const AssignmentItemSchema = z.object({
 export const OnboardingRequestSchema = z.object({
   fullName: z.string().min(1),
   phone: z.string().nullable(),
-  workEmail: z.string().email().nullable(),
+  workEmail: z.string().trim().email(),
   schoolName: z.string().min(1),
   district: z.string().nullable(),
   state: z.string().nullable(),
