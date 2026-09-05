@@ -669,18 +669,109 @@
 
 .curriculum-selection-actions {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   justify-content: flex-start;
+  gap: 12px;
   min-height: 38px;
-  padding: 5px 8px 5px 11px;
+  padding: 12px;
   border-color: rgba(62, 97, 122, 0.18);
   background: rgba(62, 97, 122, 0.045);
 }
 
-.curriculum-selection-actions > small {
-  margin-left: auto;
+.curriculum-selection-heading {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.curriculum-selection-heading span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.curriculum-unit-source {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(200px, 1fr) 104px auto auto;
+  align-items: end;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(62, 97, 122, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.curriculum-unit-source > div {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 2px;
+}
+
+.curriculum-unit-source strong {
+  font-size: 0.86rem;
+}
+
+.curriculum-unit-source small,
+.curriculum-unit-source label {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.curriculum-unit-source label {
+  display: grid;
+  gap: 4px;
+  font-weight: 700;
+}
+
+.curriculum-unit-source input {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.curriculum-unit-source button {
+  min-height: 34px;
+  white-space: nowrap;
+}
+
+.curriculum-unit-source-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--red);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 760px) {
+  .curriculum-unit-source {
+    grid-template-columns: minmax(0, 1fr) 96px;
+  }
+
+  .curriculum-unit-source button {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .curriculum-selection-actions {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .curriculum-unit-source {
+    grid-template-columns: 1fr;
+  }
+
+  .curriculum-unit-source-start,
+  .curriculum-unit-source button {
+    grid-column: 1;
+  }
 }
 
 .curriculum-selection-menu {
+  grid-column: 2;
+  grid-row: 1;
   position: relative;
 }
 

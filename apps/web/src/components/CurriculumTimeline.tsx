@@ -24,6 +24,7 @@ import {
   planningRangeLabel,
   type PlanningRange
 } from '../lib/year-plan-range.js';
+import { isGoogleSlidesUrl } from '../lib/googleSlides.js';
 import { projectMeetingsForSection } from '../lib/year-plan-projection.js';
 import './CurriculumTimeline.css';
 
@@ -303,6 +304,8 @@ export function CurriculumTimeline({
   const [rangeLessonCount, setRangeLessonCount] = useState('');
   const [rangeUnitId, setRangeUnitId] = useState('');
   const [todayDate, setTodayDate] = useState<string | null>(null);
+  const [selectedUnitSlidesUrl, setSelectedUnitSlidesUrl] = useState('');
+  const [selectedUnitStartSlide, setSelectedUnitStartSlide] = useState('1');
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const lessonPlanSaveTimer = useRef<number | null>(null);
   const lessonPlanSaveChain = useRef<Promise<void>>(Promise.resolve());
@@ -428,6 +431,11 @@ export function CurriculumTimeline({
   );
   const selectedLessonId = selectedLesson?.id;
   selectedLessonRef.current = selectedLesson;
+
+  useEffect(() => {
+    setSelectedUnitSlidesUrl(selectedUnit?.googleSlidesUrl ?? '');
+    setSelectedUnitStartSlide(String(selectedUnit?.googleSlidesStartSlide ?? 1));
+  }, [selectedUnit?.googleSlidesStartSlide, selectedUnit?.googleSlidesUrl, selectedUnit?.id]);
   const sectionMeetings = useMemo(
     () => projectMeetingsForSection(meetingData, selectedSection?.sectionId ?? null),
     [meetingData, selectedSection]
@@ -590,6 +598,54 @@ export function CurriculumTimeline({
       left: Math.max(0, index * slotWidth - Math.max(slotWidth, canvas.clientWidth * 0.28)),
       behavior: 'smooth'
     });
+  };
+
+  const saveSelectedUnitSlides = async () => {
+    if (!selectedUnit) return;
+    const url = selectedUnitSlidesUrl.trim();
+    if (!isGoogleSlidesUrl(url)) {
+      setStatus('Paste a Google Slides presentation link to add Unit Slides.');
+      return;
+    }
+    const startSlide = Number(selectedUnitStartSlide || '1');
+    if (!Number.isInteger(startSlide) || startSlide < 1) {
+      setStatus('The starting slide must be a whole number of 1 or greater.');
+      return;
+    }
+    try {
+      setSaving(true);
+      onCourseChange(
+        await api.updateUnit(selectedUnit.id, {
+          googleSlidesUrl: url,
+          googleSlidesStartSlide: startSlide
+        })
+      );
+      setStatus(`Unit Slides saved for ${selectedUnit.title}.`);
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not save Unit Slides.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeSelectedUnitSlides = async () => {
+    if (!selectedUnit) return;
+    try {
+      setSaving(true);
+      onCourseChange(
+        await api.updateUnit(selectedUnit.id, {
+          googleSlidesUrl: null,
+          googleSlidesStartSlide: 1
+        })
+      );
+      setSelectedUnitSlidesUrl('');
+      setSelectedUnitStartSlide('1');
+      setStatus(`Unit Slides removed from ${selectedUnit.title}.`);
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not remove Unit Slides.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmRangeCreation = async () => {
@@ -1754,8 +1810,58 @@ export function CurriculumTimeline({
 
       {selection ? (
         <div className="curriculum-selection-actions">
-          <span>{selection.type === 'unit' ? selectedUnit?.title : selectedLesson?.title}</span>
-          <small>{selection.type === 'unit' ? 'Unit selected' : 'Lesson selected'}</small>
+          <div className="curriculum-selection-heading">
+            <span>{selection.type === 'unit' ? selectedUnit?.title : selectedLesson?.title}</span>
+            <small>{selection.type === 'unit' ? 'Unit selected' : 'Lesson selected'}</small>
+          </div>
+          {selection.type === 'unit' && selectedUnit ? (
+            <section className="curriculum-unit-source" aria-label={`Source material for ${selectedUnit.title}`}>
+              <div>
+                <strong>Unit Slides</strong>
+                <small>One shared deck, available in every lesson in this unit.</small>
+              </div>
+              <label>
+                <span>Google Slides link</span>
+                <input
+                  className="input"
+                  type="url"
+                  value={selectedUnitSlidesUrl}
+                  onChange={(event) => setSelectedUnitSlidesUrl(event.target.value)}
+                  placeholder="https://docs.google.com/presentation/d/…"
+                />
+              </label>
+              <label className="curriculum-unit-source-start">
+                <span>Start slide</span>
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  value={selectedUnitStartSlide}
+                  onChange={(event) => setSelectedUnitStartSlide(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={saving || !isGoogleSlidesUrl(selectedUnitSlidesUrl)}
+                onClick={() => void saveSelectedUnitSlides()}
+              >
+                {selectedUnit.googleSlidesUrl ? 'Update slides' : 'Add slides'}
+              </button>
+              {selectedUnit.googleSlidesUrl ? (
+                <button
+                  className="button-link danger"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void removeSelectedUnitSlides()}
+                >
+                  Remove
+                </button>
+              ) : null}
+              {selectedUnitSlidesUrl && !isGoogleSlidesUrl(selectedUnitSlidesUrl) ? (
+                <p className="curriculum-unit-source-error">Paste a Google Slides presentation link.</p>
+              ) : null}
+            </section>
+          ) : null}
           <details className="curriculum-selection-menu">
             <summary aria-label={`Actions for selected ${selection.type}`}>•••</summary>
             <div>
@@ -2507,7 +2613,6 @@ export function CurriculumTimeline({
                         const moved = finishUnitDrag();
                         if (!moved) {
                           selectUnit(position.unit);
-                          toggleExpanded(position.unit.id);
                         }
                       }}
                       onPointerCancel={() => {
@@ -2520,7 +2625,6 @@ export function CurriculumTimeline({
                         type="button"
                         onClick={() => {
                           selectUnit(position.unit);
-                          toggleExpanded(position.unit.id);
                         }}
                       >
                         <strong>{position.unit.title}</strong>
