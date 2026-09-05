@@ -9,11 +9,13 @@ import type {
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { isGoogleSlidesUrl } from '../lib/googleSlides.js';
 import { timeRange } from '../lib/today.js';
 
 type LessonDraft = { title: string; description: string; duration: string };
 type SegmentDraft = { title: string; description: string; duration: string };
 type MeetingDraft = { day: string; time: string; endTime: string; room: string };
+type UnitSlidesDraft = { url: string; startSlide: string };
 const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'];
 
 function toNullable(value: string): string | null {
@@ -63,6 +65,7 @@ export function CoursePage() {
 
   const [lessonDrafts, setLessonDrafts] = useState<Record<string, LessonDraft>>({});
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, SegmentDraft>>({});
+  const [unitSlidesDrafts, setUnitSlidesDrafts] = useState<Record<string, UnitSlidesDraft>>({});
   const [newSectionName, setNewSectionName] = useState('');
   const [newSectionMeetings, setNewSectionMeetings] = useState<MeetingDraft[]>([
     { day: 'Monday', time: '', endTime: '', room: '' }
@@ -782,6 +785,10 @@ export function CoursePage() {
                 description: '',
                 duration: ''
               };
+              const unitSlidesDraft = unitSlidesDrafts[unit.id] ?? {
+                url: unit.googleSlidesUrl ?? '',
+                startSlide: String(unit.googleSlidesStartSlide)
+              };
 
               return (
                 <div key={unit.id} className="card stack">
@@ -842,6 +849,121 @@ export function CoursePage() {
                     </button>
                   </div>
                   {unit.description ? <p className="muted">{unit.description}</p> : null}
+
+                  <section className="unit-slides-settings" aria-label={`Slides for ${unit.title}`}>
+                    <div>
+                      <p className="eyebrow">Unit Slides</p>
+                      <span>
+                        One deck follows this unit through every lesson. Each class group keeps its
+                        own slide position.
+                      </span>
+                    </div>
+                    <div className="unit-slides-settings-form">
+                      <label>
+                        <span>Google Slides link</span>
+                        <input
+                          className="input"
+                          type="url"
+                          value={unitSlidesDraft.url}
+                          onChange={(event) =>
+                            setUnitSlidesDrafts((previous) => ({
+                              ...previous,
+                              [unit.id]: { ...unitSlidesDraft, url: event.target.value }
+                            }))
+                          }
+                          placeholder="https://docs.google.com/presentation/d/…"
+                        />
+                      </label>
+                      <label>
+                        <span>Start on slide</span>
+                        <input
+                          className="input"
+                          type="number"
+                          min="1"
+                          value={unitSlidesDraft.startSlide}
+                          onChange={(event) =>
+                            setUnitSlidesDrafts((previous) => ({
+                              ...previous,
+                              [unit.id]: { ...unitSlidesDraft, startSlide: event.target.value }
+                            }))
+                          }
+                          placeholder="1"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={saving || !isGoogleSlidesUrl(unitSlidesDraft.url)}
+                        onClick={async () => {
+                          const parsedStart = Number(unitSlidesDraft.startSlide || '1');
+                          if (!Number.isInteger(parsedStart) || parsedStart < 1) {
+                            setError('The starting slide must be a whole number of 1 or greater.');
+                            return;
+                          }
+                          try {
+                            setSaving(true);
+                            const detail = await api.updateUnit(unit.id, {
+                              googleSlidesUrl: unitSlidesDraft.url.trim(),
+                              googleSlidesStartSlide: parsedStart
+                            });
+                            updateFromDetail(detail);
+                            setUnitSlidesDrafts((previous) => ({
+                              ...previous,
+                              [unit.id]: {
+                                url: unitSlidesDraft.url.trim(),
+                                startSlide: String(parsedStart)
+                              }
+                            }));
+                            setError(null);
+                          } catch (err) {
+                            setError(
+                              err instanceof ApiError ? err.message : 'Failed to save Unit Slides'
+                            );
+                          } finally {
+                            setSaving(false);
+                          }
+                        }}
+                      >
+                        {unit.googleSlidesUrl ? 'Update slides' : 'Add slides'}
+                      </button>
+                      {unit.googleSlidesUrl ? (
+                        <button
+                          className="button-link danger"
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              setSaving(true);
+                              const detail = await api.updateUnit(unit.id, {
+                                googleSlidesUrl: null,
+                                googleSlidesStartSlide: 1
+                              });
+                              updateFromDetail(detail);
+                              setUnitSlidesDrafts((previous) => ({
+                                ...previous,
+                                [unit.id]: { url: '', startSlide: '1' }
+                              }));
+                            } catch (err) {
+                              setError(
+                                err instanceof ApiError
+                                  ? err.message
+                                  : 'Failed to remove Unit Slides'
+                              );
+                            } finally {
+                              setSaving(false);
+                            }
+                          }}
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                    {unitSlidesDraft.url && !isGoogleSlidesUrl(unitSlidesDraft.url) ? (
+                      <p className="unit-slides-detection is-error">
+                        Paste a Google Slides presentation link.
+                      </p>
+                    ) : unitSlidesDraft.url ? (
+                      <p className="unit-slides-detection">Google Slides detected</p>
+                    ) : null}
+                  </section>
 
                   <div className="card stack">
                     <h4>Add lesson</h4>

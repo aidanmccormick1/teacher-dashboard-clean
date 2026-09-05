@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type { LessonCommentsResponse, LessonWorkspaceResponse } from '@teacheros/contracts';
+import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
 import { ApiError, useApiClient } from '../lib/api.js';
+import { isGoogleSlidesUrl } from '../lib/googleSlides.js';
 
 type Workspace = LessonWorkspaceResponse;
 type Step = Workspace['lesson']['segments'][number];
@@ -218,7 +220,11 @@ export function LessonWorkspacePage() {
         const draft = localStorage.getItem(draftKey(lessonId));
         let restored = loaded;
         try {
-          restored = draft ? (JSON.parse(draft) as Workspace) : loaded;
+          const local = draft ? (JSON.parse(draft) as Workspace) : null;
+          // Unit Slides are shared curriculum and may have changed in another
+          // lesson or collaborator session. Never let an old local lesson
+          // draft replace the latest unit-level deck configuration.
+          restored = local ? { ...loaded, ...local, unit: loaded.unit } : loaded;
         } catch {
           localStorage.removeItem(draftKey(lessonId));
         }
@@ -442,11 +448,11 @@ export function LessonWorkspacePage() {
       setStatus('error');
     }
   };
-  const addResource = () => {
+  const addResource = async () => {
     const title = resourceTitle.trim();
     const url = resourceUrl.trim();
-    if (!title || !url) {
-      setResourceError('Add a name and URL for this resource.');
+    if (!url) {
+      setResourceError('Add a URL for this resource.');
       return;
     }
     try {
@@ -454,6 +460,47 @@ export function LessonWorkspacePage() {
       if (!/^https?:$/i.test(parsed.protocol)) throw new Error('Unsupported protocol');
     } catch {
       setResourceError('Use a complete resource URL, including https://.');
+      return;
+    }
+    if (isGoogleSlidesUrl(url)) {
+      const answer = window.prompt('What slide should Unit Slides start on?', '1');
+      if (answer === null) return;
+      const startSlide = answer.trim() ? Number(answer.trim()) : 1;
+      if (!Number.isInteger(startSlide) || startSlide < 1) {
+        setResourceError('The starting slide must be a whole number of 1 or greater.');
+        return;
+      }
+      try {
+        setStatus('saving');
+        await queueServerMutation(() =>
+          api.updateUnit(data.unit.id, {
+            googleSlidesUrl: url,
+            googleSlidesStartSlide: startSlide
+          })
+        );
+        const current = latest.current ?? data;
+        const next = {
+          ...current,
+          unit: {
+            ...current.unit,
+            googleSlidesUrl: url,
+            googleSlidesStartSlide: startSlide
+          }
+        };
+        latest.current = next;
+        setData(next);
+        setStatus('saved');
+        setResourceTitle('');
+        setResourceUrl('');
+        setResourceError(null);
+      } catch (err) {
+        setStatus('error');
+        setResourceError(err instanceof ApiError ? err.message : 'Could not save Unit Slides.');
+      }
+      return;
+    }
+    if (!title) {
+      setResourceError('Add a name for this resource.');
       return;
     }
     updateLessonPlan({
@@ -467,6 +514,25 @@ export function LessonWorkspacePage() {
     updateLessonPlan({
       links: data.lesson.lessonPlan.links.filter((_, linkIndex) => linkIndex !== index)
     });
+  };
+  const removeUnitSlides = async () => {
+    try {
+      setStatus('saving');
+      await queueServerMutation(() =>
+        api.updateUnit(data.unit.id, { googleSlidesUrl: null, googleSlidesStartSlide: 1 })
+      );
+      const current = latest.current ?? data;
+      const next = {
+        ...current,
+        unit: { ...current.unit, googleSlidesUrl: null, googleSlidesStartSlide: 1 }
+      };
+      latest.current = next;
+      setData(next);
+      setStatus('saved');
+    } catch (err) {
+      setStatus('error');
+      setResourceError(err instanceof ApiError ? err.message : 'Could not remove Unit Slides.');
+    }
   };
   const generateStepDraft = async () => {
     try {
@@ -691,7 +757,7 @@ export function LessonWorkspacePage() {
           <section className="lesson-field-card lesson-field-card-wide lesson-resources-card">
             <div className="lesson-field-card-heading">
               <p className="eyebrow">Resources</p>
-              <span>Links are saved with this lesson.</span>
+              <span>Add lesson links or one Google Slides deck for the whole unit.</span>
             </div>
             <div className="lesson-resource-form">
               <label>
@@ -714,12 +780,36 @@ export function LessonWorkspacePage() {
                 />
               </label>
               <button className="secondary" type="button" onClick={addResource}>
-                Add link
+                {isGoogleSlidesUrl(resourceUrl) ? 'Add Unit Slides' : 'Add link'}
               </button>
             </div>
+            {isGoogleSlidesUrl(resourceUrl) ? (
+              <p className="unit-slides-detection">
+                Google Slides detected. This deck will be available in every lesson in{' '}
+                {data.unit.title}.
+              </p>
+            ) : null}
             {resourceError ? <p className="notice warning">{resourceError}</p> : null}
-            {data.lesson.lessonPlan.links.length ? (
+            {data.unit.googleSlidesUrl || data.lesson.lessonPlan.links.length ? (
               <ul className="lesson-resource-list">
+                {data.unit.googleSlidesUrl ? (
+                  <li className="is-unit-resource">
+                    <a href={data.unit.googleSlidesUrl} target="_blank" rel="noreferrer">
+                      <strong>Unit Slides</strong>
+                      <small>
+                        Shared across {data.unit.title} · starts on slide{' '}
+                        {data.unit.googleSlidesStartSlide}
+                      </small>
+                    </a>
+                    <button
+                      className="button-link"
+                      type="button"
+                      onClick={() => void removeUnitSlides()}
+                    >
+                      Remove from unit
+                    </button>
+                  </li>
+                ) : null}
                 {data.lesson.lessonPlan.links.map((link, index) => (
                   <li key={`${link.url}-${index}`}>
                     <a href={link.url} target="_blank" rel="noreferrer">
@@ -949,6 +1039,12 @@ export function LessonWorkspacePage() {
             setActiveFieldId={setActiveRichFieldId}
           />
         </section>
+        {data.unit.googleSlidesUrl ? (
+          <UnitSlidesViewer
+            url={data.unit.googleSlidesUrl}
+            initialSlide={data.unit.googleSlidesStartSlide}
+          />
+        ) : null}
         <section className="lesson-field-card lesson-field-card-wide">
           <div className="lesson-field-card-heading">
             <p className="eyebrow">Collaborator comments</p>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import type { PublicLessonResponse } from '@teacheros/contracts';
+import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
 import { getPublicLesson } from '../lib/api.js';
 
 function safeHtml(value: string | null) {
@@ -163,7 +164,7 @@ export function SharedLessonPage() {
               </div>
             </article>
           ) : null}
-          {lesson.links.length ? (
+          {data.unitSlides || lesson.links.length ? (
             <article
               className="shared-info-card shared-info-card-resources"
               aria-labelledby="shared-resources-heading"
@@ -176,6 +177,17 @@ export function SharedLessonPage() {
                   Resources
                 </p>
                 <ul className="shared-resource-list">
+                  {data.unitSlides ? (
+                    <li>
+                      <a href="#unit-slides">
+                        <strong>Unit Slides</strong>
+                        <span>
+                          Starts on slide {data.unitSlides.startSlide}{' '}
+                          <span aria-hidden="true">↓</span>
+                        </span>
+                      </a>
+                    </li>
+                  ) : null}
                   {lesson.links.map((link) => (
                     <li key={link.url}>
                       <a href={link.url} target="_blank" rel="noreferrer">
@@ -262,6 +274,12 @@ export function SharedLessonPage() {
           })}
         </div>
       </section>
+
+      {data.unitSlides ? (
+        <section id="unit-slides" className="shared-unit-slides">
+          <UnitSlidesViewer url={data.unitSlides.url} initialSlide={data.unitSlides.startSlide} />
+        </section>
+      ) : null}
 
       <footer className="shared-lesson-cta" id="join-teacherdesk">
         <div>

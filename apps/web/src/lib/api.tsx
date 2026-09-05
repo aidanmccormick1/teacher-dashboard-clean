@@ -75,6 +75,7 @@ import type {
   SectionUpdateRequest,
   UnitCreateRequest,
   UnitUpdateRequest,
+  UnitSlidesProgressResponse,
   TeacherPreferences,
   TeacherPreferencesUpdateRequest
 } from '@teacheros/contracts';
@@ -449,6 +450,18 @@ export function useApiClient() {
         request<CourseDetailResponse>(
           `/v1/units/${unitId}`,
           { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      getUnitSlidesProgress: (sectionId: string, unitId: string) =>
+        request<UnitSlidesProgressResponse>(
+          `/v1/sections/${sectionId}/units/${unitId}/slides`,
+          { method: 'GET' },
+          auth
+        ),
+      updateUnitSlidesProgress: (sectionId: string, unitId: string, currentSlide: number) =>
+        request<UnitSlidesProgressResponse>(
+          `/v1/sections/${sectionId}/units/${unitId}/slides`,
+          { method: 'PATCH', body: JSON.stringify({ currentSlide }) },
           auth
         ),
       duplicateUnit: (unitId: string) =>

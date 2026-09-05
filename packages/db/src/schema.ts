@@ -357,6 +357,10 @@ export const units = pgTable(
     orderIndex: integer('order_index').notNull().default(0),
     plannedStartMeeting: integer('planned_start_meeting'),
     plannedMeetingCount: integer('planned_meeting_count'),
+    // A deck belongs to the shared unit curriculum. Every lesson in the unit
+    // inherits it, while each teacher's class group keeps its own position.
+    googleSlidesUrl: text('google_slides_url'),
+    googleSlidesStartSlide: integer('google_slides_start_slide').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
@@ -528,6 +532,26 @@ export const sectionLessonState = pgTable(
   (table) => [
     unique('uniq_section_lesson_state').on(table.sectionId, table.lessonId),
     index('idx_section_lesson_state_status').on(table.sectionId, table.status)
+  ]
+);
+
+export const sectionUnitSlideState = pgTable(
+  'section_unit_slide_state',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => sections.id, { onDelete: 'cascade' }),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id, { onDelete: 'cascade' }),
+    currentSlide: integer('current_slide').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_section_unit_slide_state').on(table.sectionId, table.unitId),
+    index('idx_section_unit_slide_state_section').on(table.sectionId)
   ]
 );
 

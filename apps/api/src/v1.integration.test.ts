@@ -56,7 +56,10 @@ async function runMigrations() {
     '0011_planning_and_meeting_history.sql',
     '0012_course_lifecycle_and_sharing.sql',
     '0013_collaborative_courses.sql',
-    '0014_collaboration_activity_comments_pacing.sql'
+    '0014_collaboration_activity_comments_pacing.sql',
+    '0015_teacher_courses.sql',
+    '0016_section_original_schedule_label.sql',
+    '0017_unit_google_slides.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -72,15 +75,20 @@ async function resetDatabase() {
       ai_jobs,
       class_meetings,
       class_notes,
+      section_unit_slide_state,
       section_plan_operations,
       section_lesson_plans,
       lesson_shares,
+      lesson_comments,
       section_lesson_state,
       lesson_segments,
       lessons,
       units,
       section_meetings,
       sections,
+      course_activity,
+      teacher_courses,
+      course_collaborators,
       courses,
       teacher_profiles,
       schools,
@@ -327,6 +335,107 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           })
         ])
       );
+    });
+
+    it('keeps one unit deck with an independent slide position for each class group', async () => {
+      await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: teacherHeaders,
+        payload: onboardingBody
+      });
+      const created = await app.inject({
+        method: 'POST',
+        url: '/v1/courses',
+        headers: teacherHeaders,
+        payload: { name: 'Biology', subject: 'Science', gradeLevel: '9' }
+      });
+      const courseId = created.json<{ course: { id: string } }>().course.id;
+      const unitResponse = await app.inject({
+        method: 'POST',
+        url: `/v1/courses/${courseId}/units`,
+        headers: teacherHeaders,
+        payload: {
+          title: 'Cells',
+          description: null,
+          googleSlidesUrl: 'https://docs.google.com/presentation/d/deck-one/edit',
+          googleSlidesStartSlide: 3
+        }
+      });
+      const unitId = unitResponse.json<{ course: { units: Array<{ id: string }> } }>().course
+        .units[0]!.id;
+      const lessonResponse = await app.inject({
+        method: 'POST',
+        url: `/v1/units/${unitId}/lessons`,
+        headers: teacherHeaders,
+        payload: { title: 'Cell structure', description: null, estimatedDurationMinutes: 45 }
+      });
+      const lessonId = lessonResponse.json<{
+        course: { units: Array<{ lessons: Array<{ id: string }> }> };
+      }>().course.units[0]!.lessons[0]!.id;
+      const sectionIds: string[] = [];
+      for (const sectionName of ['Group A', 'Group B']) {
+        const sectionResponse = await app.inject({
+          method: 'POST',
+          url: '/v1/sections',
+          headers: teacherHeaders,
+          payload: { courseId, sectionName, meetings: [] }
+        });
+        const section = sectionResponse
+          .json<{ sections: Array<{ sectionId: string; sectionName: string }> }>()
+          .sections.find((item) => item.sectionName === sectionName);
+        sectionIds.push(section!.sectionId);
+      }
+
+      const [groupA, groupB] = sectionIds;
+      const initial = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${groupA}/units/${unitId}/slides`,
+        headers: teacherHeaders
+      });
+      expect(initial.json()).toMatchObject({ currentSlide: 3, updatedAt: null });
+      const advanced = await app.inject({
+        method: 'PATCH',
+        url: `/v1/sections/${groupA}/units/${unitId}/slides`,
+        headers: teacherHeaders,
+        payload: { currentSlide: 7 }
+      });
+      expect(advanced.statusCode).toBe(200);
+      expect(advanced.json()).toMatchObject({ currentSlide: 7 });
+      const otherGroup = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${groupB}/units/${unitId}/slides`,
+        headers: teacherHeaders
+      });
+      expect(otherGroup.json()).toMatchObject({ currentSlide: 3, updatedAt: null });
+
+      const workspace = await app.inject({
+        method: 'GET',
+        url: `/v1/lessons/${lessonId}/workspace`,
+        headers: teacherHeaders
+      });
+      expect(workspace.json()).toMatchObject({
+        unit: {
+          googleSlidesUrl: 'https://docs.google.com/presentation/d/deck-one/edit',
+          googleSlidesStartSlide: 3
+        }
+      });
+
+      await app.inject({
+        method: 'PATCH',
+        url: `/v1/units/${unitId}`,
+        headers: teacherHeaders,
+        payload: {
+          googleSlidesUrl: 'https://docs.google.com/presentation/d/deck-two/edit',
+          googleSlidesStartSlide: 2
+        }
+      });
+      const reset = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${groupA}/units/${unitId}/slides`,
+        headers: teacherHeaders
+      });
+      expect(reset.json()).toMatchObject({ currentSlide: 2, updatedAt: null });
     });
 
     it('updates reviewed imports in place without duplicating a class group or its history identity', async () => {

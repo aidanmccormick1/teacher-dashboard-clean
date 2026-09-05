@@ -74,6 +74,8 @@ import {
   SectionUpdateRequestSchema,
   UnitCreateRequestSchema,
   UnitUpdateRequestSchema,
+  UnitSlidesProgressResponseSchema,
+  UnitSlidesProgressUpsertRequestSchema,
   LessonCreateRequestSchema,
   LessonUpdateRequestSchema,
   LessonShareResponseSchema,
@@ -119,6 +121,7 @@ import {
   sectionLessonPlans,
   sectionPlanOperations,
   sectionLessonState,
+  sectionUnitSlideState,
   sectionMeetings,
   sections,
   schools,
@@ -532,6 +535,7 @@ const UnitParamsSchema = z.object({ unitId: UuidSchema });
 const LessonParamsSchema = z.object({ lessonId: UuidSchema });
 const SegmentParamsSchema = z.object({ segmentId: UuidSchema });
 const SectionParamsSchema = z.object({ sectionId: UuidSchema });
+const SectionUnitParamsSchema = z.object({ sectionId: UuidSchema, unitId: UuidSchema });
 const HolidayParamsSchema = z.object({ holidayId: UuidSchema });
 const AiJobParamsSchema = z.object({ jobId: UuidSchema });
 
@@ -703,6 +707,38 @@ async function findOwnedLessonInSectionCourse(userId: string, sectionId: string,
   return row ?? null;
 }
 
+async function findOwnedUnitInSectionCourse(userId: string, sectionId: string, unitId: string) {
+  const [row] = await db
+    .select({
+      sectionId: sections.id,
+      unitId: units.id,
+      googleSlidesUrl: units.googleSlidesUrl,
+      googleSlidesStartSlide: units.googleSlidesStartSlide
+    })
+    .from(sections)
+    .innerJoin(courses, eq(sections.courseId, courses.id))
+    .innerJoin(
+      courseCollaborators,
+      and(
+        eq(courseCollaborators.courseId, courses.id),
+        eq(courseCollaborators.userId, userId),
+        eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .innerJoin(units, eq(units.courseId, courses.id))
+    .where(
+      and(
+        eq(sections.id, sectionId),
+        eq(sections.teacherId, userId),
+        eq(units.id, unitId),
+        isNull(courseCollaborators.archivedAt)
+      )
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
 async function buildLessonWorkspace(userId: string, lessonId: string) {
   const [row] = await db
     .select({
@@ -710,6 +746,8 @@ async function buildLessonWorkspace(userId: string, lessonId: string) {
       courseName: courses.name,
       unitId: units.id,
       unitTitle: units.title,
+      googleSlidesUrl: units.googleSlidesUrl,
+      googleSlidesStartSlide: units.googleSlidesStartSlide,
       lessonId: lessons.id,
       title: lessons.title,
       description: lessons.description,
@@ -764,7 +802,12 @@ async function buildLessonWorkspace(userId: string, lessonId: string) {
     .orderBy(asc(sections.name));
   return LessonWorkspaceResponseSchema.parse({
     course: { id: row.courseId, name: row.courseName },
-    unit: { id: row.unitId, title: row.unitTitle },
+    unit: {
+      id: row.unitId,
+      title: row.unitTitle,
+      googleSlidesUrl: row.googleSlidesUrl,
+      googleSlidesStartSlide: row.googleSlidesStartSlide
+    },
     lesson: {
       id: row.lessonId,
       title: row.title,
@@ -812,7 +855,12 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
     ? await db
         .select({ curriculumId: teacherCourses.curriculumId, name: teacherCourses.name })
         .from(teacherCourses)
-        .where(and(eq(teacherCourses.teacherId, userId), inArray(teacherCourses.curriculumId, curriculumIds)))
+        .where(
+          and(
+            eq(teacherCourses.teacherId, userId),
+            inArray(teacherCourses.curriculumId, curriculumIds)
+          )
+        )
     : [];
   const localNameByCurriculumId = new Map(
     localCourseRows.map((localCourse) => [localCourse.curriculumId, localCourse.name])
@@ -893,7 +941,9 @@ async function buildCourseDetail(userId: string, courseId: string) {
       description: units.description,
       orderIndex: units.orderIndex,
       plannedStartMeeting: units.plannedStartMeeting,
-      plannedMeetingCount: units.plannedMeetingCount
+      plannedMeetingCount: units.plannedMeetingCount,
+      googleSlidesUrl: units.googleSlidesUrl,
+      googleSlidesStartSlide: units.googleSlidesStartSlide
     })
     .from(units)
     .where(eq(units.courseId, courseId))
@@ -988,6 +1038,8 @@ async function buildCourseDetail(userId: string, courseId: string) {
         orderIndex: unit.orderIndex,
         plannedStartMeeting: unit.plannedStartMeeting,
         plannedMeetingCount: unit.plannedMeetingCount,
+        googleSlidesUrl: unit.googleSlidesUrl,
+        googleSlidesStartSlide: unit.googleSlidesStartSlide,
         lessons: (lessonsByUnitId.get(unit.id) ?? []).map((lesson) => ({
           id: lesson.id,
           title: lesson.title,
@@ -1043,7 +1095,9 @@ async function listCoursesForUser(userId: string, status: 'active' | 'archived' 
     ? await db
         .select()
         .from(teacherCourses)
-        .where(and(eq(teacherCourses.teacherId, userId), inArray(teacherCourses.curriculumId, courseIds)))
+        .where(
+          and(eq(teacherCourses.teacherId, userId), inArray(teacherCourses.curriculumId, courseIds))
+        )
     : [];
   const localByCurriculumId = new Map(
     localCourseRows.map((localCourse) => [localCourse.curriculumId, localCourse])
@@ -1064,26 +1118,28 @@ async function listCoursesForUser(userId: string, status: 'active' | 'archived' 
     const archivedAt = localCourse?.archivedAt ?? course.archivedAt;
     if ((status === 'active' && archivedAt) || (status === 'archived' && !archivedAt)) return [];
     const linkedClassGroupCount = linkedByCourseId.get(course.id) ?? 0;
-    return [{
-      id: course.id,
-      curriculumId: course.id,
-      curriculumName: course.name,
-      relationshipType: localCourse?.relationshipType === 'shared' ? 'shared' : 'independent',
-      name: localCourse?.name ?? course.name,
-      subject: localCourse?.subject ?? course.subject,
-      gradeLevel: localCourse?.gradeLevel ?? course.gradeLevel,
-      sortIndex: localCourse?.sortIndex ?? course.sortIndex,
-      archivedAt: archivedAt?.toISOString() ?? null,
-      createdAt: course.createdAt.toISOString(),
-      updatedAt: course.updatedAt.toISOString(),
-      accessRole: course.accessRole as 'owner' | 'editor',
-      lifecycle: archivedAt
-        ? ('ended' as const)
-        : linkedClassGroupCount > 0
-          ? ('active' as const)
-          : ('unlinked' as const),
-      linkedClassGroupCount
-    }];
+    return [
+      {
+        id: course.id,
+        curriculumId: course.id,
+        curriculumName: course.name,
+        relationshipType: localCourse?.relationshipType === 'shared' ? 'shared' : 'independent',
+        name: localCourse?.name ?? course.name,
+        subject: localCourse?.subject ?? course.subject,
+        gradeLevel: localCourse?.gradeLevel ?? course.gradeLevel,
+        sortIndex: localCourse?.sortIndex ?? course.sortIndex,
+        archivedAt: archivedAt?.toISOString() ?? null,
+        createdAt: course.createdAt.toISOString(),
+        updatedAt: course.updatedAt.toISOString(),
+        accessRole: course.accessRole as 'owner' | 'editor',
+        lifecycle: archivedAt
+          ? ('ended' as const)
+          : linkedClassGroupCount > 0
+            ? ('active' as const)
+            : ('unlinked' as const),
+        linkedClassGroupCount
+      }
+    ];
   });
 }
 
@@ -1378,7 +1434,9 @@ async function copyCourseCurriculum(
           description: unit.description,
           orderIndex: unit.orderIndex,
           plannedStartMeeting: unit.plannedStartMeeting,
-          plannedMeetingCount: unit.plannedMeetingCount
+          plannedMeetingCount: unit.plannedMeetingCount,
+          googleSlidesUrl: unit.googleSlidesUrl,
+          googleSlidesStartSlide: unit.googleSlidesStartSlide
         })
         .returning({ id: units.id });
       if (!createdUnit) throw new Error('Failed to copy unit');
@@ -2987,7 +3045,12 @@ export async function v1Routes(app: FastifyInstance) {
       const owned = await db
         .select({ id: teacherCourses.curriculumId })
         .from(teacherCourses)
-        .where(and(eq(teacherCourses.teacherId, user.id), inArray(teacherCourses.curriculumId, body.courseIds)));
+        .where(
+          and(
+            eq(teacherCourses.teacherId, user.id),
+            inArray(teacherCourses.curriculumId, body.courseIds)
+          )
+        );
       if (owned.length !== body.courseIds.length) {
         (reply as any).code(404);
         return { error: 'One or more courses were not found', requestId: request.id };
@@ -2999,7 +3062,12 @@ export async function v1Routes(app: FastifyInstance) {
             tx
               .update(teacherCourses)
               .set({ sortIndex, updatedAt: new Date() })
-              .where(and(eq(teacherCourses.teacherId, user.id), eq(teacherCourses.curriculumId, courseId)))
+              .where(
+                and(
+                  eq(teacherCourses.teacherId, user.id),
+                  eq(teacherCourses.curriculumId, courseId)
+                )
+              )
           )
         );
         await tx.insert(auditEvents).values({
@@ -3239,12 +3307,7 @@ export async function v1Routes(app: FastifyInstance) {
     const [course] = await db
       .update(teacherCourses)
       .set({ archivedAt: new Date(), updatedAt: new Date() })
-      .where(
-        and(
-          eq(teacherCourses.curriculumId, courseId),
-          eq(teacherCourses.teacherId, user.id)
-        )
-      )
+      .where(and(eq(teacherCourses.curriculumId, courseId), eq(teacherCourses.teacherId, user.id)))
       .returning({ courseId: teacherCourses.curriculumId });
     if (!course) {
       (reply as any).code(404);
@@ -3261,12 +3324,7 @@ export async function v1Routes(app: FastifyInstance) {
     const [course] = await db
       .update(teacherCourses)
       .set({ archivedAt: null, updatedAt: new Date() })
-      .where(
-        and(
-          eq(teacherCourses.curriculumId, courseId),
-          eq(teacherCourses.teacherId, user.id)
-        )
-      )
+      .where(and(eq(teacherCourses.curriculumId, courseId), eq(teacherCourses.teacherId, user.id)))
       .returning({ courseId: teacherCourses.curriculumId });
     if (!course) {
       (reply as any).code(404);
@@ -3410,7 +3468,9 @@ export async function v1Routes(app: FastifyInstance) {
       // so later shared edits cannot appear in this teacher's workspace.
       await db
         .delete(courseCollaborators)
-        .where(and(eq(courseCollaborators.courseId, courseId), eq(courseCollaborators.userId, user.id)));
+        .where(
+          and(eq(courseCollaborators.courseId, courseId), eq(courseCollaborators.userId, user.id))
+        );
       teacherCourseCurriculumId = created.id;
     } else {
       await db
@@ -3426,7 +3486,12 @@ export async function v1Routes(app: FastifyInstance) {
         })
         .onConflictDoUpdate({
           target: [teacherCourses.teacherId, teacherCourses.curriculumId],
-          set: { name: body.name, relationshipType: 'shared', archivedAt: null, updatedAt: new Date() }
+          set: {
+            name: body.name,
+            relationshipType: 'shared',
+            archivedAt: null,
+            updatedAt: new Date()
+          }
         });
     }
     await recordCourseActivity(
@@ -4035,7 +4100,9 @@ export async function v1Routes(app: FastifyInstance) {
         description: body.description,
         orderIndex: body.orderIndex ?? (latestUnit?.orderIndex ?? -1) + 1,
         plannedStartMeeting: body.plannedStartMeeting ?? null,
-        plannedMeetingCount: body.plannedMeetingCount ?? null
+        plannedMeetingCount: body.plannedMeetingCount ?? null,
+        googleSlidesUrl: body.googleSlidesUrl ?? null,
+        googleSlidesStartSlide: body.googleSlidesStartSlide ?? 1
       });
 
       await recordCourseActivity(
@@ -4088,8 +4155,27 @@ export async function v1Routes(app: FastifyInstance) {
         updates.plannedStartMeeting = body.plannedStartMeeting;
       if (body.plannedMeetingCount !== undefined)
         updates.plannedMeetingCount = body.plannedMeetingCount;
+      if (body.googleSlidesUrl !== undefined) updates.googleSlidesUrl = body.googleSlidesUrl;
+      if (body.googleSlidesStartSlide !== undefined)
+        updates.googleSlidesStartSlide = body.googleSlidesStartSlide;
 
-      await db.update(units).set(updates).where(eq(units.id, params.unitId));
+      await db.transaction(async (tx) => {
+        if (body.googleSlidesUrl !== undefined) {
+          const [existing] = await tx
+            .select({ googleSlidesUrl: units.googleSlidesUrl })
+            .from(units)
+            .where(eq(units.id, params.unitId))
+            .limit(1);
+          // A different deck must not inherit a class group's position from
+          // the old one. Removing and re-adding the same URL is also a reset.
+          if (existing?.googleSlidesUrl !== body.googleSlidesUrl) {
+            await tx
+              .delete(sectionUnitSlideState)
+              .where(eq(sectionUnitSlideState.unitId, params.unitId));
+          }
+        }
+        await tx.update(units).set(updates).where(eq(units.id, params.unitId));
+      });
 
       await recordCourseActivity(
         ownedCourseId,
@@ -4107,6 +4193,87 @@ export async function v1Routes(app: FastifyInstance) {
       const detail = await buildCourseDetail(user.id, ownedCourseId);
       if (!detail) throw new Error('Failed to load course detail');
       return detail;
+    }
+  );
+
+  app.get(
+    '/v1/sections/:sectionId/units/:unitId/slides',
+    {
+      schema: {
+        params: SectionUnitParamsSchema,
+        response: { 200: UnitSlidesProgressResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionUnitParamsSchema.parse(request.params);
+      const unit = await findOwnedUnitInSectionCourse(user.id, params.sectionId, params.unitId);
+      if (!unit?.googleSlidesUrl) {
+        (reply as any).code(404);
+        return { error: 'Unit slides not found', requestId: request.id };
+      }
+      const [state] = await db
+        .select({
+          currentSlide: sectionUnitSlideState.currentSlide,
+          updatedAt: sectionUnitSlideState.updatedAt
+        })
+        .from(sectionUnitSlideState)
+        .where(
+          and(
+            eq(sectionUnitSlideState.sectionId, params.sectionId),
+            eq(sectionUnitSlideState.unitId, params.unitId)
+          )
+        )
+        .limit(1);
+      return UnitSlidesProgressResponseSchema.parse({
+        currentSlide: state?.currentSlide ?? unit.googleSlidesStartSlide,
+        updatedAt: state?.updatedAt.toISOString() ?? null
+      });
+    }
+  );
+
+  app.patch(
+    '/v1/sections/:sectionId/units/:unitId/slides',
+    {
+      schema: {
+        params: SectionUnitParamsSchema,
+        body: UnitSlidesProgressUpsertRequestSchema,
+        response: { 200: UnitSlidesProgressResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionUnitParamsSchema.parse(request.params);
+      const body = UnitSlidesProgressUpsertRequestSchema.parse(request.body);
+      const unit = await findOwnedUnitInSectionCourse(user.id, params.sectionId, params.unitId);
+      if (!unit?.googleSlidesUrl) {
+        (reply as any).code(404);
+        return { error: 'Unit slides not found', requestId: request.id };
+      }
+      const [state] = await db
+        .insert(sectionUnitSlideState)
+        .values({
+          sectionId: params.sectionId,
+          unitId: params.unitId,
+          currentSlide: body.currentSlide
+        })
+        .onConflictDoUpdate({
+          target: [sectionUnitSlideState.sectionId, sectionUnitSlideState.unitId],
+          set: { currentSlide: body.currentSlide, updatedAt: new Date() }
+        })
+        .returning({
+          currentSlide: sectionUnitSlideState.currentSlide,
+          updatedAt: sectionUnitSlideState.updatedAt
+        });
+      if (!state) throw new Error('Could not save slide position');
+      return UnitSlidesProgressResponseSchema.parse({
+        currentSlide: state.currentSlide,
+        updatedAt: state.updatedAt.toISOString()
+      });
     }
   );
 
@@ -4184,7 +4351,9 @@ export async function v1Routes(app: FastifyInstance) {
             description: source.description,
             orderIndex,
             plannedStartMeeting: newStart,
-            plannedMeetingCount: source.plannedMeetingCount
+            plannedMeetingCount: source.plannedMeetingCount,
+            googleSlidesUrl: source.googleSlidesUrl,
+            googleSlidesStartSlide: source.googleSlidesStartSlide
           })
           .returning({ id: units.id });
         if (!copy) throw new Error('Failed to duplicate unit');
@@ -4587,6 +4756,9 @@ export async function v1Routes(app: FastifyInstance) {
           units: detail.course.units.map((unit) => ({
             title: unit.title,
             description: unit.description,
+            unitSlides: unit.googleSlidesUrl
+              ? { url: unit.googleSlidesUrl, startSlide: unit.googleSlidesStartSlide }
+              : null,
             lessons: unit.lessons.map((lesson) => ({
               title: lesson.title,
               description: lesson.description,
@@ -4621,6 +4793,8 @@ export async function v1Routes(app: FastifyInstance) {
         .select({
           courseName: courses.name,
           unitTitle: units.title,
+          googleSlidesUrl: units.googleSlidesUrl,
+          googleSlidesStartSlide: units.googleSlidesStartSlide,
           lessonId: lessons.id,
           title: lessons.title,
           description: lessons.description,
@@ -4656,6 +4830,9 @@ export async function v1Routes(app: FastifyInstance) {
       return PublicLessonResponseSchema.parse({
         courseName: row.courseName,
         unitTitle: row.unitTitle,
+        unitSlides: row.googleSlidesUrl
+          ? { url: row.googleSlidesUrl, startSlide: row.googleSlidesStartSlide }
+          : null,
         lesson: {
           title: row.title,
           description: row.description,

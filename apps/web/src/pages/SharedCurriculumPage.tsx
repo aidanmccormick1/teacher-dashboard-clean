@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import type { PublicCurriculumResponse } from '@teacheros/contracts';
+import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
 import { getPublicCurriculum } from '../lib/api.js';
 
 function safeHtml(value: string | null) {
@@ -101,6 +102,13 @@ export function SharedCurriculumPage() {
               </ol>
             </article>
           ))}
+          {unit.unitSlides ? (
+            <UnitSlidesViewer
+              url={unit.unitSlides.url}
+              initialSlide={unit.unitSlides.startSlide}
+              compact
+            />
+          ) : null}
         </section>
       ))}
       <p className="muted">Checkmarks are temporary and clear when this page is reloaded.</p>

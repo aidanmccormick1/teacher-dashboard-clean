@@ -76,6 +76,8 @@ const previewCourses = [
         orderIndex: 0,
         plannedStartMeeting: 0,
         plannedMeetingCount: 8,
+        googleSlidesUrl: null,
+        googleSlidesStartSlide: 1,
         lessons: [
           {
             id: '00000000-0000-4000-8000-000000000101',
@@ -162,6 +164,8 @@ const previewCourses = [
         orderIndex: 1,
         plannedStartMeeting: 8,
         plannedMeetingCount: 10,
+        googleSlidesUrl: null,
+        googleSlidesStartSlide: 1,
         lessons: [
           {
             id: '00000000-0000-4000-8000-000000000103',
@@ -771,8 +775,7 @@ export function SharingPage() {
           mode: 'collaborate',
           name: invitation?.course.curriculumName ?? 'My course'
         });
-      }
-      else await api.declineCourseInvitation(courseId);
+      } else await api.declineCourseInvitation(courseId);
       await loadPage();
       if (response === 'accept') updateLocation(courseId);
       setNotice(
@@ -823,14 +826,6 @@ export function SharingPage() {
         <div>
           <p className="eyebrow">Sharing</p>
           <h1>Share {selectedCourse.name}</h1>
-        </div>
-        <div className="sharing-boundary" aria-label="What stays private">
-          {isDesignPreview ? (
-            <span className="sharing-preview-label">Design preview data</span>
-          ) : null}
-            <span>Shared curriculum</span>
-            <span>Private schedules</span>
-            <span>Private notes</span>
         </div>
       </header>
 
@@ -915,7 +910,7 @@ export function SharingPage() {
                   aria-pressed={isSelected}
                   onClick={() => updateLocation(course.id)}
                 >
-                <span className="sharing-course-copy">
+                  <span className="sharing-course-copy">
                     <strong>{course.name}</strong>
                     <small>
                       {course.units.length} unit{course.units.length === 1 ? '' : 's'} · {count}{' '}
@@ -938,7 +933,11 @@ export function SharingPage() {
           <div className="sharing-course-header">
             <div>
               <div className="sharing-course-kicker">
-                <span>{selectedCourse.relationshipType === 'shared' ? `Using curriculum: ${selectedCourse.curriculumName}` : 'My curriculum'}</span>
+                <span>
+                  {selectedCourse.relationshipType === 'shared'
+                    ? `Using curriculum: ${selectedCourse.curriculumName}`
+                    : 'My curriculum'}
+                </span>
                 {courseLoading ? <span>Refreshing…</span> : null}
               </div>
               <h2>{selectedCourse.name}</h2>
@@ -1204,7 +1203,9 @@ export function SharingPage() {
                   <p>Let collaborators see where my classes are in the curriculum.</p>
                   <label className="sharing-toggle-row">
                     <span>
-                      <strong>{pacing?.sharingEnabled ? 'Share progress' : 'Share progress'}</strong>
+                      <strong>
+                        {pacing?.sharingEnabled ? 'Share progress' : 'Share progress'}
+                      </strong>
                       <small>Progress stays private unless you turn this on.</small>
                     </span>
                     <input

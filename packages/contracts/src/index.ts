@@ -810,6 +810,26 @@ export const LessonPlanSchema = z.object({
   )
 });
 
+export const GoogleSlidesUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return (
+        ['docs.google.com', 'slides.google.com'].includes(url.hostname.toLowerCase()) &&
+        /\/presentation\/(?:d|u\/\d+\/d)\//.test(url.pathname)
+      );
+    } catch {
+      return false;
+    }
+  }, 'Use a Google Slides presentation link.');
+
+export const UnitSlidesSchema = z.object({
+  url: GoogleSlidesUrlSchema,
+  startSlide: z.number().int().positive()
+});
+
 export const LessonSchema = z.object({
   id: UuidSchema,
   title: z.string(),
@@ -829,6 +849,8 @@ export const UnitSchema = z.object({
   orderIndex: z.number().int(),
   plannedStartMeeting: z.number().int().nonnegative().nullable(),
   plannedMeetingCount: z.number().int().positive().nullable(),
+  googleSlidesUrl: GoogleSlidesUrlSchema.nullable(),
+  googleSlidesStartSlide: z.number().int().positive(),
   lessons: z.array(LessonSchema)
 });
 
@@ -843,7 +865,9 @@ export const UnitCreateRequestSchema = z.object({
   description: z.string().nullable(),
   orderIndex: z.number().int().nonnegative().optional(),
   plannedStartMeeting: z.number().int().nonnegative().nullable().optional(),
-  plannedMeetingCount: z.number().int().positive().nullable().optional()
+  plannedMeetingCount: z.number().int().positive().nullable().optional(),
+  googleSlidesUrl: GoogleSlidesUrlSchema.nullable().optional(),
+  googleSlidesStartSlide: z.number().int().positive().optional()
 });
 
 export const UnitUpdateRequestSchema = z.object({
@@ -851,7 +875,9 @@ export const UnitUpdateRequestSchema = z.object({
   description: z.string().nullable().optional(),
   orderIndex: z.number().int().nonnegative().optional(),
   plannedStartMeeting: z.number().int().nonnegative().nullable().optional(),
-  plannedMeetingCount: z.number().int().positive().nullable().optional()
+  plannedMeetingCount: z.number().int().positive().nullable().optional(),
+  googleSlidesUrl: GoogleSlidesUrlSchema.nullable().optional(),
+  googleSlidesStartSlide: z.number().int().positive().optional()
 });
 
 export const LessonCreateRequestSchema = z.object({
@@ -926,7 +952,12 @@ export const LessonShareResponseSchema = z.object({
 });
 export const LessonWorkspaceResponseSchema = z.object({
   course: z.object({ id: UuidSchema, name: z.string() }),
-  unit: z.object({ id: UuidSchema, title: z.string() }),
+  unit: z.object({
+    id: UuidSchema,
+    title: z.string(),
+    googleSlidesUrl: GoogleSlidesUrlSchema.nullable(),
+    googleSlidesStartSlide: z.number().int().positive()
+  }),
   lesson: LessonSchema,
   sections: z.array(
     z.object({
@@ -941,6 +972,7 @@ export const LessonWorkspaceResponseSchema = z.object({
 export const PublicLessonResponseSchema = z.object({
   courseName: z.string(),
   unitTitle: z.string(),
+  unitSlides: UnitSlidesSchema.nullable(),
   lesson: z.object({
     title: z.string(),
     description: z.string().nullable(),
@@ -968,6 +1000,7 @@ export const PublicCurriculumResponseSchema = z.object({
       z.object({
         title: z.string(),
         description: z.string().nullable(),
+        unitSlides: UnitSlidesSchema.nullable(),
         lessons: z.array(
           z.object({
             title: z.string(),
@@ -1021,6 +1054,15 @@ export const ClassroomResumeResponseSchema = z.object({
       updatedAt: z.string()
     })
     .nullable()
+});
+
+export const UnitSlidesProgressUpsertRequestSchema = z.object({
+  currentSlide: z.number().int().positive()
+});
+
+export const UnitSlidesProgressResponseSchema = z.object({
+  currentSlide: z.number().int().positive(),
+  updatedAt: z.string().nullable()
 });
 
 export const DeleteEntityResponseSchema = z.object({
@@ -1112,6 +1154,9 @@ export type CourseUpdateRequest = z.infer<typeof CourseUpdateRequestSchema>;
 export type CourseOrderUpdateRequest = z.infer<typeof CourseOrderUpdateRequestSchema>;
 export type UnitCreateRequest = z.infer<typeof UnitCreateRequestSchema>;
 export type UnitUpdateRequest = z.infer<typeof UnitUpdateRequestSchema>;
+export type UnitSlides = z.infer<typeof UnitSlidesSchema>;
+export type UnitSlidesProgressUpsertRequest = z.infer<typeof UnitSlidesProgressUpsertRequestSchema>;
+export type UnitSlidesProgressResponse = z.infer<typeof UnitSlidesProgressResponseSchema>;
 export type LessonCreateRequest = z.infer<typeof LessonCreateRequestSchema>;
 export type LessonUpdateRequest = z.infer<typeof LessonUpdateRequestSchema>;
 export type CurriculumRangeCreateRequest = z.infer<typeof CurriculumRangeCreateRequestSchema>;

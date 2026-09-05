@@ -6,6 +6,7 @@ import type {
   DashboardTodayResponse,
   GetScheduleResponse
 } from '@teacheros/contracts';
+import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 import { timeRange } from '../lib/today.js';
 
@@ -55,12 +56,18 @@ export function ClassroomPage() {
   const [state, setState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [error, setError] = useState<string | null>(null);
   const [scheduledConflict, setScheduledConflict] = useState<ScheduledLessonConflict | null>(null);
+  const [unitSlide, setUnitSlide] = useState<number | null>(null);
+  const [unitSlideSaveStatus, setUnitSlideSaveStatus] = useState<
+    'saved' | 'saving' | 'error' | 'loading'
+  >('saved');
   const timer = useRef<number | null>(null);
   const latest = useRef<{ checks: string[]; note: string; version: number } | null>(null);
   const draftVersion = useRef(0);
   const meetingRevision = useRef<number | null>(null);
   const persistRef = useRef<(endClass?: boolean) => void>(() => undefined);
   const chain = useRef<Promise<void>>(Promise.resolve());
+  const unitSlideChain = useRef<Promise<void>>(Promise.resolve());
+  const unitSlideVersion = useRef(0);
   const requested = params.get('section');
   const requestedMeetingTime = params.get('meetingTime');
   const requestedLessonId = params.get('lesson');
@@ -154,6 +161,33 @@ export function ClassroomPage() {
         setError(err instanceof ApiError ? err.message : 'Could not load curriculum.')
       );
   }, [api, selected?.courseId]);
+  useEffect(() => {
+    unitSlideVersion.current += 1;
+    const version = unitSlideVersion.current;
+    if (!contextSectionId || !selectedUnit?.googleSlidesUrl) {
+      setUnitSlide(null);
+      setUnitSlideSaveStatus('saved');
+      return;
+    }
+    setUnitSlide(selectedUnit.googleSlidesStartSlide);
+    setUnitSlideSaveStatus('loading');
+    void api
+      .getUnitSlidesProgress(contextSectionId, selectedUnit.id)
+      .then((response) => {
+        if (version !== unitSlideVersion.current) return;
+        setUnitSlide(response.currentSlide);
+        setUnitSlideSaveStatus('saved');
+      })
+      .catch(() => {
+        if (version === unitSlideVersion.current) setUnitSlideSaveStatus('error');
+      });
+  }, [
+    api,
+    contextSectionId,
+    selectedUnit?.googleSlidesStartSlide,
+    selectedUnit?.googleSlidesUrl,
+    selectedUnit?.id
+  ]);
   useEffect(() => {
     if (!lessonId || !contextSectionId || !dashboardDate) return;
     setScheduledConflict(null);
@@ -340,6 +374,21 @@ export function ClassroomPage() {
       window.localStorage.setItem(draftStorageKey, JSON.stringify({ checks: nextChecks, note }));
     setChecks(nextChecks);
     persist(true);
+  };
+  const changeUnitSlide = (nextSlide: number) => {
+    if (!contextSectionId || !selectedUnit?.googleSlidesUrl) return;
+    const unitId = selectedUnit.id;
+    const version = ++unitSlideVersion.current;
+    setUnitSlide(nextSlide);
+    setUnitSlideSaveStatus('saving');
+    unitSlideChain.current = unitSlideChain.current.then(async () => {
+      try {
+        await api.updateUnitSlidesProgress(contextSectionId, unitId, nextSlide);
+        if (version === unitSlideVersion.current) setUnitSlideSaveStatus('saved');
+      } catch {
+        if (version === unitSlideVersion.current) setUnitSlideSaveStatus('error');
+      }
+    });
   };
   useEffect(
     () => () => {
@@ -670,9 +719,17 @@ export function ClassroomPage() {
                       />
                     </section>
                   ) : null}
-                  {lesson.lessonPlan.links.length ? (
+                  {selectedUnit?.googleSlidesUrl || lesson.lessonPlan.links.length ? (
                     <section className="lesson-rail-card lesson-rail-resources">
                       <p className="eyebrow">Resources</p>
+                      {selectedUnit?.googleSlidesUrl ? (
+                        <a href="#unit-slides">
+                          Unit Slides{' '}
+                          <span aria-hidden="true">
+                            Slide {unitSlide ?? selectedUnit.googleSlidesStartSlide} ↓
+                          </span>
+                        </a>
+                      ) : null}
                       {lesson.lessonPlan.links.map((link) => (
                         <a href={link.url} key={link.url} rel="noreferrer" target="_blank">
                           {link.title} <span aria-hidden="true">↗</span>
@@ -714,6 +771,18 @@ export function ClassroomPage() {
                   </section>
                 </aside>
               </div>
+              {selectedUnit?.googleSlidesUrl ? (
+                <div id="unit-slides" className="classroom-unit-slides">
+                  <UnitSlidesViewer
+                    url={selectedUnit.googleSlidesUrl}
+                    initialSlide={selectedUnit.googleSlidesStartSlide}
+                    currentSlide={unitSlide ?? selectedUnit.googleSlidesStartSlide}
+                    onSlideChange={changeUnitSlide}
+                    groupName={context.sectionName}
+                    saveStatus={unitSlideSaveStatus}
+                  />
+                </div>
+              ) : null}
               <div className="live-footer-actions">
                 <button className="secondary" type="button" onClick={completeLessonAndMoveOn}>
                   Complete lesson and move on
