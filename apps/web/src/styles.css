@@ -9432,6 +9432,46 @@ button,
   gap: 20px;
 }
 
+.course-settings {
+  order: 0;
+}
+
+.course-class-groups {
+  order: 1;
+}
+
+.course-collaborators {
+  order: 2;
+}
+
+.course-unit-slides {
+  order: 3;
+}
+
+.course-activity {
+  order: 4;
+}
+
+.course-add-unit-form {
+  margin-top: 16px;
+}
+
+.unit-lesson-summary {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.unit-lesson-summary h4 {
+  margin: 0;
+}
+
+.unit-lesson-summary ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 24px;
+}
+
 .courses-page {
   width: min(100%, 1280px);
   max-width: none;
