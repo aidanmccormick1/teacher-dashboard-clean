@@ -164,7 +164,7 @@ export function SharedLessonPage() {
               </div>
             </article>
           ) : null}
-          {data.unitSlides || lesson.links.length ? (
+          {data.unitSlides || data.lessonSlides || lesson.links.length ? (
             <article
               className="shared-info-card shared-info-card-resources"
               aria-labelledby="shared-resources-heading"
@@ -183,6 +183,17 @@ export function SharedLessonPage() {
                         <strong>Unit Slides</strong>
                         <span>
                           Starts on slide {data.unitSlides.startSlide}{' '}
+                          <span aria-hidden="true">↓</span>
+                        </span>
+                      </a>
+                    </li>
+                  ) : null}
+                  {data.lessonSlides ? (
+                    <li>
+                      <a href="#lesson-slides">
+                        <strong>Lesson Slides</strong>
+                        <span>
+                          Starts on slide {data.lessonSlides.startSlide}{' '}
                           <span aria-hidden="true">↓</span>
                         </span>
                       </a>
@@ -278,6 +289,15 @@ export function SharedLessonPage() {
       {data.unitSlides ? (
         <section id="unit-slides" className="shared-unit-slides">
           <UnitSlidesViewer url={data.unitSlides.url} initialSlide={data.unitSlides.startSlide} />
+        </section>
+      ) : null}
+      {data.lessonSlides ? (
+        <section id="lesson-slides" className="shared-unit-slides">
+          <UnitSlidesViewer
+            url={data.lessonSlides.url}
+            initialSlide={data.lessonSlides.startSlide}
+            deckTitle="Lesson Slides"
+          />
         </section>
       ) : null}
 

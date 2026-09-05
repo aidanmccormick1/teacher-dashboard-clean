@@ -90,6 +90,8 @@ const previewCourses = [
               materials: 'Name cards, mini whiteboards',
               links: []
             },
+            googleSlidesUrl: null,
+            googleSlidesStartSlide: 1,
             orderIndex: 0,
             estimatedDurationMinutes: 45,
             plannedStartMeeting: 0,
@@ -124,6 +126,8 @@ const previewCourses = [
               materials: 'Conversation cards',
               links: []
             },
+            googleSlidesUrl: null,
+            googleSlidesStartSlide: 1,
             orderIndex: 1,
             estimatedDurationMinutes: 45,
             plannedStartMeeting: 1,
@@ -178,6 +182,8 @@ const previewCourses = [
               materials: 'Animal image cards',
               links: []
             },
+            googleSlidesUrl: null,
+            googleSlidesStartSlide: 1,
             orderIndex: 0,
             estimatedDurationMinutes: 50,
             plannedStartMeeting: 8,
@@ -220,6 +226,8 @@ const previewCourses = [
               materials: 'Habitat map',
               links: []
             },
+            googleSlidesUrl: null,
+            googleSlidesStartSlide: 1,
             orderIndex: 1,
             estimatedDurationMinutes: 45,
             plannedStartMeeting: 10,
@@ -237,6 +245,8 @@ const previewCourses = [
               materials: 'Poster paper, markers',
               links: []
             },
+            googleSlidesUrl: null,
+            googleSlidesStartSlide: 1,
             orderIndex: 2,
             estimatedDurationMinutes: 60,
             plannedStartMeeting: 12,

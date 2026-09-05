@@ -306,6 +306,8 @@ export function CurriculumTimeline({
   const [todayDate, setTodayDate] = useState<string | null>(null);
   const [selectedUnitSlidesUrl, setSelectedUnitSlidesUrl] = useState('');
   const [selectedUnitStartSlide, setSelectedUnitStartSlide] = useState('1');
+  const [selectedLessonSlidesUrl, setSelectedLessonSlidesUrl] = useState('');
+  const [selectedLessonStartSlide, setSelectedLessonStartSlide] = useState('1');
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const lessonPlanSaveTimer = useRef<number | null>(null);
   const lessonPlanSaveChain = useRef<Promise<void>>(Promise.resolve());
@@ -436,6 +438,10 @@ export function CurriculumTimeline({
     setSelectedUnitSlidesUrl(selectedUnit?.googleSlidesUrl ?? '');
     setSelectedUnitStartSlide(String(selectedUnit?.googleSlidesStartSlide ?? 1));
   }, [selectedUnit?.googleSlidesStartSlide, selectedUnit?.googleSlidesUrl, selectedUnit?.id]);
+  useEffect(() => {
+    setSelectedLessonSlidesUrl(selectedLesson?.googleSlidesUrl ?? '');
+    setSelectedLessonStartSlide(String(selectedLesson?.googleSlidesStartSlide ?? 1));
+  }, [selectedLesson?.googleSlidesStartSlide, selectedLesson?.googleSlidesUrl, selectedLesson?.id]);
   const sectionMeetings = useMemo(
     () => projectMeetingsForSection(meetingData, selectedSection?.sectionId ?? null),
     [meetingData, selectedSection]
@@ -643,6 +649,51 @@ export function CurriculumTimeline({
       setStatus(`Unit Slides removed from ${selectedUnit.title}.`);
     } catch (err) {
       setStatus(err instanceof ApiError ? err.message : 'Could not remove Unit Slides.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveSelectedLessonSlides = async () => {
+    if (!selectedLesson) return;
+    const url = selectedLessonSlidesUrl.trim();
+    if (!isGoogleSlidesUrl(url)) {
+      setStatus('Paste a Google Slides presentation link to add Lesson Slides.');
+      return;
+    }
+    const startSlide = Number(selectedLessonStartSlide || '1');
+    if (!Number.isInteger(startSlide) || startSlide < 1) {
+      setStatus('The starting slide must be a whole number of 1 or greater.');
+      return;
+    }
+    try {
+      setSaving(true);
+      onCourseChange(
+        await api.updateLesson(selectedLesson.id, {
+          googleSlidesUrl: url,
+          googleSlidesStartSlide: startSlide
+        })
+      );
+      setStatus(`Lesson Slides saved for ${selectedLesson.title}.`);
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not save Lesson Slides.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeSelectedLessonSlides = async () => {
+    if (!selectedLesson) return;
+    try {
+      setSaving(true);
+      onCourseChange(
+        await api.updateLesson(selectedLesson.id, { googleSlidesUrl: null, googleSlidesStartSlide: 1 })
+      );
+      setSelectedLessonSlidesUrl('');
+      setSelectedLessonStartSlide('1');
+      setStatus(`Lesson Slides removed from ${selectedLesson.title}.`);
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not remove Lesson Slides.');
     } finally {
       setSaving(false);
     }
@@ -1858,6 +1909,54 @@ export function CurriculumTimeline({
                 </button>
               ) : null}
               {selectedUnitSlidesUrl && !isGoogleSlidesUrl(selectedUnitSlidesUrl) ? (
+                <p className="curriculum-unit-source-error">Paste a Google Slides presentation link.</p>
+              ) : null}
+            </section>
+          ) : null}
+          {selection.type === 'lesson' && selectedLesson ? (
+            <section className="curriculum-unit-source" aria-label={`Source material for ${selectedLesson.title}`}>
+              <div>
+                <strong>Lesson Slides</strong>
+                <small>A lesson-specific deck, separate from the unit deck.</small>
+              </div>
+              <label>
+                <span>Google Slides link</span>
+                <input
+                  className="input"
+                  type="url"
+                  value={selectedLessonSlidesUrl}
+                  onChange={(event) => setSelectedLessonSlidesUrl(event.target.value)}
+                  placeholder="https://docs.google.com/presentation/d/…"
+                />
+              </label>
+              <label className="curriculum-unit-source-start">
+                <span>Start slide</span>
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  value={selectedLessonStartSlide}
+                  onChange={(event) => setSelectedLessonStartSlide(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={saving || !isGoogleSlidesUrl(selectedLessonSlidesUrl)}
+                onClick={() => void saveSelectedLessonSlides()}
+              >
+                {selectedLesson.googleSlidesUrl ? 'Update slides' : 'Add slides'}
+              </button>
+              {selectedLesson.googleSlidesUrl ? (
+                <button
+                  className="button-link danger"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void removeSelectedLessonSlides()}
+                >
+                  Remove
+                </button>
+              ) : null}
+              {selectedLessonSlidesUrl && !isGoogleSlidesUrl(selectedLessonSlidesUrl) ? (
                 <p className="curriculum-unit-source-error">Paste a Google Slides presentation link.</p>
               ) : null}
             </section>

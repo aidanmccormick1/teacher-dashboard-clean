@@ -60,6 +60,11 @@ export function ClassroomPage() {
   const [unitSlideSaveStatus, setUnitSlideSaveStatus] = useState<
     'saved' | 'saving' | 'error' | 'loading'
   >('saved');
+  const [lessonSlide, setLessonSlide] = useState<number | null>(null);
+  const [lessonSlideSaveStatus, setLessonSlideSaveStatus] = useState<
+    'saved' | 'saving' | 'error' | 'loading'
+  >('saved');
+  const [slideDeckTab, setSlideDeckTab] = useState<'unit' | 'lesson'>('unit');
   const timer = useRef<number | null>(null);
   const latest = useRef<{ checks: string[]; note: string; version: number } | null>(null);
   const draftVersion = useRef(0);
@@ -68,6 +73,8 @@ export function ClassroomPage() {
   const chain = useRef<Promise<void>>(Promise.resolve());
   const unitSlideChain = useRef<Promise<void>>(Promise.resolve());
   const unitSlideVersion = useRef(0);
+  const lessonSlideChain = useRef<Promise<void>>(Promise.resolve());
+  const lessonSlideVersion = useRef(0);
   const requested = params.get('section');
   const requestedMeetingTime = params.get('meetingTime');
   const requestedLessonId = params.get('lesson');
@@ -188,6 +195,36 @@ export function ClassroomPage() {
     selectedUnit?.googleSlidesUrl,
     selectedUnit?.id
   ]);
+  useEffect(() => {
+    lessonSlideVersion.current += 1;
+    const version = lessonSlideVersion.current;
+    if (!contextSectionId || !lesson?.googleSlidesUrl) {
+      setLessonSlide(null);
+      setLessonSlideSaveStatus('saved');
+      return;
+    }
+    setLessonSlide(lesson.googleSlidesStartSlide);
+    setLessonSlideSaveStatus('loading');
+    void api
+      .getLessonSlidesProgress(contextSectionId, lesson.id)
+      .then((response) => {
+        if (version !== lessonSlideVersion.current) return;
+        setLessonSlide(response.currentSlide);
+        setLessonSlideSaveStatus('saved');
+      })
+      .catch(() => {
+        if (version === lessonSlideVersion.current) setLessonSlideSaveStatus('error');
+      });
+  }, [
+    api,
+    contextSectionId,
+    lesson?.googleSlidesStartSlide,
+    lesson?.googleSlidesUrl,
+    lesson?.id
+  ]);
+  useEffect(() => {
+    setSlideDeckTab(lesson?.googleSlidesUrl ? 'lesson' : 'unit');
+  }, [lesson?.googleSlidesUrl, lesson?.id]);
   useEffect(() => {
     if (!lessonId || !contextSectionId || !dashboardDate) return;
     setScheduledConflict(null);
@@ -387,6 +424,21 @@ export function ClassroomPage() {
         if (version === unitSlideVersion.current) setUnitSlideSaveStatus('saved');
       } catch {
         if (version === unitSlideVersion.current) setUnitSlideSaveStatus('error');
+      }
+    });
+  };
+  const changeLessonSlide = (nextSlide: number) => {
+    if (!contextSectionId || !lesson?.googleSlidesUrl) return;
+    const lessonId = lesson.id;
+    const version = ++lessonSlideVersion.current;
+    setLessonSlide(nextSlide);
+    setLessonSlideSaveStatus('saving');
+    lessonSlideChain.current = lessonSlideChain.current.then(async () => {
+      try {
+        await api.updateLessonSlidesProgress(contextSectionId, lessonId, nextSlide);
+        if (version === lessonSlideVersion.current) setLessonSlideSaveStatus('saved');
+      } catch {
+        if (version === lessonSlideVersion.current) setLessonSlideSaveStatus('error');
       }
     });
   };
@@ -719,14 +771,22 @@ export function ClassroomPage() {
                       />
                     </section>
                   ) : null}
-                  {selectedUnit?.googleSlidesUrl || lesson.lessonPlan.links.length ? (
+                  {selectedUnit?.googleSlidesUrl || lesson.googleSlidesUrl || lesson.lessonPlan.links.length ? (
                     <section className="lesson-rail-card lesson-rail-resources">
                       <p className="eyebrow">Resources</p>
                       {selectedUnit?.googleSlidesUrl ? (
-                        <a href="#unit-slides">
+                        <a href="#unit-slides" onClick={() => setSlideDeckTab('unit')}>
                           Unit Slides{' '}
                           <span aria-hidden="true">
                             Slide {unitSlide ?? selectedUnit.googleSlidesStartSlide} ↓
+                          </span>
+                        </a>
+                      ) : null}
+                      {lesson.googleSlidesUrl ? (
+                        <a href="#lesson-slides" onClick={() => setSlideDeckTab('lesson')}>
+                          Lesson Slides{' '}
+                          <span aria-hidden="true">
+                            Slide {lessonSlide ?? lesson.googleSlidesStartSlide} ↓
                           </span>
                         </a>
                       ) : null}
@@ -771,17 +831,52 @@ export function ClassroomPage() {
                   </section>
                 </aside>
               </div>
-              {selectedUnit?.googleSlidesUrl ? (
-                <div id="unit-slides" className="classroom-unit-slides">
-                  <UnitSlidesViewer
-                    url={selectedUnit.googleSlidesUrl}
-                    initialSlide={selectedUnit.googleSlidesStartSlide}
-                    currentSlide={unitSlide ?? selectedUnit.googleSlidesStartSlide}
-                    onSlideChange={changeUnitSlide}
-                    groupName={context.sectionName}
-                    saveStatus={unitSlideSaveStatus}
-                  />
-                </div>
+              {selectedUnit?.googleSlidesUrl || lesson.googleSlidesUrl ? (
+                <section className="classroom-unit-slides" aria-label="Lesson slide decks">
+                  {selectedUnit?.googleSlidesUrl && lesson.googleSlidesUrl ? (
+                    <nav className="classroom-slide-tabs" aria-label="Slide decks">
+                      <button
+                        className={slideDeckTab === 'unit' ? 'active' : ''}
+                        type="button"
+                        onClick={() => setSlideDeckTab('unit')}
+                      >
+                        Unit Slides
+                      </button>
+                      <button
+                        className={slideDeckTab === 'lesson' ? 'active' : ''}
+                        type="button"
+                        onClick={() => setSlideDeckTab('lesson')}
+                      >
+                        Lesson Slides
+                      </button>
+                    </nav>
+                  ) : null}
+                  {slideDeckTab === 'unit' && selectedUnit?.googleSlidesUrl ? (
+                    <div id="unit-slides">
+                      <UnitSlidesViewer
+                        url={selectedUnit.googleSlidesUrl}
+                        initialSlide={selectedUnit.googleSlidesStartSlide}
+                        currentSlide={unitSlide ?? selectedUnit.googleSlidesStartSlide}
+                        onSlideChange={changeUnitSlide}
+                        groupName={context.sectionName}
+                        saveStatus={unitSlideSaveStatus}
+                      />
+                    </div>
+                  ) : null}
+                  {slideDeckTab === 'lesson' && lesson.googleSlidesUrl ? (
+                    <div id="lesson-slides">
+                      <UnitSlidesViewer
+                        url={lesson.googleSlidesUrl}
+                        initialSlide={lesson.googleSlidesStartSlide}
+                        currentSlide={lessonSlide ?? lesson.googleSlidesStartSlide}
+                        onSlideChange={changeLessonSlide}
+                        groupName={context.sectionName}
+                        saveStatus={lessonSlideSaveStatus}
+                        deckTitle="Lesson Slides"
+                      />
+                    </div>
+                  ) : null}
+                </section>
               ) : null}
               <div className="live-footer-actions">
                 <button className="secondary" type="button" onClick={completeLessonAndMoveOn}>

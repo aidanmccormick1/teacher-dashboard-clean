@@ -59,7 +59,8 @@ async function runMigrations() {
     '0014_collaboration_activity_comments_pacing.sql',
     '0015_teacher_courses.sql',
     '0016_section_original_schedule_label.sql',
-    '0017_unit_google_slides.sql'
+    '0017_unit_google_slides.sql',
+    '0018_lesson_google_slides.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -75,6 +76,7 @@ async function resetDatabase() {
       ai_jobs,
       class_meetings,
       class_notes,
+      section_lesson_slide_state,
       section_unit_slide_state,
       section_plan_operations,
       section_lesson_plans,
@@ -454,6 +456,35 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           googleSlidesStartSlide: 3
         }
       });
+
+      await app.inject({
+        method: 'PATCH',
+        url: `/v1/lessons/${lessonId}`,
+        headers: teacherHeaders,
+        payload: {
+          googleSlidesUrl: 'https://docs.google.com/presentation/d/lesson-deck/edit',
+          googleSlidesStartSlide: 4
+        }
+      });
+      const lessonInitial = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${groupA}/lessons/${lessonId}/slides`,
+        headers: teacherHeaders
+      });
+      expect(lessonInitial.json()).toMatchObject({ currentSlide: 4, updatedAt: null });
+      const lessonAdvanced = await app.inject({
+        method: 'PATCH',
+        url: `/v1/sections/${groupA}/lessons/${lessonId}/slides`,
+        headers: teacherHeaders,
+        payload: { currentSlide: 9 }
+      });
+      expect(lessonAdvanced.json()).toMatchObject({ currentSlide: 9 });
+      const lessonOtherGroup = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${groupB}/lessons/${lessonId}/slides`,
+        headers: teacherHeaders
+      });
+      expect(lessonOtherGroup.json()).toMatchObject({ currentSlide: 4, updatedAt: null });
 
       await app.inject({
         method: 'PATCH',

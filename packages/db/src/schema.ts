@@ -376,6 +376,9 @@ export const lessons = pgTable(
       .references(() => units.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
     description: text('description'),
+    // A lesson may have its own deck in addition to the unit-wide deck.
+    googleSlidesUrl: text('google_slides_url'),
+    googleSlidesStartSlide: integer('google_slides_start_slide').notNull().default(1),
     lessonPlan: jsonb('lesson_plan')
       .$type<{
         objective: string | null;
@@ -552,6 +555,26 @@ export const sectionUnitSlideState = pgTable(
   (table) => [
     unique('uniq_section_unit_slide_state').on(table.sectionId, table.unitId),
     index('idx_section_unit_slide_state_section').on(table.sectionId)
+  ]
+);
+
+export const sectionLessonSlideState = pgTable(
+  'section_lesson_slide_state',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => sections.id, { onDelete: 'cascade' }),
+    lessonId: uuid('lesson_id')
+      .notNull()
+      .references(() => lessons.id, { onDelete: 'cascade' }),
+    currentSlide: integer('current_slide').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_section_lesson_slide_state').on(table.sectionId, table.lessonId),
+    index('idx_section_lesson_slide_state_section').on(table.sectionId)
   ]
 );
 

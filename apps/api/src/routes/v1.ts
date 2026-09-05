@@ -76,6 +76,8 @@ import {
   UnitUpdateRequestSchema,
   UnitSlidesProgressResponseSchema,
   UnitSlidesProgressUpsertRequestSchema,
+  LessonSlidesProgressResponseSchema,
+  LessonSlidesProgressUpsertRequestSchema,
   LessonCreateRequestSchema,
   LessonUpdateRequestSchema,
   LessonShareResponseSchema,
@@ -121,6 +123,7 @@ import {
   sectionLessonPlans,
   sectionPlanOperations,
   sectionLessonState,
+  sectionLessonSlideState,
   sectionUnitSlideState,
   sectionMeetings,
   sections,
@@ -536,6 +539,7 @@ const LessonParamsSchema = z.object({ lessonId: UuidSchema });
 const SegmentParamsSchema = z.object({ segmentId: UuidSchema });
 const SectionParamsSchema = z.object({ sectionId: UuidSchema });
 const SectionUnitParamsSchema = z.object({ sectionId: UuidSchema, unitId: UuidSchema });
+const SectionLessonParamsSchema = z.object({ sectionId: UuidSchema, lessonId: UuidSchema });
 const HolidayParamsSchema = z.object({ holidayId: UuidSchema });
 const AiJobParamsSchema = z.object({ jobId: UuidSchema });
 
@@ -680,7 +684,9 @@ async function findOwnedLessonInSectionCourse(userId: string, sectionId: string,
   const [row] = await db
     .select({
       sectionId: sections.id,
-      lessonId: lessons.id
+      lessonId: lessons.id,
+      googleSlidesUrl: lessons.googleSlidesUrl,
+      googleSlidesStartSlide: lessons.googleSlidesStartSlide
     })
     .from(sections)
     .innerJoin(courses, eq(sections.courseId, courses.id))
@@ -752,6 +758,8 @@ async function buildLessonWorkspace(userId: string, lessonId: string) {
       title: lessons.title,
       description: lessons.description,
       lessonPlan: lessons.lessonPlan,
+      lessonGoogleSlidesUrl: lessons.googleSlidesUrl,
+      lessonGoogleSlidesStartSlide: lessons.googleSlidesStartSlide,
       orderIndex: lessons.orderIndex,
       estimatedDurationMinutes: lessons.estimatedDurationMinutes,
       plannedStartMeeting: lessons.plannedStartMeeting,
@@ -813,6 +821,8 @@ async function buildLessonWorkspace(userId: string, lessonId: string) {
       title: row.title,
       description: row.description,
       lessonPlan: row.lessonPlan,
+      googleSlidesUrl: row.lessonGoogleSlidesUrl,
+      googleSlidesStartSlide: row.lessonGoogleSlidesStartSlide,
       orderIndex: row.orderIndex,
       estimatedDurationMinutes: row.estimatedDurationMinutes,
       plannedStartMeeting: row.plannedStartMeeting,
@@ -959,6 +969,8 @@ async function buildCourseDetail(userId: string, courseId: string) {
             title: lessons.title,
             description: lessons.description,
             lessonPlan: lessons.lessonPlan,
+            googleSlidesUrl: lessons.googleSlidesUrl,
+            googleSlidesStartSlide: lessons.googleSlidesStartSlide,
             orderIndex: lessons.orderIndex,
             estimatedDurationMinutes: lessons.estimatedDurationMinutes,
             plannedStartMeeting: lessons.plannedStartMeeting,
@@ -1045,6 +1057,8 @@ async function buildCourseDetail(userId: string, courseId: string) {
           title: lesson.title,
           description: lesson.description,
           lessonPlan: lesson.lessonPlan,
+          googleSlidesUrl: lesson.googleSlidesUrl,
+          googleSlidesStartSlide: lesson.googleSlidesStartSlide,
           orderIndex: lesson.orderIndex,
           estimatedDurationMinutes: lesson.estimatedDurationMinutes,
           plannedStartMeeting: lesson.plannedStartMeeting,
@@ -2912,6 +2926,8 @@ export async function v1Routes(app: FastifyInstance) {
               title: lessons.title,
               description: lessons.description,
               lessonPlan: lessons.lessonPlan,
+              googleSlidesUrl: lessons.googleSlidesUrl,
+              googleSlidesStartSlide: lessons.googleSlidesStartSlide,
               orderIndex: lessons.orderIndex,
               estimatedDurationMinutes: lessons.estimatedDurationMinutes
             })
@@ -2972,6 +2988,8 @@ export async function v1Routes(app: FastifyInstance) {
               title: lesson.title,
               description: lesson.description,
               lessonPlan: lesson.lessonPlan,
+              googleSlidesUrl: lesson.googleSlidesUrl,
+              googleSlidesStartSlide: lesson.googleSlidesStartSlide,
               orderIndex: lesson.orderIndex,
               estimatedDurationMinutes: lesson.estimatedDurationMinutes,
               plannedStartMeeting: null,
@@ -4277,6 +4295,87 @@ export async function v1Routes(app: FastifyInstance) {
     }
   );
 
+  app.get(
+    '/v1/sections/:sectionId/lessons/:lessonId/slides',
+    {
+      schema: {
+        params: SectionLessonParamsSchema,
+        response: { 200: LessonSlidesProgressResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionLessonParamsSchema.parse(request.params);
+      const lesson = await findOwnedLessonInSectionCourse(user.id, params.sectionId, params.lessonId);
+      if (!lesson?.googleSlidesUrl) {
+        (reply as any).code(404);
+        return { error: 'Lesson slides not found', requestId: request.id };
+      }
+      const [state] = await db
+        .select({
+          currentSlide: sectionLessonSlideState.currentSlide,
+          updatedAt: sectionLessonSlideState.updatedAt
+        })
+        .from(sectionLessonSlideState)
+        .where(
+          and(
+            eq(sectionLessonSlideState.sectionId, params.sectionId),
+            eq(sectionLessonSlideState.lessonId, params.lessonId)
+          )
+        )
+        .limit(1);
+      return LessonSlidesProgressResponseSchema.parse({
+        currentSlide: state?.currentSlide ?? lesson.googleSlidesStartSlide,
+        updatedAt: state?.updatedAt.toISOString() ?? null
+      });
+    }
+  );
+
+  app.patch(
+    '/v1/sections/:sectionId/lessons/:lessonId/slides',
+    {
+      schema: {
+        params: SectionLessonParamsSchema,
+        body: LessonSlidesProgressUpsertRequestSchema,
+        response: { 200: LessonSlidesProgressResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = SectionLessonParamsSchema.parse(request.params);
+      const body = LessonSlidesProgressUpsertRequestSchema.parse(request.body);
+      const lesson = await findOwnedLessonInSectionCourse(user.id, params.sectionId, params.lessonId);
+      if (!lesson?.googleSlidesUrl) {
+        (reply as any).code(404);
+        return { error: 'Lesson slides not found', requestId: request.id };
+      }
+      const [state] = await db
+        .insert(sectionLessonSlideState)
+        .values({
+          sectionId: params.sectionId,
+          lessonId: params.lessonId,
+          currentSlide: body.currentSlide
+        })
+        .onConflictDoUpdate({
+          target: [sectionLessonSlideState.sectionId, sectionLessonSlideState.lessonId],
+          set: { currentSlide: body.currentSlide, updatedAt: new Date() }
+        })
+        .returning({
+          currentSlide: sectionLessonSlideState.currentSlide,
+          updatedAt: sectionLessonSlideState.updatedAt
+        });
+      if (!state) throw new Error('Could not save slide position');
+      return LessonSlidesProgressResponseSchema.parse({
+        currentSlide: state.currentSlide,
+        updatedAt: state.updatedAt.toISOString()
+      });
+    }
+  );
+
   app.delete(
     '/v1/units/:unitId',
     {
@@ -4365,6 +4464,8 @@ export async function v1Routes(app: FastifyInstance) {
               title: lesson.title,
               description: lesson.description,
               lessonPlan: lesson.lessonPlan,
+              googleSlidesUrl: lesson.googleSlidesUrl,
+              googleSlidesStartSlide: lesson.googleSlidesStartSlide,
               estimatedDurationMinutes: lesson.estimatedDurationMinutes,
               orderIndex: lesson.orderIndex,
               plannedStartMeeting:
@@ -4438,6 +4539,8 @@ export async function v1Routes(app: FastifyInstance) {
           materials: null,
           links: []
         },
+        googleSlidesUrl: body.googleSlidesUrl ?? null,
+        googleSlidesStartSlide: body.googleSlidesStartSlide ?? 1,
         estimatedDurationMinutes: body.estimatedDurationMinutes,
         orderIndex: body.orderIndex ?? (latestLesson?.orderIndex ?? -1) + 1,
         plannedStartMeeting: body.plannedStartMeeting ?? null,
@@ -4490,6 +4593,9 @@ export async function v1Routes(app: FastifyInstance) {
       if (body.title !== undefined) updates.title = body.title;
       if (body.description !== undefined) updates.description = body.description;
       if (body.lessonPlan !== undefined) updates.lessonPlan = body.lessonPlan;
+      if (body.googleSlidesUrl !== undefined) updates.googleSlidesUrl = body.googleSlidesUrl;
+      if (body.googleSlidesStartSlide !== undefined)
+        updates.googleSlidesStartSlide = body.googleSlidesStartSlide;
       if (body.estimatedDurationMinutes !== undefined) {
         updates.estimatedDurationMinutes = body.estimatedDurationMinutes;
       }
@@ -4507,7 +4613,21 @@ export async function v1Routes(app: FastifyInstance) {
         updates.unitId = body.unitId;
       }
 
-      await db.update(lessons).set(updates).where(eq(lessons.id, params.lessonId));
+      await db.transaction(async (tx) => {
+        if (body.googleSlidesUrl !== undefined) {
+          const [existing] = await tx
+            .select({ googleSlidesUrl: lessons.googleSlidesUrl })
+            .from(lessons)
+            .where(eq(lessons.id, params.lessonId))
+            .limit(1);
+          if (existing?.googleSlidesUrl !== body.googleSlidesUrl) {
+            await tx
+              .delete(sectionLessonSlideState)
+              .where(eq(sectionLessonSlideState.lessonId, params.lessonId));
+          }
+        }
+        await tx.update(lessons).set(updates).where(eq(lessons.id, params.lessonId));
+      });
 
       await recordCourseActivity(
         ownedCourseId,
@@ -4559,6 +4679,8 @@ export async function v1Routes(app: FastifyInstance) {
             title: `${source.title} copy`,
             description: source.description,
             lessonPlan: source.lessonPlan,
+            googleSlidesUrl: source.googleSlidesUrl,
+            googleSlidesStartSlide: source.googleSlidesStartSlide,
             estimatedDurationMinutes: source.estimatedDurationMinutes,
             orderIndex: nextOrderIndex(unit.lessons),
             plannedStartMeeting:
@@ -4765,6 +4887,9 @@ export async function v1Routes(app: FastifyInstance) {
               objective: lesson.lessonPlan.objective,
               materials: lesson.lessonPlan.materials,
               studentDirections: lesson.lessonPlan.studentDirections,
+              lessonSlides: lesson.googleSlidesUrl
+                ? { url: lesson.googleSlidesUrl, startSlide: lesson.googleSlidesStartSlide }
+                : null,
               estimatedDurationMinutes: lesson.estimatedDurationMinutes,
               steps: lesson.segments.map((step) => ({
                 title: step.title,
@@ -4799,6 +4924,8 @@ export async function v1Routes(app: FastifyInstance) {
           title: lessons.title,
           description: lessons.description,
           lessonPlan: lessons.lessonPlan,
+          lessonGoogleSlidesUrl: lessons.googleSlidesUrl,
+          lessonGoogleSlidesStartSlide: lessons.googleSlidesStartSlide,
           orderIndex: lessons.orderIndex,
           estimatedDurationMinutes: lessons.estimatedDurationMinutes,
           plannedStartMeeting: lessons.plannedStartMeeting,
@@ -4832,6 +4959,9 @@ export async function v1Routes(app: FastifyInstance) {
         unitTitle: row.unitTitle,
         unitSlides: row.googleSlidesUrl
           ? { url: row.googleSlidesUrl, startSlide: row.googleSlidesStartSlide }
+          : null,
+        lessonSlides: row.lessonGoogleSlidesUrl
+          ? { url: row.lessonGoogleSlidesUrl, startSlide: row.lessonGoogleSlidesStartSlide }
           : null,
         lesson: {
           title: row.title,

@@ -9,7 +9,8 @@ export function UnitSlidesViewer({
   onSlideChange,
   groupName,
   saveStatus = 'saved',
-  compact = false
+  compact = false,
+  deckTitle = 'Unit Slides'
 }: {
   url: string;
   initialSlide?: number;
@@ -18,6 +19,7 @@ export function UnitSlidesViewer({
   groupName?: string;
   saveStatus?: 'saved' | 'saving' | 'error' | 'loading';
   compact?: boolean;
+  deckTitle?: string;
 }) {
   const [localSlide, setLocalSlide] = useState(Math.max(1, initialSlide));
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -57,7 +59,7 @@ export function UnitSlidesViewer({
     <section
       className={`unit-slides-viewer${compact ? ' is-compact' : ''}`}
       ref={viewerRef}
-      aria-label="Unit Slides"
+      aria-label={deckTitle}
     >
       <header className="unit-slides-header">
         <div>
@@ -65,7 +67,7 @@ export function UnitSlidesViewer({
             ▰
           </span>
           <div>
-            <p className="eyebrow">Unit Slides</p>
+            <p className="eyebrow">{deckTitle}</p>
             <strong>{groupName ? `${groupName} · Slide ${slide}` : `Slide ${slide}`}</strong>
           </div>
         </div>
@@ -82,7 +84,7 @@ export function UnitSlidesViewer({
         <iframe
           key={embedUrl}
           src={embedUrl}
-          title={`Unit Slides, slide ${slide}`}
+          title={`${deckTitle}, slide ${slide}`}
           allow="fullscreen"
           onLoad={() => setFrameLoading(false)}
           tabIndex={-1}
@@ -108,7 +110,7 @@ export function UnitSlidesViewer({
                       : 'Position saved'}
             </small>
           ) : (
-            <small>Unit deck</small>
+            <small>{deckTitle}</small>
           )}
         </div>
         <button type="button" onClick={() => changeSlide(slide + 1)}>
