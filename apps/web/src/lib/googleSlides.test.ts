@@ -32,6 +32,6 @@ describe('Google Slides links', () => {
     expect(embed).toContain('/presentation/d/deck_123/embed?');
     expect(embed).toContain('rm=minimal');
     expect(embed).toContain('resourcekey=abc');
-    expect(embed).toContain('slide=id.p4');
+    expect(embed).toContain('#slide=id.p4');
   });
 });

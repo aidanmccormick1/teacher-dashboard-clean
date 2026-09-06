@@ -35,9 +35,13 @@ export function buildGoogleSlidesEmbedUrl(value: string, slide: number): string 
   url.searchParams.set('loop', 'false');
   url.searchParams.set('delayms', '60000');
   url.searchParams.set('rm', 'minimal');
-  url.searchParams.set('slide', `id.p${Math.max(1, Math.trunc(slide))}`);
+  // Google Slides reads its active slide from the URL fragment, not from an
+  // embed query parameter. A query `slide=` silently falls back to the first
+  // slide, which made TeacherDesk's controls appear to advance while the deck
+  // stayed put.
+  url.hash = `slide=id.p${Math.max(1, Math.trunc(slide))}`;
   if (reference.resourceKey) url.searchParams.set('resourcekey', reference.resourceKey);
-  // Google's minimal embed accepts a one-based id.p slide target. Replacing this
-  // URL lets TeacherDesk own navigation instead of depending on iframe input.
+  // Replacing the iframe URL on each change makes the rendered deck follow the
+  // same position that TeacherDesk saves for the class group.
   return url.toString();
 }
