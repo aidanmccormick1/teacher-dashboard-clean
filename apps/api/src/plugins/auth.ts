@@ -130,7 +130,7 @@ export const authPlugin = fp(async (app) => {
       request.principal = {
         clerkUserId,
         email: await resolveClerkEmail(
-          tokenClaims as Record<string, unknown>,
+          tokenClaims,
           clerkUserId,
           app.config.CLERK_SECRET_KEY
         )
