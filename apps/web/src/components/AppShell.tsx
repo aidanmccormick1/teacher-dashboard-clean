@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import type { NotificationListResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
@@ -80,6 +81,11 @@ export function AppShell() {
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [isMobileNavigationOpen, setIsMobileNavigationOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationListResponse>({
+    notifications: [],
+    unreadCount: 0
+  });
   const [feedbackType, setFeedbackType] = useState('Confusing');
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSaved, setFeedbackSaved] = useState(false);
@@ -101,6 +107,24 @@ export function AppShell() {
       })
       .catch(() => undefined);
   }, [api]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      void api
+        .getNotifications()
+        .then((result) => {
+          if (!cancelled) setNotifications(result);
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [api, location.pathname]);
 
   useEffect(() => {
     if (!isMobileNavigationOpen || !window.matchMedia('(max-width: 920px)').matches) return;
@@ -149,6 +173,10 @@ export function AppShell() {
         setIsImportOpen(false);
         return;
       }
+      if (isNotificationsOpen) {
+        setIsNotificationsOpen(false);
+        return;
+      }
       if (isMobileNavigationOpen) {
         setIsMobileNavigationOpen(false);
         mobileToggleRef.current?.focus();
@@ -156,7 +184,7 @@ export function AppShell() {
     };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [isImportOpen, isMobileNavigationOpen]);
+  }, [isImportOpen, isMobileNavigationOpen, isNotificationsOpen]);
 
   const closeMobileNavigation = () => setIsMobileNavigationOpen(false);
   const resizeSidebar = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -318,6 +346,17 @@ export function AppShell() {
     (entry) => entry.syncStatus !== 'synced'
   ).length;
 
+  const markNotificationRead = async (notificationId: string) => {
+    const notification = notifications.notifications.find((item) => item.id === notificationId);
+    if (!notification || notification.status === 'read') return;
+    try {
+      setNotifications(await api.markNotificationRead(notificationId));
+    } catch {
+      // Opening the destination is more important than blocking navigation on
+      // a transient read-status request. The next refresh will retry visually.
+    }
+  };
+
   return (
     <div
       className={`app-shell${isResizingSidebar ? ' sidebar-resizing' : ''}`}
@@ -350,9 +389,95 @@ export function AppShell() {
           data-mobile-open={isMobileNavigationOpen}
           ref={mobileNavigationRef}
         >
-          <p className="sidebar-account muted">
-            {profileDisplayName ?? auth.email ?? auth.userId ?? 'Signed in'}
-          </p>
+          <div className="sidebar-account-row">
+            <p className="sidebar-account muted">
+              {profileDisplayName ?? auth.email ?? auth.userId ?? 'Signed in'}
+            </p>
+            <button
+              className="notification-trigger secondary"
+              type="button"
+              aria-label={`Notifications${notifications.unreadCount ? `, ${notifications.unreadCount} unread` : ''}`}
+              aria-expanded={isNotificationsOpen}
+              onClick={() => setIsNotificationsOpen((open) => !open)}
+            >
+              <span aria-hidden="true">◌</span>
+              {notifications.unreadCount ? <strong>{notifications.unreadCount}</strong> : null}
+            </button>
+          </div>
+          {isNotificationsOpen ? (
+            <section className="notification-panel" aria-label="Notifications">
+              <header>
+                <div>
+                  <strong>Notifications</strong>
+                  <span>{notifications.unreadCount} unread</span>
+                </div>
+                {notifications.unreadCount ? (
+                  <button
+                    className="button-link"
+                    type="button"
+                    onClick={async () => {
+                      setNotifications(await api.markAllNotificationsRead());
+                    }}
+                  >
+                    Mark all read
+                  </button>
+                ) : null}
+              </header>
+              <div className="notification-list">
+                {notifications.notifications.length ? (
+                  notifications.notifications.map((notification) => {
+                    const content = (
+                      <>
+                        <span className="notification-status" aria-hidden="true" />
+                        <span>
+                          <strong>{notification.title}</strong>
+                          <span>
+                            {notification.actor?.fullName ??
+                              notification.actor?.email ??
+                              'TeacherDesk'}{' '}
+                            {notification.message}
+                          </span>
+                          <time dateTime={notification.createdAt}>
+                            {new Intl.DateTimeFormat(undefined, {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit'
+                            }).format(new Date(notification.createdAt))}
+                          </time>
+                        </span>
+                      </>
+                    );
+                    return notification.actionUrl ? (
+                      <Link
+                        key={notification.id}
+                        className={notification.status}
+                        to={notification.actionUrl}
+                        onClick={() => {
+                          void markNotificationRead(notification.id);
+                          setIsNotificationsOpen(false);
+                          closeMobileNavigation();
+                        }}
+                      >
+                        {content}
+                      </Link>
+                    ) : (
+                      <button
+                        key={notification.id}
+                        className={notification.status}
+                        type="button"
+                        onClick={() => void markNotificationRead(notification.id)}
+                      >
+                        {content}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p>You’re caught up. New activity from other teachers will appear here.</p>
+                )}
+              </div>
+            </section>
+          ) : null}
           <nav id="primary-navigation" aria-label="Primary navigation">
             {primaryNavigationItems.map((item) => (
               <NavLink

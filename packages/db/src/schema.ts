@@ -75,6 +75,7 @@ export const schools = pgTable('schools', {
   district: text('district'),
   state: text('state'),
   timezone: text('timezone'),
+  inviteCode: text('invite_code').notNull().unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
@@ -447,10 +448,36 @@ export const courseShares = pgTable(
       .references(() => courses.id, { onDelete: 'cascade' }),
     publicToken: uuid('public_token').defaultRandom().primaryKey(),
     enabled: boolean('enabled').notNull().default(false),
+    schoolVisible: boolean('school_visible').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => [unique('uniq_course_share_course').on(table.courseId)]
+);
+
+// Notifications are addressed to one recipient and deliberately reject
+// actor=self rows at the database layer. Course activity remains the complete
+// collaboration history; this table is the small, personal attention queue.
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    recipientUserId: uuid('recipient_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    courseId: uuid('course_id').references(() => courses.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    title: text('title').notNull(),
+    message: text('message').notNull(),
+    actionUrl: text('action_url'),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index('idx_notifications_recipient_created').on(table.recipientUserId, table.createdAt),
+    index('idx_notifications_recipient_unread').on(table.recipientUserId, table.readAt)
+  ]
 );
 
 // A compact, human-readable feed for shared-curriculum activity. This is

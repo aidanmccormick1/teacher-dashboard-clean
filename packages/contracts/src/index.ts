@@ -657,9 +657,17 @@ export const CourseCreateRequestSchema = z.object({
 export const CourseDuplicateRequestSchema = z.object({ name: z.string().min(1) });
 export const CourseCurriculumCopyRequestSchema = z.object({ sourceCourseId: UuidSchema });
 export const CourseDeleteRequestSchema = z.object({ confirmation: z.literal('DELETE') });
-export const CourseShareUpdateRequestSchema = z.object({ enabled: z.boolean() });
+export const CourseShareUpdateRequestSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    schoolVisible: z.boolean().optional()
+  })
+  .refine((value) => value.enabled !== undefined || value.schoolVisible !== undefined, {
+    message: 'Choose a sharing setting to update.'
+  });
 export const CourseShareResponseSchema = z.object({
   enabled: z.boolean(),
+  schoolVisible: z.boolean(),
   token: z.string().uuid().nullable()
 });
 
@@ -721,6 +729,75 @@ export const CourseActivitySchema = z.object({
 
 export const CourseActivityResponseSchema = z.object({
   activity: z.array(CourseActivitySchema)
+});
+
+export const NotificationSchema = z.object({
+  id: UuidSchema,
+  type: z.string(),
+  title: z.string(),
+  message: z.string(),
+  actionUrl: z.string().nullable(),
+  status: z.enum(['unread', 'read']),
+  actor: z
+    .object({
+      userId: UuidSchema,
+      fullName: z.string().nullable(),
+      email: z.string().email()
+    })
+    .nullable(),
+  createdAt: z.string(),
+  readAt: z.string().nullable()
+});
+
+export const NotificationListResponseSchema = z.object({
+  notifications: z.array(NotificationSchema),
+  unreadCount: z.number().int().nonnegative()
+});
+
+export const SchoolOverviewResponseSchema = z.object({
+  school: z.object({
+    id: UuidSchema,
+    name: z.string(),
+    district: z.string().nullable(),
+    state: z.string().nullable(),
+    timezone: z.string(),
+    inviteCode: z.string(),
+    memberCount: z.number().int().nonnegative()
+  }),
+  currentUserId: UuidSchema,
+  members: z.array(
+    z.object({
+      userId: UuidSchema,
+      email: z.string().email(),
+      fullName: z.string().nullable(),
+      role: z.enum(['teacher', 'department_head', 'admin']),
+      subjects: z.array(z.string()),
+      grades: z.array(z.string()),
+      joinedAt: z.string(),
+      isCurrentUser: z.boolean()
+    })
+  ),
+  curriculumLibrary: z.array(
+    z.object({
+      courseId: UuidSchema,
+      name: z.string(),
+      subject: z.string().nullable(),
+      gradeLevel: z.string().nullable(),
+      unitCount: z.number().int().nonnegative(),
+      lessonCount: z.number().int().nonnegative(),
+      token: UuidSchema,
+      alreadyAdded: z.boolean(),
+      owner: z.object({
+        userId: UuidSchema,
+        fullName: z.string().nullable(),
+        email: z.string().email()
+      })
+    })
+  )
+});
+
+export const SchoolJoinRequestSchema = z.object({
+  inviteCode: z.string().trim().min(4).max(32)
 });
 
 export const LessonCommentSchema = z.object({
@@ -1034,6 +1111,29 @@ export const PublicCurriculumResponseSchema = z.object({
   })
 });
 
+export const PublicCurriculumImportRequestSchema = z
+  .object({
+    mode: z.enum(['new_copy', 'copy_into']),
+    name: z.string().trim().min(1).optional(),
+    targetCourseId: UuidSchema.optional()
+  })
+  .superRefine((value, context) => {
+    if (value.mode === 'new_copy' && !value.name) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['name'],
+        message: 'Name your new course.'
+      });
+    }
+    if (value.mode === 'copy_into' && !value.targetCourseId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['targetCourseId'],
+        message: 'Choose an empty course.'
+      });
+    }
+  });
+
 export const ClassroomResumeResponseSchema = z.object({
   section: z.object({
     sectionId: UuidSchema,
@@ -1150,6 +1250,7 @@ export type CourseCreateRequest = z.infer<typeof CourseCreateRequestSchema>;
 export type CourseDuplicateRequest = z.infer<typeof CourseDuplicateRequestSchema>;
 export type CourseCurriculumCopyRequest = z.infer<typeof CourseCurriculumCopyRequestSchema>;
 export type CourseDeleteRequest = z.infer<typeof CourseDeleteRequestSchema>;
+export type CourseShareUpdateRequest = z.infer<typeof CourseShareUpdateRequestSchema>;
 export type CourseShareResponse = z.infer<typeof CourseShareResponseSchema>;
 export type CourseCollaboratorInviteRequest = z.infer<typeof CourseCollaboratorInviteRequestSchema>;
 export type CourseOwnershipTransferRequest = z.infer<typeof CourseOwnershipTransferRequestSchema>;
@@ -1157,6 +1258,9 @@ export type CourseCollaboratorsResponse = z.infer<typeof CourseCollaboratorsResp
 export type CourseInvitationsResponse = z.infer<typeof CourseInvitationsResponseSchema>;
 export type CourseInvitationAcceptRequest = z.infer<typeof CourseInvitationAcceptRequestSchema>;
 export type CourseActivityResponse = z.infer<typeof CourseActivityResponseSchema>;
+export type NotificationListResponse = z.infer<typeof NotificationListResponseSchema>;
+export type SchoolOverviewResponse = z.infer<typeof SchoolOverviewResponseSchema>;
+export type SchoolJoinRequest = z.infer<typeof SchoolJoinRequestSchema>;
 export type LessonCommentsResponse = z.infer<typeof LessonCommentsResponseSchema>;
 export type LessonCommentCreateRequest = z.infer<typeof LessonCommentCreateRequestSchema>;
 export type CoursePacingResponse = z.infer<typeof CoursePacingResponseSchema>;
@@ -1171,7 +1275,9 @@ export type UnitSlides = z.infer<typeof UnitSlidesSchema>;
 export type LessonSlides = z.infer<typeof LessonSlidesSchema>;
 export type UnitSlidesProgressUpsertRequest = z.infer<typeof UnitSlidesProgressUpsertRequestSchema>;
 export type UnitSlidesProgressResponse = z.infer<typeof UnitSlidesProgressResponseSchema>;
-export type LessonSlidesProgressUpsertRequest = z.infer<typeof LessonSlidesProgressUpsertRequestSchema>;
+export type LessonSlidesProgressUpsertRequest = z.infer<
+  typeof LessonSlidesProgressUpsertRequestSchema
+>;
 export type LessonSlidesProgressResponse = z.infer<typeof LessonSlidesProgressResponseSchema>;
 export type LessonCreateRequest = z.infer<typeof LessonCreateRequestSchema>;
 export type LessonUpdateRequest = z.infer<typeof LessonUpdateRequestSchema>;
@@ -1180,6 +1286,7 @@ export type LessonWorkspaceResponse = z.infer<typeof LessonWorkspaceResponseSche
 export type LessonShareResponse = z.infer<typeof LessonShareResponseSchema>;
 export type PublicLessonResponse = z.infer<typeof PublicLessonResponseSchema>;
 export type PublicCurriculumResponse = z.infer<typeof PublicCurriculumResponseSchema>;
+export type PublicCurriculumImportRequest = z.infer<typeof PublicCurriculumImportRequestSchema>;
 export type SegmentCreateRequest = z.infer<typeof SegmentCreateRequestSchema>;
 export type SegmentUpdateRequest = z.infer<typeof SegmentUpdateRequestSchema>;
 export type SegmentReorderRequest = z.infer<typeof SegmentReorderRequestSchema>;

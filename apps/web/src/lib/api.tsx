@@ -25,6 +25,7 @@ import type {
   CourseInvitationsResponse,
   CourseListResponse,
   CourseShareResponse,
+  CourseShareUpdateRequest,
   CoursePacingResponse,
   CoursePacingSharingUpdateRequest,
   CourseOrderUpdateRequest,
@@ -53,7 +54,9 @@ import type {
   LessonWorkspaceResponse,
   PublicLessonResponse,
   PublicCurriculumResponse,
+  PublicCurriculumImportRequest,
   MeetingInstancesResponse,
+  NotificationListResponse,
   OnboardingRequest,
   OnboardingResponse,
   ParseScheduleResponse,
@@ -67,6 +70,8 @@ import type {
   ScheduleImportApplyRequest,
   ScheduleImportRequest,
   SchoolCalendarResponse,
+  SchoolJoinRequest,
+  SchoolOverviewResponse,
   SchoolYearUpsertRequest,
   SectionMeetingOverrideRequest,
   SectionPlanningContextResponse,
@@ -213,6 +218,24 @@ export function useApiClient() {
       getSchedule: () => request<GetScheduleResponse>('/v1/schedule', { method: 'GET' }, auth),
       getSchoolCalendar: () =>
         request<SchoolCalendarResponse>('/v1/school-calendar', { method: 'GET' }, auth),
+      getSchoolOverview: () =>
+        request<SchoolOverviewResponse>('/v1/school', { method: 'GET' }, auth),
+      joinSchool: (body: SchoolJoinRequest) =>
+        request<SchoolOverviewResponse>(
+          '/v1/school/join',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      getNotifications: () =>
+        request<NotificationListResponse>('/v1/notifications', { method: 'GET' }, auth),
+      markNotificationRead: (notificationId: string) =>
+        request<NotificationListResponse>(
+          `/v1/notifications/${notificationId}/read`,
+          { method: 'PATCH' },
+          auth
+        ),
+      markAllNotificationsRead: () =>
+        request<NotificationListResponse>('/v1/notifications/read-all', { method: 'PATCH' }, auth),
       saveSchoolYear: (body: SchoolYearUpsertRequest) =>
         request<SchoolCalendarResponse>(
           '/v1/school-year',
@@ -433,14 +456,20 @@ export function useApiClient() {
           { method: 'PATCH' },
           auth
         ),
-      updateCourseShare: (courseId: string, enabled: boolean) =>
+      updateCourseShare: (courseId: string, body: CourseShareUpdateRequest) =>
         request<CourseShareResponse>(
           `/v1/courses/${courseId}/share`,
-          { method: 'PATCH', body: JSON.stringify({ enabled }) },
+          { method: 'PATCH', body: JSON.stringify(body) },
           auth
         ),
       getCourseShare: (courseId: string) =>
         request<CourseShareResponse>(`/v1/courses/${courseId}/share`, { method: 'GET' }, auth),
+      importPublicCurriculum: (token: string, body: PublicCurriculumImportRequest) =>
+        request<CourseDetailResponse>(
+          `/v1/public/curriculum/${encodeURIComponent(token)}/import`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
       createUnit: (courseId: string, body: UnitCreateRequest) =>
         request<CourseDetailResponse>(
           `/v1/courses/${courseId}/units`,

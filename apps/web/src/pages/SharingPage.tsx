@@ -537,6 +537,7 @@ export function SharingPage() {
       setPacing(previewPacing);
       setCourseShare({
         enabled: true,
+        schoolVisible: true,
         token: '00000000-0000-4000-8000-000000000500'
       });
       setLessonShares(previewLessonShares);
@@ -717,6 +718,7 @@ export function SharingPage() {
     if (isDesignPreview) {
       setCourseShare({
         enabled,
+        schoolVisible: enabled ? (courseShare?.schoolVisible ?? false) : false,
         token: enabled ? '00000000-0000-4000-8000-000000000500' : null
       });
       setNotice(enabled ? 'View-only course link is ready.' : 'View-only course link turned off.');
@@ -724,11 +726,48 @@ export function SharingPage() {
     }
     try {
       setSavingKey('course-share');
-      const share = await api.updateCourseShare(selectedCourse.id, enabled);
+      const share = await api.updateCourseShare(selectedCourse.id, { enabled });
       setCourseShare(share);
       setNotice(enabled ? 'View-only course link is ready.' : 'View-only course link turned off.');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not update the course link.');
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const setSchoolVisibility = async (schoolVisible: boolean) => {
+    if (!selectedCourse) return;
+    if (isDesignPreview) {
+      setCourseShare((current) => ({
+        enabled: schoolVisible ? true : (current?.enabled ?? false),
+        schoolVisible,
+        token:
+          schoolVisible || current?.enabled
+            ? (current?.token ?? '00000000-0000-4000-8000-000000000500')
+            : null
+      }));
+      setNotice(
+        schoolVisible
+          ? 'This curriculum is now in your school library.'
+          : 'This curriculum was removed from your school library.'
+      );
+      return;
+    }
+    try {
+      setSavingKey('school-share');
+      setCourseShare(
+        await api.updateCourseShare(selectedCourse.id, {
+          schoolVisible
+        })
+      );
+      setNotice(
+        schoolVisible
+          ? 'This curriculum is now in your school library.'
+          : 'This curriculum was removed from your school library.'
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not update school sharing.');
     } finally {
       setSavingKey(null);
     }
@@ -798,6 +837,49 @@ export function SharingPage() {
     }
   };
 
+  const invitationInbox = invitations.length ? (
+    <section className="sharing-invitations" aria-labelledby="sharing-invitations-title">
+      <div className="sharing-invitation-intro">
+        <span className="sharing-invitation-icon" aria-hidden="true">
+          ✉
+        </span>
+        <div>
+          <p className="eyebrow">Waiting for you</p>
+          <h2 id="sharing-invitations-title">
+            {invitations.length} course invitation{invitations.length === 1 ? '' : 's'}
+          </h2>
+        </div>
+      </div>
+      <div className="sharing-invitation-list">
+        {invitations.map((invitation) => (
+          <article key={invitation.course.id}>
+            <div>
+              <strong>{invitation.course.name}</strong>
+              <span>from {invitation.invitedBy.fullName ?? invitation.invitedBy.email}</span>
+            </div>
+            <div>
+              <button
+                type="button"
+                disabled={savingKey === `invitation-${invitation.course.id}`}
+                onClick={() => void respondToInvitation(invitation.course.id, 'accept')}
+              >
+                Accept
+              </button>
+              <button
+                className="secondary"
+                type="button"
+                disabled={savingKey === `invitation-${invitation.course.id}`}
+                onClick={() => void respondToInvitation(invitation.course.id, 'decline')}
+              >
+                Decline
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  ) : null;
+
   if (loading) {
     return (
       <main className="sharing-page sharing-loading-state">
@@ -811,17 +893,26 @@ export function SharingPage() {
     return (
       <main className="sharing-empty-page page-entry">
         <p className="eyebrow">Sharing</p>
-        <h1>{error ? 'Sharing could not load' : 'Start with a course'}</h1>
+        <h1>
+          {error
+            ? 'Sharing could not load'
+            : invitations.length
+              ? 'Courses waiting for you'
+              : 'Start with a course'}
+        </h1>
         <p>
           {error
             ? error
-            : 'Create or import a course before inviting collaborators or sharing individual lessons.'}
+            : invitations.length
+              ? 'Accept an invitation to add the shared curriculum to your workspace.'
+              : 'Create or import a course before inviting collaborators or sharing individual lessons.'}
         </p>
+        {invitationInbox}
         {error ? (
           <button className="button-link" type="button" onClick={() => void loadPage()}>
             Try again
           </button>
-        ) : (
+        ) : invitations.length ? null : (
           <Link className="button-link" to="/courses">
             Go to Courses
           </Link>
@@ -856,48 +947,7 @@ export function SharingPage() {
         </div>
       ) : null}
 
-      {invitations.length ? (
-        <section className="sharing-invitations" aria-labelledby="sharing-invitations-title">
-          <div className="sharing-invitation-intro">
-            <span className="sharing-invitation-icon" aria-hidden="true">
-              ✉
-            </span>
-            <div>
-              <p className="eyebrow">Waiting for you</p>
-              <h2 id="sharing-invitations-title">
-                {invitations.length} course invitation{invitations.length === 1 ? '' : 's'}
-              </h2>
-            </div>
-          </div>
-          <div className="sharing-invitation-list">
-            {invitations.map((invitation) => (
-              <article key={invitation.course.id}>
-                <div>
-                  <strong>{invitation.course.name}</strong>
-                  <span>from {invitation.invitedBy.fullName ?? invitation.invitedBy.email}</span>
-                </div>
-                <div>
-                  <button
-                    type="button"
-                    disabled={savingKey === `invitation-${invitation.course.id}`}
-                    onClick={() => void respondToInvitation(invitation.course.id, 'accept')}
-                  >
-                    Accept
-                  </button>
-                  <button
-                    className="secondary"
-                    type="button"
-                    disabled={savingKey === `invitation-${invitation.course.id}`}
-                    onClick={() => void respondToInvitation(invitation.course.id, 'decline')}
-                  >
-                    Decline
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      {invitationInbox}
 
       <div className="sharing-workspace">
         <aside className="sharing-course-rail" aria-label="Courses to share">
@@ -1172,6 +1222,23 @@ export function SharingPage() {
                         selectedCourse.accessRole !== 'owner' || savingKey === 'course-share'
                       }
                       onChange={(event) => void setPublicCourseShare(event.target.checked)}
+                    />
+                  </label>
+                  <label className="sharing-toggle-row">
+                    <span>
+                      <strong>
+                        {courseShare?.schoolVisible ? 'Listed at my school' : 'School library'}
+                      </strong>
+                      <small>Teachers at your school can preview and add a copy.</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={courseShare?.schoolVisible ?? false}
+                      disabled={
+                        selectedCourse.accessRole !== 'owner' || savingKey === 'school-share'
+                      }
+                      onChange={(event) => void setSchoolVisibility(event.target.checked)}
                     />
                   </label>
                   {courseShare?.enabled && courseShare.token ? (

@@ -5,7 +5,6 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUI from '@fastify/swagger-ui';
-import * as Sentry from '@sentry/node';
 import Fastify from 'fastify';
 import {
   jsonSchemaTransform,
@@ -31,8 +30,12 @@ import { v1Routes } from './routes/v1.js';
 const apiBodyLimitBytes = 16 * 1024 * 1024;
 
 export async function createApp(config: AppConfig) {
+  let sentry: typeof import('@sentry/node') | null = null;
   if (config.SENTRY_DSN) {
-    Sentry.init({
+    // Sentry is optional. Loading its large instrumentation graph only when it
+    // is configured keeps local/test startup deterministic and fast.
+    sentry = await import('@sentry/node');
+    sentry.init({
       dsn: config.SENTRY_DSN,
       environment: config.NODE_ENV
     });
@@ -138,7 +141,7 @@ export async function createApp(config: AppConfig) {
 
   app.setErrorHandler((error, request, reply) => {
     app.log.error({ error, requestId: request.id }, 'request failed');
-    Sentry.captureException(error, {
+    sentry?.captureException(error, {
       tags: { requestId: request.id }
     });
 

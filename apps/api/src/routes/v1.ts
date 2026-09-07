@@ -87,9 +87,13 @@ import {
   LessonCommentsResponseSchema,
   PublicLessonResponseSchema,
   PublicCurriculumResponseSchema,
+  PublicCurriculumImportRequestSchema,
   MeetingInstancesQuerySchema,
   MeetingInstancesResponseSchema,
+  NotificationListResponseSchema,
   SchoolCalendarResponseSchema,
+  SchoolJoinRequestSchema,
+  SchoolOverviewResponseSchema,
   SchoolTimezoneUpdateRequestSchema,
   SchoolYearUpsertRequestSchema,
   SectionMeetingOverrideRequestSchema,
@@ -116,6 +120,7 @@ import {
   lessonComments,
   lessonShares,
   lessons,
+  notifications,
   schoolCalendarEvents,
   schoolHolidays,
   schoolYears,
@@ -1223,6 +1228,56 @@ async function recordCourseActivity(
     summary,
     metadata: options.metadata ?? {}
   });
+
+  const [course] = await db
+    .select({ name: courses.name })
+    .from(courses)
+    .where(eq(courses.id, courseId))
+    .limit(1);
+  const recipients = await db
+    .select({ userId: courseCollaborators.userId })
+    .from(courseCollaborators)
+    .where(
+      and(
+        eq(courseCollaborators.courseId, courseId),
+        eq(courseCollaborators.status, 'accepted'),
+        sql`${courseCollaborators.userId} <> ${actorUserId}`
+      )
+    );
+  if (recipients.length) {
+    await db.insert(notifications).values(
+      recipients.map((recipient) => ({
+        recipientUserId: recipient.userId,
+        actorUserId,
+        courseId,
+        type: 'curriculum_activity',
+        title: course?.name ?? 'Shared curriculum',
+        message: summary,
+        actionUrl: `/sharing?course=${courseId}`
+      }))
+    );
+  }
+}
+
+async function createNotification(input: {
+  recipientUserId: string;
+  actorUserId: string | null;
+  courseId?: string | null;
+  type: string;
+  title: string;
+  message: string;
+  actionUrl?: string | null;
+}) {
+  if (input.actorUserId && input.actorUserId === input.recipientUserId) return;
+  await db.insert(notifications).values({
+    recipientUserId: input.recipientUserId,
+    actorUserId: input.actorUserId,
+    courseId: input.courseId ?? null,
+    type: input.type,
+    title: input.title,
+    message: input.message,
+    actionUrl: input.actionUrl ?? null
+  });
 }
 
 async function buildCourseActivity(courseId: string, limit: number) {
@@ -1462,6 +1517,8 @@ async function copyCourseCurriculum(
             title: lesson.title,
             description: lesson.description,
             lessonPlan: lesson.lessonPlan,
+            googleSlidesUrl: lesson.googleSlidesUrl,
+            googleSlidesStartSlide: lesson.googleSlidesStartSlide,
             orderIndex: lesson.orderIndex,
             estimatedDurationMinutes: lesson.estimatedDurationMinutes,
             plannedStartMeeting: lesson.plannedStartMeeting,
@@ -1485,6 +1542,178 @@ async function copyCourseCurriculum(
     }
   });
   return true;
+}
+
+async function buildSchoolOverview(userId: string, request?: FastifyRequest) {
+  const [profile] = await db
+    .select({
+      schoolId: schools.id,
+      name: schools.name,
+      district: schools.district,
+      state: schools.state,
+      inviteCode: schools.inviteCode
+    })
+    .from(teacherProfiles)
+    .innerJoin(schools, eq(teacherProfiles.schoolId, schools.id))
+    .where(eq(teacherProfiles.userId, userId))
+    .limit(1);
+  if (!profile) return null;
+
+  const members = await db
+    .select({
+      userId: users.id,
+      email: users.email,
+      fullName: users.fullName,
+      role: teacherProfiles.role,
+      subjects: teacherProfiles.subjects,
+      grades: teacherProfiles.grades,
+      joinedAt: teacherProfiles.createdAt
+    })
+    .from(teacherProfiles)
+    .innerJoin(users, eq(teacherProfiles.userId, users.id))
+    .where(eq(teacherProfiles.schoolId, profile.schoolId))
+    .orderBy(asc(users.fullName), asc(users.email));
+
+  const libraryRows = await db
+    .select({
+      courseId: courses.id,
+      name: courses.name,
+      subject: courses.subject,
+      gradeLevel: courses.gradeLevel,
+      token: courseShares.publicToken,
+      ownerUserId: users.id,
+      ownerFullName: users.fullName,
+      ownerEmail: users.email
+    })
+    .from(courseShares)
+    .innerJoin(courses, eq(courseShares.courseId, courses.id))
+    .innerJoin(users, eq(courses.teacherId, users.id))
+    .where(
+      and(
+        eq(courses.schoolId, profile.schoolId),
+        eq(courseShares.enabled, true),
+        eq(courseShares.schoolVisible, true)
+      )
+    )
+    .orderBy(asc(courses.name));
+
+  const libraryCourseIds = libraryRows.map((course) => course.courseId);
+  const unitRows = libraryCourseIds.length
+    ? await db
+        .select({ id: units.id, courseId: units.courseId })
+        .from(units)
+        .where(inArray(units.courseId, libraryCourseIds))
+    : [];
+  const unitIds = unitRows.map((unit) => unit.id);
+  const lessonRows = unitIds.length
+    ? await db
+        .select({ unitId: lessons.unitId })
+        .from(lessons)
+        .where(inArray(lessons.unitId, unitIds))
+    : [];
+  const membershipRows = libraryCourseIds.length
+    ? await db
+        .select({ courseId: courseCollaborators.courseId })
+        .from(courseCollaborators)
+        .where(
+          and(
+            eq(courseCollaborators.userId, userId),
+            eq(courseCollaborators.status, 'accepted'),
+            inArray(courseCollaborators.courseId, libraryCourseIds)
+          )
+        )
+    : [];
+  const unitCounts = new Map<string, number>();
+  const courseByUnitId = new Map<string, string>();
+  for (const unit of unitRows) {
+    unitCounts.set(unit.courseId, (unitCounts.get(unit.courseId) ?? 0) + 1);
+    courseByUnitId.set(unit.id, unit.courseId);
+  }
+  const lessonCounts = new Map<string, number>();
+  for (const lesson of lessonRows) {
+    const courseId = courseByUnitId.get(lesson.unitId);
+    if (courseId) lessonCounts.set(courseId, (lessonCounts.get(courseId) ?? 0) + 1);
+  }
+  const addedCourseIds = new Set(membershipRows.map((membership) => membership.courseId));
+
+  return SchoolOverviewResponseSchema.parse({
+    school: {
+      id: profile.schoolId,
+      name: profile.name,
+      district: profile.district,
+      state: profile.state,
+      timezone: await loadSchoolTimezone(profile.schoolId, request),
+      inviteCode: profile.inviteCode,
+      memberCount: members.length
+    },
+    currentUserId: userId,
+    members: members.map((member) => ({
+      ...member,
+      joinedAt: member.joinedAt.toISOString(),
+      isCurrentUser: member.userId === userId
+    })),
+    curriculumLibrary: libraryRows.map((course) => ({
+      courseId: course.courseId,
+      name: course.name,
+      subject: course.subject,
+      gradeLevel: course.gradeLevel,
+      unitCount: unitCounts.get(course.courseId) ?? 0,
+      lessonCount: lessonCounts.get(course.courseId) ?? 0,
+      token: course.token,
+      alreadyAdded: addedCourseIds.has(course.courseId),
+      owner: {
+        userId: course.ownerUserId,
+        fullName: course.ownerFullName,
+        email: course.ownerEmail
+      }
+    }))
+  });
+}
+
+async function buildNotifications(userId: string, limit: number) {
+  const rows = await db
+    .select({
+      id: notifications.id,
+      type: notifications.type,
+      title: notifications.title,
+      message: notifications.message,
+      actionUrl: notifications.actionUrl,
+      createdAt: notifications.createdAt,
+      readAt: notifications.readAt,
+      actorUserId: users.id,
+      actorFullName: users.fullName,
+      actorEmail: users.email
+    })
+    .from(notifications)
+    .leftJoin(users, eq(notifications.actorUserId, users.id))
+    .where(eq(notifications.recipientUserId, userId))
+    .orderBy(desc(notifications.createdAt))
+    .limit(limit);
+  const [unread] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(notifications)
+    .where(and(eq(notifications.recipientUserId, userId), isNull(notifications.readAt)));
+  return NotificationListResponseSchema.parse({
+    unreadCount: unread?.count ?? 0,
+    notifications: rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      title: row.title,
+      message: row.message,
+      actionUrl: row.actionUrl,
+      status: row.readAt ? 'read' : 'unread',
+      actor:
+        row.actorUserId && row.actorEmail
+          ? {
+              userId: row.actorUserId,
+              fullName: row.actorFullName,
+              email: row.actorEmail
+            }
+          : null,
+      createdAt: row.createdAt.toISOString(),
+      readAt: row.readAt?.toISOString() ?? null
+    }))
+  });
 }
 
 function normalizeProgressPercent(progress: unknown): number | null {
@@ -1529,6 +1758,122 @@ export async function v1Routes(app: FastifyInstance) {
       };
     }
   );
+
+  app.get(
+    '/v1/school',
+    { schema: { response: { 200: SchoolOverviewResponseSchema } } },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const overview = await buildSchoolOverview(user.id, request);
+      if (!overview) {
+        (reply as any).code(404);
+        return { error: 'Finish setting up your profile first.', requestId: request.id };
+      }
+      return overview;
+    }
+  );
+
+  app.post(
+    '/v1/school/join',
+    {
+      schema: {
+        body: SchoolJoinRequestSchema,
+        response: { 200: SchoolOverviewResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const body = SchoolJoinRequestSchema.parse(request.body);
+      const [school] = await db
+        .select({ id: schools.id })
+        .from(schools)
+        .where(eq(schools.inviteCode, body.inviteCode.toUpperCase()))
+        .limit(1);
+      if (!school) {
+        (reply as any).code(404);
+        return { error: 'That school invite code is not active.', requestId: request.id };
+      }
+      const [currentProfile] = await db
+        .select({ schoolId: teacherProfiles.schoolId })
+        .from(teacherProfiles)
+        .where(eq(teacherProfiles.userId, user.id))
+        .limit(1);
+      if (!currentProfile) {
+        (reply as any).code(404);
+        return { error: 'Finish setting up your profile first.', requestId: request.id };
+      }
+      if (currentProfile.schoolId !== school.id) {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(teacherProfiles)
+            .set({ schoolId: school.id, updatedAt: new Date() })
+            .where(eq(teacherProfiles.userId, user.id));
+          // Private curricula follow their owner to the new school. Shared
+          // collaborators retain access regardless of school affiliation.
+          await tx
+            .update(courses)
+            .set({ schoolId: school.id, updatedAt: new Date() })
+            .where(eq(courses.teacherId, user.id));
+          await tx.insert(auditEvents).values({
+            userId: user.id,
+            eventType: 'school_joined',
+            entityType: 'school',
+            entityId: school.id,
+            metadata: { previousSchoolId: currentProfile.schoolId }
+          });
+        });
+      }
+      const overview = await buildSchoolOverview(user.id, request);
+      if (!overview) throw new Error('Could not load joined school');
+      return overview;
+    }
+  );
+
+  app.get(
+    '/v1/notifications',
+    { schema: { response: { 200: NotificationListResponseSchema } } },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { limit } = z
+        .object({ limit: z.coerce.number().int().min(1).max(100).default(30) })
+        .parse(request.query);
+      return buildNotifications(user.id, limit);
+    }
+  );
+
+  app.patch('/v1/notifications/:notificationId/read', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const { notificationId } = z.object({ notificationId: UuidSchema }).parse(request.params);
+    const [updated] = await db
+      .update(notifications)
+      .set({ readAt: new Date() })
+      .where(and(eq(notifications.id, notificationId), eq(notifications.recipientUserId, user.id)))
+      .returning({ id: notifications.id });
+    if (!updated) {
+      (reply as any).code(404);
+      return { error: 'Notification not found', requestId: request.id };
+    }
+    return buildNotifications(user.id, 30);
+  });
+
+  app.patch('/v1/notifications/read-all', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    await db
+      .update(notifications)
+      .set({ readAt: new Date() })
+      .where(and(eq(notifications.recipientUserId, user.id), isNull(notifications.readAt)));
+    return buildNotifications(user.id, 30);
+  });
 
   app.get(
     '/v1/profile',
@@ -3445,6 +3790,17 @@ export async function v1Routes(app: FastifyInstance) {
       (reply as any).code(404);
       return { error: 'Course invitation not found', requestId: request.id };
     }
+    await db
+      .update(notifications)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notifications.recipientUserId, user.id),
+          eq(notifications.courseId, courseId),
+          eq(notifications.type, 'course_invitation'),
+          isNull(notifications.readAt)
+        )
+      );
     let teacherCourseCurriculumId = courseId;
     if (body.mode === 'copy') {
       const [created] = await db.transaction(async (tx) => {
@@ -3544,6 +3900,17 @@ export async function v1Routes(app: FastifyInstance) {
       (reply as any).code(404);
       return { error: 'Course invitation not found', requestId: request.id };
     }
+    await db
+      .update(notifications)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notifications.recipientUserId, user.id),
+          eq(notifications.courseId, courseId),
+          eq(notifications.type, 'course_invitation'),
+          isNull(notifications.readAt)
+        )
+      );
     return { deleted: true };
   });
 
@@ -3580,7 +3947,8 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const { courseId } = CourseParamsSchema.parse(request.params);
       const body = CourseCollaboratorInviteRequestSchema.parse(request.body);
-      if (!(await findCourseOwnedBy(user.id, courseId))) {
+      const ownedCourse = await findCourseOwnedBy(user.id, courseId);
+      if (!ownedCourse) {
         (reply as any).code(404);
         return { error: 'Course not found', requestId: request.id };
       }
@@ -3600,26 +3968,33 @@ export async function v1Routes(app: FastifyInstance) {
         (reply as any).code(400);
         return { error: 'You already own this course.', requestId: request.id };
       }
-      await db
-        .insert(courseCollaborators)
-        .values({
-          courseId,
-          userId: recipient.id,
-          role: 'editor',
-          status: 'invited',
-          invitedByUserId: user.id
-        })
-        .onConflictDoUpdate({
-          target: [courseCollaborators.courseId, courseCollaborators.userId],
-          set: {
-            role: 'editor',
-            status: 'invited',
-            invitedByUserId: user.id,
-            joinedAt: null,
-            archivedAt: null,
-            updatedAt: new Date()
-          }
-        });
+      const [existingMembership] = await db
+        .select({ status: courseCollaborators.status })
+        .from(courseCollaborators)
+        .where(
+          and(
+            eq(courseCollaborators.courseId, courseId),
+            eq(courseCollaborators.userId, recipient.id)
+          )
+        )
+        .limit(1);
+      if (existingMembership) {
+        (reply as any).code(409);
+        return {
+          error:
+            existingMembership.status === 'accepted'
+              ? 'That teacher already collaborates on this course.'
+              : 'That teacher already has a pending invitation.',
+          requestId: request.id
+        };
+      }
+      await db.insert(courseCollaborators).values({
+        courseId,
+        userId: recipient.id,
+        role: 'editor',
+        status: 'invited',
+        invitedByUserId: user.id
+      });
       await recordCourseActivity(
         courseId,
         user.id,
@@ -3629,6 +4004,15 @@ export async function v1Routes(app: FastifyInstance) {
         `invited ${body.email} to collaborate`,
         { dedupe: false }
       );
+      await createNotification({
+        recipientUserId: recipient.id,
+        actorUserId: user.id,
+        courseId,
+        type: 'course_invitation',
+        title: ownedCourse.name,
+        message: 'invited you to collaborate',
+        actionUrl: '/sharing'
+      });
       return buildCourseCollaborators(courseId);
     }
   );
@@ -4308,7 +4692,11 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
       const params = SectionLessonParamsSchema.parse(request.params);
-      const lesson = await findOwnedLessonInSectionCourse(user.id, params.sectionId, params.lessonId);
+      const lesson = await findOwnedLessonInSectionCourse(
+        user.id,
+        params.sectionId,
+        params.lessonId
+      );
       if (!lesson?.googleSlidesUrl) {
         (reply as any).code(404);
         return { error: 'Lesson slides not found', requestId: request.id };
@@ -4348,7 +4736,11 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const params = SectionLessonParamsSchema.parse(request.params);
       const body = LessonSlidesProgressUpsertRequestSchema.parse(request.body);
-      const lesson = await findOwnedLessonInSectionCourse(user.id, params.sectionId, params.lessonId);
+      const lesson = await findOwnedLessonInSectionCourse(
+        user.id,
+        params.sectionId,
+        params.lessonId
+      );
       if (!lesson?.googleSlidesUrl) {
         (reply as any).code(404);
         return { error: 'Lesson slides not found', requestId: request.id };
@@ -4795,6 +5187,7 @@ export async function v1Routes(app: FastifyInstance) {
         .limit(1);
       return CourseShareResponseSchema.parse({
         enabled: share?.enabled ?? false,
+        schoolVisible: share?.schoolVisible ?? false,
         token: share?.publicToken ?? null
       });
     }
@@ -4824,13 +5217,18 @@ export async function v1Routes(app: FastifyInstance) {
         .from(courseShares)
         .where(eq(courseShares.courseId, courseId))
         .limit(1);
+      const enabled =
+        body.schoolVisible === true ? true : (body.enabled ?? existing?.enabled ?? false);
+      const schoolVisible = enabled
+        ? (body.schoolVisible ?? existing?.schoolVisible ?? false)
+        : false;
       if (existing) {
         await db
           .update(courseShares)
-          .set({ enabled: body.enabled, updatedAt: new Date() })
+          .set({ enabled, schoolVisible, updatedAt: new Date() })
           .where(eq(courseShares.courseId, courseId));
       } else {
-        await db.insert(courseShares).values({ courseId, enabled: body.enabled });
+        await db.insert(courseShares).values({ courseId, enabled, schoolVisible });
       }
       const [share] = await db
         .select()
@@ -4839,6 +5237,7 @@ export async function v1Routes(app: FastifyInstance) {
         .limit(1);
       return CourseShareResponseSchema.parse({
         enabled: share?.enabled ?? false,
+        schoolVisible: share?.schoolVisible ?? false,
         token: share?.publicToken ?? null
       });
     }
@@ -4901,6 +5300,130 @@ export async function v1Routes(app: FastifyInstance) {
           }))
         }
       });
+    }
+  );
+
+  app.post(
+    '/v1/public/curriculum/:token/import',
+    {
+      schema: {
+        params: z.object({ token: z.string().uuid() }),
+        body: PublicCurriculumImportRequestSchema,
+        response: { 200: CourseDetailResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const token = z.object({ token: z.string().uuid() }).parse(request.params).token;
+      const body = PublicCurriculumImportRequestSchema.parse(request.body);
+      const [shared] = await db
+        .select({
+          courseId: courses.id,
+          teacherId: courses.teacherId,
+          name: courses.name,
+          subject: courses.subject,
+          gradeLevel: courses.gradeLevel
+        })
+        .from(courseShares)
+        .innerJoin(courses, eq(courseShares.courseId, courses.id))
+        .where(and(eq(courseShares.publicToken, token), eq(courseShares.enabled, true)))
+        .limit(1);
+      if (!shared) {
+        (reply as any).code(404);
+        return { error: 'Curriculum not found', requestId: request.id };
+      }
+
+      let targetCourseId: string;
+      if (body.mode === 'copy_into') {
+        targetCourseId = body.targetCourseId!;
+        const target = await findCourseOwnedBy(user.id, targetCourseId);
+        if (!target) {
+          (reply as any).code(404);
+          return { error: 'Choose one of your own courses.', requestId: request.id };
+        }
+        const [existingUnit] = await db
+          .select({ id: units.id })
+          .from(units)
+          .where(eq(units.courseId, targetCourseId))
+          .limit(1);
+        if (existingUnit) {
+          (reply as any).code(409);
+          return {
+            error: 'Curriculum can only be copied into an empty course.',
+            requestId: request.id
+          };
+        }
+      } else {
+        const schoolId = await loadTeacherSchoolId(user.id);
+        const [lastCourse] = await db
+          .select({ sortIndex: teacherCourses.sortIndex })
+          .from(teacherCourses)
+          .where(eq(teacherCourses.teacherId, user.id))
+          .orderBy(desc(teacherCourses.sortIndex))
+          .limit(1);
+        const sortIndex = (lastCourse?.sortIndex ?? -1) + 1;
+        const [created] = await db.transaction(async (tx) => {
+          const [course] = await tx
+            .insert(courses)
+            .values({
+              teacherId: user.id,
+              schoolId,
+              name: body.name!,
+              subject: shared.subject,
+              gradeLevel: shared.gradeLevel,
+              sortIndex
+            })
+            .returning({ id: courses.id });
+          if (!course) throw new Error('Could not create the curriculum copy');
+          await tx.insert(courseCollaborators).values({
+            courseId: course.id,
+            userId: user.id,
+            role: 'owner',
+            status: 'accepted',
+            invitedByUserId: user.id,
+            joinedAt: new Date()
+          });
+          await tx.insert(teacherCourses).values({
+            teacherId: user.id,
+            curriculumId: course.id,
+            sourceCurriculumId: shared.courseId,
+            name: body.name!,
+            subject: shared.subject,
+            gradeLevel: shared.gradeLevel,
+            relationshipType: 'independent',
+            sortIndex
+          });
+          return [course];
+        });
+        if (!created) throw new Error('Could not create the curriculum copy');
+        targetCourseId = created.id;
+      }
+
+      const copied = await copyCourseCurriculum(shared.teacherId, shared.courseId, targetCourseId);
+      if (!copied) throw new Error('Could not copy the shared curriculum');
+      await recordCourseActivity(
+        targetCourseId,
+        user.id,
+        'curriculum_imported',
+        'course',
+        targetCourseId,
+        `imported curriculum from ${shared.name}`,
+        { dedupe: false, metadata: { sourceCourseId: shared.courseId } }
+      );
+      await createNotification({
+        recipientUserId: shared.teacherId,
+        actorUserId: user.id,
+        courseId: shared.courseId,
+        type: 'curriculum_copied',
+        title: shared.name,
+        message: 'added a copy from your shared link',
+        actionUrl: `/sharing?course=${shared.courseId}`
+      });
+      const detail = await buildCourseDetail(user.id, targetCourseId);
+      if (!detail) throw new Error('Could not load the curriculum copy');
+      return detail;
     }
   );
 

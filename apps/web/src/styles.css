@@ -10344,6 +10344,404 @@ button:disabled,
   opacity: 0.52;
 }
 
+/* School community, curriculum intake, and personal notifications */
+.sidebar-account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sidebar-account-row .sidebar-account {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-trigger {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 1.25rem;
+}
+
+.notification-trigger > strong {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--amber);
+  color: #fff;
+  font-size: 0.65rem;
+}
+
+.notification-panel {
+  position: fixed;
+  z-index: 80;
+  top: 76px;
+  left: calc(var(--sidebar-width) - 4px);
+  width: min(390px, calc(100vw - var(--sidebar-width) - 24px));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 22px 60px rgba(31, 45, 54, 0.18);
+}
+
+.notification-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.notification-panel > header > div,
+.notification-list > p {
+  display: grid;
+  gap: 2px;
+}
+
+.notification-panel header span,
+.notification-list time {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.notification-panel .button-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+}
+
+.notification-list {
+  display: grid;
+  max-height: min(560px, calc(100vh - 130px));
+  overflow: auto;
+}
+
+.notification-list > a,
+.notification-list > button {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  padding: 14px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+}
+
+.notification-list > .unread {
+  background: #f3f8f5;
+}
+
+.notification-status {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.notification-list > .unread .notification-status {
+  background: var(--green);
+}
+
+.notification-list > a > span:last-child,
+.notification-list > button > span:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.notification-list > a > span:last-child > span,
+.notification-list > button > span:last-child > span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.notification-list > p {
+  margin: 0;
+  padding: 24px 18px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.school-hero-actions,
+.school-section-heading,
+.school-invite-code,
+.school-calendar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.school-community-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 16px;
+}
+
+.school-community-grid > .card {
+  padding: clamp(18px, 2vw, 24px);
+}
+
+.school-section-heading {
+  align-items: flex-start;
+}
+
+.school-section-heading h2,
+.school-access-card h2,
+.school-calendar-heading h2 {
+  margin: 4px 0 0;
+  letter-spacing: -0.035em;
+}
+
+.school-section-heading p:not(.eyebrow),
+.school-access-card p,
+.school-calendar-heading > p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.school-member-list,
+.school-library-list {
+  display: grid;
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.school-member-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.school-member-avatar {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 999px;
+  background: #eaf2ed;
+  color: var(--green);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.school-member-row > div,
+.school-library-row > div,
+.school-library-empty {
+  display: grid;
+  gap: 3px;
+}
+
+.school-member-row span,
+.school-library-row span,
+.school-library-row small,
+.school-library-empty span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.school-member-row em {
+  color: var(--green);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.school-quick-share {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #f5f8f6;
+}
+
+.school-quick-share label,
+.shared-curriculum-add-controls label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.school-library-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.school-library-row .button-link {
+  flex: 0 0 auto;
+  padding: 8px 10px;
+}
+
+.school-library-empty {
+  padding: 22px 0;
+}
+
+.school-access-card {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(210px, 0.6fr);
+  align-items: center;
+  gap: 20px;
+}
+
+.school-invite-code code {
+  padding: 12px 14px;
+  border: 1px dashed var(--green);
+  border-radius: 10px;
+  background: #f5faf7;
+  color: var(--green);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.school-access-card details {
+  justify-self: end;
+  width: 100%;
+}
+
+.school-access-card summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-weight: 700;
+  text-align: right;
+}
+
+.school-join-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.school-calendar-heading {
+  align-items: end;
+  margin-top: 12px;
+  padding: 10px 2px 0;
+}
+
+.shared-curriculum-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.8fr);
+  align-items: start;
+  gap: 24px;
+  margin: 26px 0 34px;
+  padding: clamp(20px, 3vw, 30px);
+  border: 1px solid rgba(65, 112, 92, 0.28);
+  border-radius: 18px;
+  background: #f1f7f3;
+}
+
+.shared-curriculum-add h2,
+.shared-curriculum-add p {
+  margin: 4px 0 0;
+}
+
+.shared-curriculum-add > div:first-child > p:last-child {
+  margin-top: 9px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.shared-curriculum-add-controls {
+  display: grid;
+  gap: 10px;
+}
+
+.shared-curriculum-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.shared-curriculum-mode button {
+  padding: 9px 10px;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 920px) {
+  .school-community-grid,
+  .shared-curriculum-add {
+    grid-template-columns: 1fr;
+  }
+
+  .school-access-card {
+    grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .school-access-card details {
+    justify-self: stretch;
+  }
+
+  .school-access-card summary {
+    text-align: left;
+  }
+}
+
+@media (max-width: 760px) {
+  .notification-panel {
+    top: 70px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+
+  .school-hero-actions,
+  .school-calendar-heading,
+  .school-library-row,
+  .school-invite-code {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .school-quick-share {
+    grid-template-columns: 1fr;
+  }
+
+  .school-calendar-heading > p {
+    margin-top: 0;
+  }
+}
+
 @media (max-width: 760px) {
   .main {
     padding: 18px 16px 30px;

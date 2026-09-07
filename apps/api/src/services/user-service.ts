@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { and, eq } from 'drizzle-orm';
 
 import { db, schools, teacherProfiles, users } from '@teacheros/db';
@@ -89,7 +91,8 @@ export async function upsertOnboarding(principal: Principal, payload: Onboarding
         .values({
           name: payload.schoolName,
           district: payload.district,
-          state: payload.state
+          state: payload.state,
+          inviteCode: randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()
         })
         .returning({ id: schools.id });
       if (!createdSchool) throw new Error('Failed to create school');

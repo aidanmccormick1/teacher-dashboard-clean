@@ -30,7 +30,9 @@ async function resolveClerkEmail(
   try {
     const clerk = createClerkClient({ secretKey: clerkSecretKey });
     const user = await clerk.users.getUser(clerkUserId);
-    const primary = user.emailAddresses.find((address) => address.id === user.primaryEmailAddressId);
+    const primary = user.emailAddresses.find(
+      (address) => address.id === user.primaryEmailAddressId
+    );
     const email = primary?.emailAddress ?? user.emailAddresses[0]?.emailAddress ?? null;
     if (email) clerkEmailCache.set(clerkUserId, { email, expiresAt: Date.now() + 5 * 60_000 });
     return email;
@@ -50,7 +52,8 @@ export const authPlugin = fp(async (app) => {
       path.startsWith('/health') ||
       path.startsWith('/docs') ||
       (app.config.NODE_ENV !== 'production' && path.startsWith('/v1/test-auth')) ||
-      (request.method === 'GET' && /^\/v1\/public\/lessons\/[0-9a-f-]{36}$/i.test(path))
+      (request.method === 'GET' &&
+        /^\/v1\/public\/(?:lessons|curriculum)\/[0-9a-f-]{36}$/i.test(path))
     )
       return;
 

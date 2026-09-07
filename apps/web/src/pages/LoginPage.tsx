@@ -1,6 +1,6 @@
 import { SignIn, SignUp } from '@clerk/clerk-react';
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAppAuth } from '../lib/auth.js';
 
@@ -17,6 +17,10 @@ function isLocalDevHost() {
 export function LoginPage() {
   const auth = useAppAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedPath = searchParams.get('next');
+  const returnTo =
+    requestedPath?.startsWith('/') && !requestedPath.startsWith('//') ? requestedPath : '/today';
   const [loginMode, setLoginMode] = useState<LoginMode>('signin');
   const [devUserId, setDevUserId] = useState('teacher-dev-1');
   const [devEmail, setDevEmail] = useState('teacher@example.com');
@@ -31,8 +35,8 @@ export function LoginPage() {
   const [testLoading, setTestLoading] = useState(false);
 
   useEffect(() => {
-    if (auth.isSignedIn) navigate('/today');
-  }, [auth.isSignedIn, navigate]);
+    if (auth.isSignedIn) navigate(returnTo);
+  }, [auth.isSignedIn, navigate, returnTo]);
 
   useEffect(() => {
     if (auth.mode === 'dev' && !isLocalDevHost()) {
@@ -48,7 +52,7 @@ export function LoginPage() {
     }
 
     auth.signInPilot();
-    navigate('/today');
+    navigate(returnTo);
   };
 
   const submitTestAccount = async () => {
@@ -73,7 +77,7 @@ export function LoginPage() {
       }
 
       auth.signInWithTestToken(payload.token, payload.user.username, payload.user.email ?? null);
-      navigate('/today');
+      navigate(returnTo);
     } catch {
       setTestError('Could not reach the backend. Try again in a moment.');
     } finally {
@@ -312,7 +316,7 @@ export function LoginPage() {
                 type="button"
                 onClick={() => {
                   auth.signInDev(devUserId, devEmail || null);
-                  navigate('/today');
+                  navigate(returnTo);
                 }}
               >
                 {loginMode === 'signup' ? 'Create local account' : 'Sign in'}

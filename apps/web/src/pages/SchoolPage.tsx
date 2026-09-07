@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { CalendarImportResponse, SchoolCalendarResponse } from '@teacheros/contracts';
+import type {
+  CalendarImportResponse,
+  CourseListResponse,
+  SchoolCalendarResponse,
+  SchoolOverviewResponse
+} from '@teacheros/contracts';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 type ManualDayOff = { title: string; startDate: string; endDate: string };
@@ -72,9 +77,20 @@ function savedEventGroups(events: SchoolCalendarResponse['events']) {
   }, []);
 }
 
+function initials(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
+}
+
 export function SchoolPage() {
   const api = useApiClient();
   const [calendar, setCalendar] = useState<SchoolCalendarResponse | null>(null);
+  const [overview, setOverview] = useState<SchoolOverviewResponse | null>(null);
+  const [courses, setCourses] = useState<CourseListResponse['courses']>([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [sourceText, setSourceText] = useState('');
@@ -95,11 +111,20 @@ export function SchoolPage() {
   const [editingCalendarEventKey, setEditingCalendarEventKey] = useState<string | null>(null);
   const [savedEventDraft, setSavedEventDraft] = useState<SavedEventGroup | null>(null);
   const [timezone, setTimezone] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [shareMemberId, setShareMemberId] = useState('');
+  const [shareCourseId, setShareCourseId] = useState('');
 
   const load = useCallback(async () => {
     try {
-      const next = await api.getSchoolCalendar();
+      const [next, school, courseList] = await Promise.all([
+        api.getSchoolCalendar(),
+        api.getSchoolOverview(),
+        api.listCourses()
+      ]);
       setCalendar(next);
+      setOverview(school);
+      setCourses(courseList.courses);
       setTimezone(next.timezone);
       setStartDate(next.schoolYear?.startDate ?? '');
       setEndDate(next.schoolYear?.endDate ?? '');
@@ -310,20 +335,243 @@ export function SchoolPage() {
     }
   };
 
+  const copyInviteCode = async () => {
+    if (!overview) return;
+    try {
+      await navigator.clipboard.writeText(overview.school.inviteCode);
+      setSaved('School invite code copied.');
+    } catch {
+      setError('Could not copy the code. Select it and copy it manually.');
+    }
+  };
+
+  const joinSchool = async () => {
+    if (!joinCode.trim()) return;
+    if (
+      !window.confirm(
+        'Join the school connected to this code? Your school calendar and directory will switch to that school.'
+      )
+    )
+      return;
+    try {
+      setBusy(true);
+      setError(null);
+      const nextOverview = await api.joinSchool({ inviteCode: joinCode.trim() });
+      setOverview(nextOverview);
+      setJoinCode('');
+      setSaved(`Joined ${nextOverview.school.name}.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not join that school.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const shareWithSchoolTeacher = async () => {
+    const member = overview?.members.find((item) => item.userId === shareMemberId);
+    const course = courses.find((item) => item.id === shareCourseId);
+    if (!member || !course) return;
+    try {
+      setBusy(true);
+      setError(null);
+      await api.inviteCourseCollaborator(course.id, { email: member.email });
+      setSaved(`Invitation sent to ${member.fullName ?? member.email} for ${course.name}.`);
+      setShareMemberId('');
+      setShareCourseId('');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not share that course.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const ownedCourses = courses.filter((course) => course.accessRole === 'owner');
+  const otherMembers = overview?.members.filter((member) => !member.isCurrentUser) ?? [];
+
   return (
     <div className="school-page stack page-entry">
       <section className="paper-hero">
         <div>
-          <p className="eyebrow">School profile</p>
-          <h1>School Calendar</h1>
-          <p>Set the instructional year and the days that change normal student learning.</p>
+          <p className="eyebrow">Your school</p>
+          <h1>{overview?.school.name ?? 'School workspace'}</h1>
+          <p>
+            {overview
+              ? [overview.school.district, overview.school.state].filter(Boolean).join(' · ') ||
+                'Plan and share with the teachers at your school.'
+              : 'Plan and share with the teachers at your school.'}
+          </p>
         </div>
-        <Link className="button-link secondary" to="/courses?import=schedule">
-          Import schedule
-        </Link>
+        <div className="school-hero-actions">
+          <Link className="button-link secondary" to="/sharing">
+            Open sharing
+          </Link>
+          <Link className="button-link secondary" to="/courses?import=schedule">
+            Import schedule
+          </Link>
+        </div>
       </section>
       {error ? <p className="notice warning">{error}</p> : null}
       {saved ? <p className="notice success">{saved}</p> : null}
+      {overview ? (
+        <section className="school-community-grid" aria-label="School community">
+          <article className="card school-people-card">
+            <div className="school-section-heading">
+              <div>
+                <p className="eyebrow">People</p>
+                <h2>{overview.school.memberCount} teachers at your school</h2>
+                <p>Share a live curriculum with a colleague without typing their email.</p>
+              </div>
+            </div>
+            <div className="school-member-list">
+              {overview.members.map((member) => (
+                <div key={member.userId} className="school-member-row">
+                  <span className="school-member-avatar" aria-hidden="true">
+                    {initials(member.fullName ?? member.email)}
+                  </span>
+                  <div>
+                    <strong>
+                      {member.fullName ?? member.email}
+                      {member.isCurrentUser ? ' (you)' : ''}
+                    </strong>
+                    <span>
+                      {member.subjects.length ? member.subjects.join(', ') : member.email}
+                    </span>
+                  </div>
+                  <em>{member.role.replaceAll('_', ' ')}</em>
+                </div>
+              ))}
+            </div>
+            {otherMembers.length && ownedCourses.length ? (
+              <div className="school-quick-share">
+                <label>
+                  Teacher
+                  <select
+                    className="input"
+                    value={shareMemberId}
+                    onChange={(event) => setShareMemberId(event.target.value)}
+                  >
+                    <option value="">Choose a teacher…</option>
+                    {otherMembers.map((member) => (
+                      <option key={member.userId} value={member.userId}>
+                        {member.fullName ?? member.email}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Curriculum
+                  <select
+                    className="input"
+                    value={shareCourseId}
+                    onChange={(event) => setShareCourseId(event.target.value)}
+                  >
+                    <option value="">Choose your course…</option>
+                    {ownedCourses.map((course) => (
+                      <option key={course.id} value={course.id}>
+                        {course.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  disabled={busy || !shareMemberId || !shareCourseId}
+                  onClick={() => void shareWithSchoolTeacher()}
+                >
+                  Send invitation
+                </button>
+              </div>
+            ) : null}
+          </article>
+
+          <article className="card school-library-card">
+            <div className="school-section-heading">
+              <div>
+                <p className="eyebrow">Curriculum library</p>
+                <h2>Shared at {overview.school.name}</h2>
+                <p>Preview a colleague’s curriculum, then add a copy or fill an empty course.</p>
+              </div>
+              <Link to="/sharing">Share yours →</Link>
+            </div>
+            <div className="school-library-list">
+              {overview.curriculumLibrary.length ? (
+                overview.curriculumLibrary.map((course) => (
+                  <div key={course.courseId} className="school-library-row">
+                    <div>
+                      <strong>{course.name}</strong>
+                      <span>
+                        {[course.subject, course.gradeLevel].filter(Boolean).join(' · ') ||
+                          'Curriculum'}{' '}
+                        · {course.unitCount} units · {course.lessonCount} lessons
+                      </span>
+                      <small>Shared by {course.owner.fullName ?? course.owner.email}</small>
+                    </div>
+                    {course.alreadyAdded ? (
+                      <span className="status-pill done">Added</span>
+                    ) : (
+                      <Link
+                        className="button-link secondary"
+                        to={`/shared/curriculum/${course.token}`}
+                      >
+                        Preview & add
+                      </Link>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="school-library-empty">
+                  <strong>No curricula have been shared with the school yet.</strong>
+                  <span>Course owners can add one from the Sharing page.</span>
+                </div>
+              )}
+            </div>
+          </article>
+
+          <article className="card school-access-card">
+            <div>
+              <p className="eyebrow">Invite code</p>
+              <h2>Bring teachers into this school</h2>
+              <p>
+                Share this code with a TeacherDesk user so they can join this directory and
+                calendar.
+              </p>
+            </div>
+            <div className="school-invite-code">
+              <code>{overview.school.inviteCode}</code>
+              <button className="secondary" type="button" onClick={() => void copyInviteCode()}>
+                Copy code
+              </button>
+            </div>
+            <details>
+              <summary>Join a different school</summary>
+              <div className="school-join-form">
+                <input
+                  className="input"
+                  value={joinCode}
+                  onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+                  placeholder="Enter invite code"
+                  aria-label="School invite code"
+                />
+                <button
+                  type="button"
+                  disabled={busy || !joinCode.trim()}
+                  onClick={() => void joinSchool()}
+                >
+                  Join school
+                </button>
+              </div>
+            </details>
+          </article>
+        </section>
+      ) : null}
+      <div className="school-calendar-heading">
+        <div>
+          <p className="eyebrow">Shared calendar</p>
+          <h2>Instructional calendar</h2>
+        </div>
+        <p>Changes here apply to every teacher at this school.</p>
+      </div>
       {!preview ? (
         <>
           <section className="card stack calendar-import-card">
