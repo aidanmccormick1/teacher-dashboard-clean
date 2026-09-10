@@ -81,6 +81,10 @@ function buildUserContent(params: PromptInput) {
     ];
   }
 
+  if (!/^data:image\/(?:png|jpe?g|webp|gif);/i.test(params.fileDataUrl)) {
+    throw new Error('Unsupported schedule image. Use PNG, JPEG, WebP, a non-animated GIF, or PDF.');
+  }
+
   return [
     {
       type: 'input_text',
@@ -89,7 +93,9 @@ function buildUserContent(params: PromptInput) {
     {
       type: 'input_image',
       image_url: params.fileDataUrl,
-      detail: 'high'
+      // Dense block schedules need the source dimensions preserved so small
+      // weekday headers and row-boundary times remain legible to the model.
+      detail: 'original'
     }
   ];
 }
@@ -105,7 +111,12 @@ function extractOutputText(payload: unknown): string {
     return payload.output_text;
   }
 
-  if (payload && typeof payload === 'object' && 'output' in payload && Array.isArray(payload.output)) {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'output' in payload &&
+    Array.isArray(payload.output)
+  ) {
     // Reasoning models often return a reasoning item before the final message.
     // Search every output item instead of assuming the first is the answer.
     for (const output of payload.output) {
@@ -134,19 +145,31 @@ function extractOutputText(payload: unknown): string {
   };
   const outputTypes = Array.isArray(response?.output)
     ? response.output
-        .flatMap((item) => item.content?.map((content) => `${item.type ?? 'unknown'}/${content.type ?? 'unknown'}`) ?? [])
+        .flatMap(
+          (item) =>
+            item.content?.map(
+              (content) => `${item.type ?? 'unknown'}/${content.type ?? 'unknown'}`
+            ) ?? []
+        )
         .join(', ')
     : 'none';
   const status = typeof response?.status === 'string' ? response.status : 'unknown';
   const incompleteReason =
-    typeof response?.incomplete_details?.reason === 'string' ? response.incomplete_details.reason : 'none';
+    typeof response?.incomplete_details?.reason === 'string'
+      ? response.incomplete_details.reason
+      : 'none';
   throw new Error(
     `OpenAI returned no structured schedule result (status: ${status}; incomplete: ${incompleteReason}; output: ${outputTypes || 'none'})`
   );
 }
 
 function normalizeScheduleTimes(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || !Array.isArray((value as { classes?: unknown }).classes)) return value;
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !Array.isArray((value as { classes?: unknown }).classes)
+  )
+    return value;
 
   const normalizeTime = (time: unknown): unknown => {
     if (time === null || time === undefined) return null;

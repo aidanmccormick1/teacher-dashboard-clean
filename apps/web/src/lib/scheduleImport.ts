@@ -20,6 +20,21 @@ type CourseVariant = {
   groupLabel: string;
 };
 
+export type ImportedScheduleMeeting = {
+  sourceIndex: number;
+  parsedClass: ParseScheduleResponse['classes'][number];
+};
+
+export type ImportedScheduleClassGroup = {
+  name: string;
+  meetings: ImportedScheduleMeeting[];
+};
+
+export type ImportedScheduleCourse = {
+  name: string;
+  classGroups: ImportedScheduleClassGroup[];
+};
+
 function inferCourseVariant(name: string): CourseVariant | null {
   const trimmed = name.trim().replace(/\s+/g, ' ');
 
@@ -36,7 +51,9 @@ function inferCourseVariant(name: string): CourseVariant | null {
 
   // "Spanish 5A", "Spanish 5 B", and "Spanish 5 - C" are sections of a
   // numbered course, rather than independent curricula.
-  const letterSuffix = trimmed.match(/^(.+?\d(?:[\d\s./-]*\d)?)\s*(?:[-–—,:]?\s*|\(\s*)([A-Za-z])\)?$/);
+  const letterSuffix = trimmed.match(
+    /^(.+?\d(?:[\d\s./-]*\d)?)\s*(?:[-–—,:]?\s*|\(\s*)([A-Za-z])\)?$/
+  );
   if (letterSuffix?.[1] && letterSuffix[2]) {
     return {
       courseName: letterSuffix[1].trim().replace(/[\s,;:.-]+$/, ''),
@@ -46,7 +63,9 @@ function inferCourseVariant(name: string): CourseVariant | null {
 
   // AP/IB titles often have no grade number, but a trailing letter is still a
   // class group rather than a second curriculum (AP Government A/B/C).
-  const advancedCourseLetterSuffix = trimmed.match(/^((?:AP|IB)\s+.+?)\s*(?:[-–—,:]?\s*|\(\s*)([A-Za-z])\)?$/i);
+  const advancedCourseLetterSuffix = trimmed.match(
+    /^((?:AP|IB)\s+.+?)\s*(?:[-–—,:]?\s*|\(\s*)([A-Za-z])\)?$/i
+  );
   if (advancedCourseLetterSuffix?.[1] && advancedCourseLetterSuffix[2]) {
     return {
       courseName: advancedCourseLetterSuffix[1].trim().replace(/[\s,;:.-]+$/, ''),
@@ -91,7 +110,9 @@ function normalizedGroupLabel(period: string): string {
   return `${kind.charAt(0).toUpperCase()}${kind.slice(1).toLowerCase()} ${explicitGroup[2].toUpperCase()}`;
 }
 
-export function normalizeImportedCourseVariants(schedule: ParseScheduleResponse): ParseScheduleResponse {
+export function normalizeImportedCourseVariants(
+  schedule: ParseScheduleResponse
+): ParseScheduleResponse {
   const courseNameBySource = new Map<string, string>();
   const classes = schedule.classes.map((parsedClass) => {
     const variant = inferCourseVariant(parsedClass.name);
@@ -116,8 +137,34 @@ export function normalizeImportedCourseVariants(schedule: ParseScheduleResponse)
     ...parsedClass,
     period: normalizedGroupLabel(parsedClass.period)
   }));
+
+  // The review intentionally treats differences in case, punctuation, and
+  // word order as one course. Canonicalize the underlying records too, so a
+  // visually merged course cannot split back apart when the import is saved.
+  const canonicalCourseNames = new Map<string, string>();
+  const canonicalGroupNamesByCourse = new Map<string, Map<string, string>>();
+  const canonicalClasses = normalizedClasses.map((parsedClass) => {
+    const courseKey = courseNameKey(parsedClass.name);
+    const canonicalCourseName = canonicalCourseNames.get(courseKey) ?? parsedClass.name.trim();
+    canonicalCourseNames.set(courseKey, canonicalCourseName);
+
+    let groupNames = canonicalGroupNamesByCourse.get(courseKey);
+    if (!groupNames) {
+      groupNames = new Map();
+      canonicalGroupNamesByCourse.set(courseKey, groupNames);
+    }
+    const groupKey = courseNameKey(parsedClass.period);
+    const canonicalGroupName = groupNames.get(groupKey) ?? parsedClass.period.trim();
+    groupNames.set(groupKey, canonicalGroupName);
+
+    return {
+      ...parsedClass,
+      name: canonicalCourseName,
+      period: canonicalGroupName
+    };
+  });
   const seenMeetings = new Set<string>();
-  const deduplicatedClasses = normalizedClasses.filter((parsedClass) => {
+  const deduplicatedClasses = canonicalClasses.filter((parsedClass) => {
     const key = [
       courseNameKey(parsedClass.name),
       courseNameKey(parsedClass.period),
@@ -134,9 +181,47 @@ export function normalizeImportedCourseVariants(schedule: ParseScheduleResponse)
   return {
     ...schedule,
     classes: deduplicatedClasses,
-    assignments: schedule.assignments.map((assignment) => ({
-      ...assignment,
-      courseName: courseNameBySource.get(sourceVariantKey(assignment.courseName)) ?? assignment.courseName
-    }))
+    assignments: schedule.assignments.map((assignment) => {
+      const inferredCourseName =
+        courseNameBySource.get(sourceVariantKey(assignment.courseName)) ?? assignment.courseName;
+      return {
+        ...assignment,
+        courseName:
+          canonicalCourseNames.get(courseNameKey(inferredCourseName)) ?? inferredCourseName
+      };
+    })
   };
+}
+
+export function groupImportedSchedule(
+  classes: ParseScheduleResponse['classes']
+): ImportedScheduleCourse[] {
+  const courses = new Map<
+    string,
+    ImportedScheduleCourse & { classGroupsByName: Map<string, ImportedScheduleClassGroup> }
+  >();
+
+  classes.forEach((parsedClass, sourceIndex) => {
+    const courseKey = courseNameKey(parsedClass.name);
+    let course = courses.get(courseKey);
+    if (!course) {
+      course = {
+        name: parsedClass.name,
+        classGroups: [],
+        classGroupsByName: new Map()
+      };
+      courses.set(courseKey, course);
+    }
+
+    const classGroupKey = courseNameKey(parsedClass.period);
+    let classGroup = course.classGroupsByName.get(classGroupKey);
+    if (!classGroup) {
+      classGroup = { name: parsedClass.period, meetings: [] };
+      course.classGroupsByName.set(classGroupKey, classGroup);
+      course.classGroups.push(classGroup);
+    }
+    classGroup.meetings.push({ sourceIndex, parsedClass });
+  });
+
+  return Array.from(courses.values()).map(({ name, classGroups }) => ({ name, classGroups }));
 }

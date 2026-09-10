@@ -11,6 +11,7 @@ type PromptInput = {
   fileDataUrl?: string;
   fileName?: string;
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  maxAttempts?: 1 | 2;
 };
 
 const openAiRequestTimeoutMs = 75_000;
@@ -82,6 +83,10 @@ export function buildUserContent(params: PromptInput) {
     ];
   }
 
+  if (!/^data:image\/(?:png|jpe?g|webp|gif);/i.test(params.fileDataUrl)) {
+    throw new Error('Unsupported schedule image. Use PNG, JPEG, WebP, a non-animated GIF, or PDF.');
+  }
+
   return [
     {
       type: 'input_text',
@@ -90,7 +95,9 @@ export function buildUserContent(params: PromptInput) {
     {
       type: 'input_image',
       image_url: params.fileDataUrl,
-      detail: 'high'
+      // Dense block schedules need the source dimensions preserved so small
+      // weekday headers and row-boundary times remain legible to the model.
+      detail: 'original'
     }
   ];
 }
@@ -198,7 +205,7 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
   );
   let lastError: unknown;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < (params.maxAttempts ?? 2); attempt += 1) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), openAiRequestTimeoutMs);

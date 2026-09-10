@@ -152,27 +152,10 @@ import {
   validTimeZone
 } from '../services/schedule-resolution.js';
 
-const InternalParseScheduleSchema = z.object({
-  classes: z.array(
-    z.object({
-      name: z.string(),
-      period: z.string(),
-      days: z.array(z.string()),
-      time: z.string().nullable(),
-      room: z.string().nullable(),
-      subject: z.string(),
-      grade: z.string().default('')
-    })
-  ),
-  assignments: z.array(
-    z.object({
-      name: z.string(),
-      courseName: z.string(),
-      dueDate: z.string().nullable(),
-      description: z.string().nullable()
-    })
-  )
-});
+// The model-facing schema must match the public import contract. A narrower
+// schema previously omitted `endTime`, so Structured Outputs discarded every
+// end time even when the vision model read it correctly.
+const InternalParseScheduleSchema = ParseScheduleResponseSchema;
 
 const InternalSchoolYearBoundariesSchema = z.object({
   startDate: z.string(),
@@ -318,31 +301,36 @@ function expandInstructionalException(event: {
   return dates;
 }
 
+const scheduleImportSystemPrompt = [
+  'Read a teacher schedule and return only the complete structured schedule. Ignore lunch, planning, breaks, homeroom, assemblies, Mass, and dismissal.',
+  'A COURSE is the shared subject and level or grade, such as Spanish 5. A CLASS GROUP is the cohort taught within that course, such as Group B. The `name` field is the course. The `period` field is the class group.',
+  'Course numbers belong to the course name. Spanish 5, Spanish 6, Spanish 7, and Spanish 8 are four different courses. Never return `name: "Spanish"` with `period: "5"`.',
+  'Group markers belong in `period`. Spanish 5A, Spanish 5 B, Spanish 5 Group C, and Spanish 5, Group C all use `name: "Spanish 5"`; their `period` values are Group A, Group B, or Group C. Apply the same rule to Block, Section, Class, and cohort suffixes.',
+  'A bell-period number or grid row identifies when a group meets, not which group it is. Do not use a bell-period label as `period` when the cell contains a real group marker.',
+  'For pasted text, preserve its hierarchy. A course heading applies to the A/B/C or named group lines beneath it until the next course heading. Repeated course names that differ only by case, punctuation, word order, or a group suffix represent one course.',
+  'Never turn a weekday, time range, room, bell-period row, note, or list heading into a course. Every returned course and class group must be supported by visible source text. Omit an unreadable item instead of inventing a plausible name.',
+  'Build one record for each distinct course, class group, start time, end time, and room combination. Combine days in one record only when all those values match. If the same group meets at different times, return separate records with the exact same `name` and `period`.',
+  'For a visual grid, first identify weekday columns and time-row boundaries. Then scan every nonempty teaching cell from top to bottom and left to right. A cell that spans rows starts at its top boundary and ends at its bottom boundary.',
+  'Read both `time` and `endTime` from every visible range, row boundary, or start/end label. Use 24-hour HH:MM. Set `endTime` to null only when the source truly shows no ending boundary; never replace a visible end time with a guessed duration.',
+  'Before returning, verify that every visible class group appears and that every non-null end time is later than its start time. Return assignments only when the source explicitly includes them.'
+].join('\n');
+
 function scheduleImportUserPrompt(body: ScheduleImportBody): string {
-  if (body.text) {
-    return [
-      'Parse this teacher schedule and assignments.',
-      'Before returning JSON, compare every class title. Separate trailing A/B/C letters and Block, Period, Section, or Group numbers are class-group labels—not separate curricula—when their remaining course title matches.',
-      'Examples: Spanish 5A, Spanish 5B, and Spanish 5C are one course named Spanish 5. Pre-Calculus Block 1, Block 3, and Block 4 are one course named Pre-Calculus.',
-      'A schedule may show the same class group on more than one day at different times. Emit one class object per meeting occurrence, but repeat the exact same course name and class-group label for every occurrence of that group.',
-      'The `period` field is the class-group label, not the grid row or bell-period number. For example, Spanish 5B on Monday at 08:10–09:05 and Thursday at 13:35–14:30 must both use `name: "Spanish 5"` and `period: "Group B"`; only `days`, `time` (start), and `endTime` change.',
-      'Extract both a `time` start time and `endTime` whenever they are visible. If only a start time is visible, use null for `endTime`; TeacherDesk will ask for or safely infer the end time during review.',
-      'For a visual grid, audit every nonempty teaching cell across all weekday columns before returning. A shorthand such as 7B means Spanish 7, Group B; text in parentheses such as a homeroom teacher is the room/location. Do not omit a group just because another group from the same grade appears elsewhere.',
-      'Keep each class group and all of its meeting times. Return JSON only.',
-      '',
-      body.text
-    ].join('\n');
-  }
-  if (body.fileMimeType === 'application/pdf' || body.fileName?.toLowerCase().endsWith('.pdf')) {
-    return 'Parse the uploaded PDF schedule. Extract teaching classes and assignments. Return JSON only.';
-  }
-  return 'Parse the uploaded schedule image. Extract teaching classes and assignments. Return JSON only.';
+  const source =
+    body.fileMimeType === 'application/pdf' || body.fileName?.toLowerCase().endsWith('.pdf')
+      ? 'Analyze the attached PDF schedule.'
+      : body.imageBase64 || body.fileBase64
+        ? 'Analyze the attached schedule image.'
+        : 'Analyze the pasted teacher schedule.';
+
+  return body.text ? `${source}\n\nSource text:\n${body.text}` : source;
 }
 
 function scheduleImportCorrectionPrompt(body: ScheduleImportCorrectionBody): string {
   return [
     'Correct this already-parsed teacher schedule according to the teacher instruction.',
-    'The `name` field is the shared course curriculum. The `period` field is a distinct class-group label under that course, never a bell-period number.',
+    'The `name` field is the complete shared course name, including its level or grade number. The `period` field is a distinct class-group label under that course, never a bell-period number.',
+    'For example, Spanish 5 Group B and Spanish 5 Group C are one course named Spanish 5 with two class groups named Group B and Group C.',
     'When one class group meets at more than one time, return one class object per meeting occurrence with the same `name` and `period`; the app will combine them into one group with multiple meeting times.',
     'Keep every class group, its meeting days, start time (`time`), end time (`endTime`), room, subject, grade, and assignments unless the instruction explicitly changes one.',
     'When an instruction changes a class group, start time, end time, day, room, or course name, return only the corrected replacement. Never return both the old and corrected versions, and never duplicate a meeting occurrence.',
@@ -360,10 +348,11 @@ function scheduleImportAuditPrompt(
   initialExtraction: z.infer<typeof InternalParseScheduleSchema>
 ): string {
   return [
-    'Audit the attached schedule image against the candidate extraction below. Return a complete corrected JSON schedule.',
-    'Make a row-and-column pass through every weekday. Preserve all valid candidate records, add any omitted class group, and split a group into separate records whenever it meets at different times on different days.',
-    'A class-group label is never a bell-period row. Keep the same `name` and `period` for repeated meetings of one group. For example, if Spanish 5B is Monday 08:10 and Thursday 13:35, return two records with `name: "Spanish 5"`, `period: "Group B"`—do not combine those days under one time.',
-    'Use the visible text in parentheses as the room/location when present. Ignore lunch, homeroom, breaks, planning, Mass, and dismissal.',
+    'Audit the attached visual schedule against the candidate extraction below. Return a complete corrected JSON schedule.',
+    'Check the weekday headers, time-row boundaries, and every nonempty teaching cell. Keep a candidate only when the source supports it, remove invented records, add a group only when its label is visible, and correct any course, group, day, start time, end time, or room that conflicts with the source.',
+    'A class-group label is never a bell-period row. Keep the same `name` and `period` for repeated meetings of one group. If Spanish 5B is Monday 08:10 to 09:05 and Thursday 13:35 to 14:30, return two records with `name: "Spanish 5"` and `period: "Group B"`.',
+    'Use a visible time range or the top and bottom boundaries of a spanning cell for `time` and `endTime`. Use null only when the ending boundary is not visible. Do not infer a standard class duration.',
+    'Use visible text in parentheses as the room when present. Ignore non-teaching blocks.',
     '',
     `Candidate extraction: ${JSON.stringify(initialExtraction)}`,
     body.text ? `\nOriginal text, if helpful:\n${body.text}` : ''
@@ -5684,28 +5673,26 @@ export async function v1Routes(app: FastifyInstance) {
         return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
       }
 
+      const fileDataUrl = scheduleImportFileDataUrl(body);
       const response = await runStructuredPrompt<z.infer<typeof InternalParseScheduleSchema>>({
         apiKey: app.config.OPENAI_API_KEY,
         model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
         reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
         schemaName: 'schedule_import',
         schema: InternalParseScheduleSchema,
-        systemPrompt: [
-          'Extract schedule classes and assignments. Return JSON only. Ignore non-teaching blocks like lunch/planning.',
-          'Each class object represents one meeting occurrence. Its `name` is the shared course curriculum; its `period` is the separate class-group label, never the bell-period/grid row.',
-          'When class names differ only by a trailing section letter, group label, or period suffix, treat them as one course curriculum.',
-          'For example, Spanish 5A, Spanish 5B, and Spanish 5C must use `name: "Spanish 5"` with separate `period` values such as "Group A", "Group B", and "Group C".',
-          'If Spanish 5B meets Monday at 08:10 and Thursday at 13:35, return two records with `name: "Spanish 5"` and `period: "Group B"`; give each record its own day and time. Do not append "Period 1" or another bell period to the group label.',
-          'For a grid image, make a complete row-and-column pass over every nonempty teaching cell. Translate shorthand like 7B into `name: "Spanish 7"`, `period: "Group B"`, and capture text in parentheses as the room/location. Before returning, verify that every visible class-group label has a record.',
-          'Do not create separate courses merely because A, B, C or a bell-period label differs.'
-        ].join(' '),
+        systemPrompt: scheduleImportSystemPrompt,
         userPrompt: scheduleImportUserPrompt(body),
-        fileDataUrl: scheduleImportFileDataUrl(body),
-        fileName: body.fileName
+        fileDataUrl,
+        fileName: body.fileName,
+        maxAttempts: 1
       });
 
-      // A second visual pass prevents a common grid-reading mistake: combining
-      // a class group's different weekday time slots into a single meeting.
+      // Pasted text already gives the model an explicit hierarchy. Running it
+      // through an image-audit prompt can introduce records that are not in the
+      // source. Reserve the second pass for visual schedules, where it catches
+      // row-boundary and spanning-cell mistakes.
+      if (!fileDataUrl) return ParseScheduleResponseSchema.parse(response);
+
       const auditedResponse = await runStructuredPrompt<
         z.infer<typeof InternalParseScheduleSchema>
       >({
@@ -5714,15 +5701,11 @@ export async function v1Routes(app: FastifyInstance) {
         reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
         schemaName: 'schedule_import_audit',
         schema: InternalParseScheduleSchema,
-        systemPrompt: [
-          'You are the verification pass for a teacher schedule extracted from a visual grid. Return JSON only.',
-          'A record represents one meeting occurrence: `name` is the shared course and `period` is its class-group label, never a bell-period/grid row.',
-          'Audit every nonempty teaching cell. Keep groups with the same time on multiple days together, but emit separate records when their times differ.',
-          'Use normalized names such as `Spanish 5` with `Group A`, `Group B`, and `Group C`.'
-        ].join(' '),
+        systemPrompt: scheduleImportSystemPrompt,
         userPrompt: scheduleImportAuditPrompt(body, response),
-        fileDataUrl: scheduleImportFileDataUrl(body),
-        fileName: body.fileName
+        fileDataUrl,
+        fileName: body.fileName,
+        maxAttempts: 1
       });
 
       return ParseScheduleResponseSchema.parse(auditedResponse);
@@ -5780,6 +5763,16 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
       const body = ScheduleImportApplyRequestSchema.parse(request.body);
+      const unresolvedMeeting = body.classes.find(
+        (parsedClass) => !parsedClass.time || !parsedClass.endTime
+      );
+      if (unresolvedMeeting) {
+        (reply as any).code(400);
+        return {
+          error: `Add both a start and end time for ${unresolvedMeeting.name}, ${unresolvedMeeting.period} before applying the schedule`,
+          requestId: request.id
+        };
+      }
 
       const classGroups = Array.from(
         body.classes
@@ -5848,7 +5841,7 @@ export async function v1Routes(app: FastifyInstance) {
               parsedClass.days.map((day) => ({
                 day,
                 time: parsedClass.time,
-                endTime: parsedClass.endTime ?? endTimeFromStart(parsedClass.time),
+                endTime: parsedClass.endTime,
                 room: parsedClass.room
               }))
             )
@@ -6677,7 +6670,24 @@ export async function v1Routes(app: FastifyInstance) {
         .returning({ id: aiJobs.id, status: aiJobs.status });
       if (!job) throw new Error('Failed to create AI job');
 
-      await enqueueAiJob(app.aiQueue, job.id);
+      try {
+        await enqueueAiJob(app.aiQueue, job.id);
+      } catch {
+        await db
+          .update(aiJobs)
+          .set({
+            status: 'cancelled',
+            cancelRequested: true,
+            error: 'The AI queue was unavailable while starting this job.',
+            updatedAt: new Date()
+          })
+          .where(eq(aiJobs.id, job.id));
+        (reply as any).code(503);
+        return {
+          error: 'The AI queue is temporarily unavailable. Using the direct schedule reader.',
+          requestId: request.id
+        };
+      }
       return {
         jobId: job.id,
         status: job.status
@@ -7014,8 +7024,7 @@ export async function v1Routes(app: FastifyInstance) {
           reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
           schemaName: 'parse_schedule',
           schema: InternalParseScheduleSchema,
-          systemPrompt:
-            'Extract classes and assignments from teacher schedule text. Return JSON only and skip non-teaching events.',
+          systemPrompt: scheduleImportSystemPrompt,
           userPrompt: scheduleImportUserPrompt(body),
           fileDataUrl: scheduleImportFileDataUrl(body),
           fileName: body.fileName

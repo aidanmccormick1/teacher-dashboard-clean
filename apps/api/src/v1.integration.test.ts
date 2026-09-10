@@ -787,6 +787,26 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         headers: teacherHeaders,
         payload: onboardingBody
       });
+      const missingEndTime = await app.inject({
+        method: 'POST',
+        url: '/v1/schedule/import/apply',
+        headers: teacherHeaders,
+        payload: {
+          classes: [
+            {
+              name: 'Spanish 5',
+              period: '5B',
+              days: ['Monday'],
+              time: '09:00',
+              endTime: null,
+              room: '12',
+              subject: 'World language'
+            }
+          ]
+        }
+      });
+      expect(missingEndTime.statusCode).toBe(400);
+
       const firstImport = await app.inject({
         method: 'POST',
         url: '/v1/schedule/import/apply',
@@ -798,7 +818,7 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
               period: '5B',
               days: ['Monday', 'Friday'],
               time: '09:00',
-              endTime: '09:50',
+              endTime: '09:47',
               room: '12',
               subject: 'World language'
             }
@@ -811,11 +831,17 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           sections: Array<{
             sectionId: string;
             sectionName: string;
-            meetings: Array<{ day: string }>;
+            meetings: Array<{
+              day: string;
+              time: string | null;
+              endTime: string | null;
+              room: string | null;
+            }>;
           }>;
         }>()
         .sections.find((section) => section.sectionName === '5B')!;
       expect(firstSection.meetings.map((meeting) => meeting.day)).toEqual(['Monday', 'Friday']);
+      expect(firstSection.meetings.every((meeting) => meeting.endTime === '09:47')).toBe(true);
 
       const correctedImport = await app.inject({
         method: 'POST',

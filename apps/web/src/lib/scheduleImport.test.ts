@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ParseScheduleResponse } from '@teacheros/contracts';
 
-import { normalizeImportedCourseVariants } from './scheduleImport.js';
+import { groupImportedSchedule, normalizeImportedCourseVariants } from './scheduleImport.js';
 
 const baseClass: Omit<ParseScheduleResponse['classes'][number], 'name' | 'period'> = {
   days: ['Monday'],
@@ -194,5 +194,96 @@ describe('normalizeImportedCourseVariants', () => {
       days: ['Thursday'],
       time: '10:08'
     });
+  });
+});
+
+describe('groupImportedSchedule', () => {
+  it('nests repeated A/B groups beneath one course and preserves irregular end times', () => {
+    const normalized = normalizeImportedCourseVariants({
+      classes: [
+        {
+          ...baseClass,
+          name: 'Spanish 5, Group B',
+          period: '1',
+          days: ['Monday'],
+          time: '08:10',
+          endTime: '08:47'
+        },
+        {
+          ...baseClass,
+          name: 'Spanish 5, Group C',
+          period: '2',
+          days: ['Tuesday'],
+          time: '09:12',
+          endTime: '10:03'
+        },
+        {
+          ...baseClass,
+          name: 'Spanish 5, Group B',
+          period: '5',
+          days: ['Thursday'],
+          time: '13:35',
+          endTime: '14:22'
+        }
+      ],
+      assignments: []
+    });
+
+    const grouped = groupImportedSchedule(normalized.classes);
+
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.name).toBe('Spanish 5');
+    expect(grouped[0]?.classGroups.map((group) => group.name)).toEqual(['Group B', 'Group C']);
+    expect(
+      grouped[0]?.classGroups[0]?.meetings.map(({ parsedClass }) => ({
+        days: parsedClass.days,
+        endTime: parsedClass.endTime
+      }))
+    ).toEqual([
+      { days: ['Monday'], endTime: '08:47' },
+      { days: ['Thursday'], endTime: '14:22' }
+    ]);
+    expect(grouped[0]?.classGroups[1]?.meetings[0]?.parsedClass.endTime).toBe('10:03');
+  });
+
+  it('canonicalizes equivalent course and group names before they are saved', () => {
+    const normalized = normalizeImportedCourseVariants({
+      classes: [
+        {
+          ...baseClass,
+          name: 'Spanish 5',
+          period: 'Group B',
+          days: ['Monday']
+        },
+        {
+          ...baseClass,
+          name: '5 SPANISH',
+          period: 'group b',
+          days: ['Thursday']
+        }
+      ],
+      assignments: [{ name: 'Quiz', courseName: '5 Spanish', dueDate: null, description: null }]
+    });
+
+    expect(normalized.classes.map(({ name, period }) => ({ name, period }))).toEqual([
+      { name: 'Spanish 5', period: 'Group B' },
+      { name: 'Spanish 5', period: 'Group B' }
+    ]);
+    expect(normalized.assignments[0]?.courseName).toBe('Spanish 5');
+    expect(groupImportedSchedule(normalized.classes)).toHaveLength(1);
+  });
+
+  it('keeps repeated meetings grouped while an editable name is cleared and retyped', () => {
+    const cleared: ParseScheduleResponse['classes'] = [
+      { ...baseClass, name: '', period: '', days: ['Monday'] },
+      { ...baseClass, name: '', period: '', days: ['Thursday'] }
+    ];
+
+    const grouped = groupImportedSchedule(cleared);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.classGroups).toHaveLength(1);
+    expect(grouped[0]?.classGroups[0]?.meetings.map((meeting) => meeting.sourceIndex)).toEqual([
+      0, 1
+    ]);
   });
 });

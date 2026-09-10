@@ -9530,6 +9530,368 @@ button,
   color: var(--navy);
 }
 
+/* Schedule import hierarchy: one course is the outer review unit, class groups
+   are divided rows, and meeting details remain editable at the point of use. */
+.courses-import-panel {
+  gap: 18px;
+  border-color: #cbd6d0;
+  background: #f7faf8;
+}
+
+.courses-import-intro {
+  display: grid;
+  gap: 5px;
+}
+
+.schedule-import-terms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid #ced8d2;
+  border-bottom: 1px solid #ced8d2;
+}
+
+.schedule-import-terms > div {
+  display: grid;
+  gap: 3px;
+  padding: 13px 16px;
+}
+
+.schedule-import-terms > div + div {
+  border-left: 1px solid #ced8d2;
+}
+
+.schedule-import-terms dt {
+  color: var(--navy);
+  font-weight: 750;
+}
+
+.schedule-import-terms dd {
+  margin: 0;
+  color: #59636d;
+  font-size: 0.86rem;
+}
+
+.schedule-import-source {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(250px, 0.75fr);
+  gap: 14px;
+}
+
+.schedule-import-text-field,
+.schedule-import-file-field,
+.schedule-import-course-name,
+.schedule-import-group-name,
+.courses-import-correction > label,
+.schedule-import-meeting label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.schedule-import-text-field > span,
+.schedule-import-file-field > span:first-child,
+.schedule-import-course-name > span,
+.schedule-import-group-name > span,
+.courses-import-correction label > span,
+.schedule-import-meeting label > span,
+.schedule-import-meeting-days > span {
+  color: #59636d;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.schedule-import-file-field {
+  align-content: start;
+  border: 1px dashed #7b9186;
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  background: #ffffff;
+}
+
+.schedule-import-file-field small,
+.schedule-import-file-name {
+  color: #59636d;
+  font-size: 0.82rem;
+}
+
+.file-input-label {
+  min-height: 44px;
+  justify-content: space-between;
+  border: 1px solid #b9c7c0;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: #f7faf8;
+  color: var(--navy);
+  font-weight: 700;
+}
+
+.file-input-label input {
+  max-width: 190px;
+}
+
+.schedule-import-read-button {
+  min-height: 44px;
+  justify-self: start;
+}
+
+.schedule-import-review {
+  gap: 16px;
+  border-top: 1px solid #ced8d2;
+  padding-top: 18px;
+}
+
+.schedule-import-review-heading {
+  align-items: end;
+}
+
+.schedule-import-review-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.schedule-import-review-heading > div > span {
+  color: #59636d;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.schedule-import-review-heading strong {
+  color: var(--ink);
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+}
+
+.schedule-import-review-heading > span {
+  color: var(--navy);
+  font-weight: 700;
+}
+
+.schedule-import-course-list {
+  display: grid;
+  gap: 16px;
+}
+
+.schedule-import-course {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #bdcbc4;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+}
+
+.schedule-import-course-heading,
+.schedule-import-group-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.schedule-import-course-heading {
+  padding: 16px 18px;
+  border-bottom: 1px solid #d8e0dc;
+  background: #eef4f0;
+}
+
+.schedule-import-course-heading > div,
+.schedule-import-group-heading > div {
+  min-width: 0;
+}
+
+.schedule-import-course-heading span,
+.schedule-import-group-heading span {
+  display: block;
+  margin-bottom: 2px;
+  color: #59636d;
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.schedule-import-course-heading h3,
+.schedule-import-group-heading h4 {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--ink);
+}
+
+.schedule-import-course-heading h3 {
+  font-size: clamp(1.2rem, 2.2vw, 1.55rem);
+}
+
+.schedule-import-course-heading small {
+  flex: 0 0 auto;
+  color: var(--navy);
+  font-weight: 700;
+}
+
+.schedule-import-course-name {
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid #e1e6e3;
+}
+
+.schedule-import-groups {
+  display: grid;
+}
+
+.schedule-import-group {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 18px;
+}
+
+.schedule-import-group + .schedule-import-group {
+  border-top: 1px solid #cbd6d0;
+}
+
+.schedule-import-group-heading h4 {
+  font-size: 1.05rem;
+}
+
+.schedule-import-group-heading em {
+  flex: 0 0 auto;
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.schedule-import-group-name {
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center;
+  max-width: 620px;
+}
+
+.schedule-import-meetings {
+  display: grid;
+  border-top: 1px solid #e1e6e3;
+}
+
+.schedule-import-meeting {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 124px 124px minmax(110px, 0.8fr) auto;
+  gap: 10px;
+  align-items: end;
+  min-width: 0;
+  padding: 13px 0;
+}
+
+.schedule-import-meeting + .schedule-import-meeting {
+  border-top: 1px solid #e1e6e3;
+}
+
+.schedule-import-meeting-days {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  align-self: center;
+}
+
+.schedule-import-meeting-days strong {
+  overflow-wrap: anywhere;
+}
+
+.schedule-import-meeting .input {
+  min-width: 0;
+  min-height: 44px;
+}
+
+.schedule-import-remove-meeting {
+  min-height: 44px;
+  align-self: end;
+  white-space: nowrap;
+}
+
+.schedule-import-invalid-field {
+  border-color: #a05a26;
+  background: #fff8ef;
+}
+
+.schedule-import-meeting-issue {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #874617;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.courses-import-correction {
+  align-items: end;
+}
+
+.courses-import-correction button {
+  min-height: 44px;
+}
+
+.schedule-import-review-warning,
+.schedule-import-empty {
+  margin: 0;
+  border: 1px solid #d5aa7d;
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: #fff8ef;
+  color: #744018;
+}
+
+.schedule-import-empty {
+  display: grid;
+  gap: 3px;
+}
+
+@media (max-width: 820px) {
+  .schedule-import-source,
+  .schedule-import-meeting {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .schedule-import-text-field,
+  .schedule-import-file-field,
+  .schedule-import-meeting-days,
+  .schedule-import-meeting-issue {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .schedule-import-terms,
+  .schedule-import-meeting,
+  .schedule-import-course-name,
+  .schedule-import-group-name,
+  .courses-import-correction {
+    grid-template-columns: 1fr;
+  }
+
+  .schedule-import-terms > div + div {
+    border-top: 1px solid #ced8d2;
+    border-left: 0;
+  }
+
+  .schedule-import-review-heading,
+  .schedule-import-course-heading,
+  .schedule-import-group-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .schedule-import-course-heading,
+  .schedule-import-course-name,
+  .schedule-import-group {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .file-input-label {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .file-input-label input {
+    max-width: 100%;
+  }
+}
+
 .school-page {
   width: min(100%, 1320px);
   min-height: calc(100svh - 94px);
@@ -10334,7 +10696,7 @@ a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 3px solid rgba(62, 97, 122, 0.38);
+  outline: 3px solid var(--amber);
   outline-offset: 2px;
 }
 

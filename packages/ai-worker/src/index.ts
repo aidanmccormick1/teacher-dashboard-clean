@@ -53,11 +53,13 @@ function scheduleImportFileDataUrl(input: ScheduleImportInput): string | undefin
 }
 
 const scheduleCourseGroupingInstructions = [
-  'COURSE AND CLASS-GROUP RULE (required): A subject plus its number is the COURSE name, not a class group. This includes Spanish 5, Spanish 6, Spanish 7, Spanish 8, Math 5, Math 6, and similarly numbered subjects.',
-  'The `name` field must contain that complete course name, including the number. Put only the subgroup/section in `period`.',
-  'For example: Spanish 5A => `name: "Spanish 5"`, `period: "Group A"`; Spanish 5B => `name: "Spanish 5"`, `period: "Group B"`; Math 6, when no subgroup is shown => `name: "Math 6"`, `period: "Main section"`.',
+  'A COURSE is the shared subject and level or grade. A CLASS GROUP is the cohort taught within that course. Put the complete course in `name` and only the class-group label in `period`.',
+  'A subject plus its number is the course name. This includes Spanish 5, Spanish 6, Spanish 7, Spanish 8, Math 5, Math 6, and similarly numbered subjects.',
+  'For example: Spanish 5A => `name: "Spanish 5"`, `period: "Group A"`; Spanish 5 Group C => `name: "Spanish 5"`, `period: "Group C"`; Math 6 with no subgroup => `name: "Math 6"`, `period: "Main section"`.',
   'Never return `name: "Spanish"` with `period: "5"`, and never make Spanish 5, Spanish 6, Spanish 7, or Spanish 8 into groups below one Spanish course. They are separate courses. The same rule applies to every numbered subject.',
-  'A/B/C suffixes and words such as Block, Period, Section, or Group identify a class group only after the complete course name has been removed. A bell-period/grid row is never a class-group label.'
+  'A/B/C suffixes and words such as Block, Section, Group, or Class identify a class group only after the complete course name has been removed. A bell-period or grid row identifies when a group meets and is never a class-group label.',
+  'For pasted text, a course heading applies to the group lines beneath it until the next course heading. Repeated course names that differ only by case, punctuation, word order, or a group suffix represent one course.',
+  'Never turn a weekday, time, room, bell-period row, note, or list heading into a course. Every returned course and group must be supported by the source. Omit unreadable text instead of inventing a plausible name.'
 ].join('\n');
 
 function scheduleImportUserPrompt(input: ScheduleImportInput): string {
@@ -67,22 +69,45 @@ function scheduleImportUserPrompt(input: ScheduleImportInput): string {
       scheduleCourseGroupingInstructions,
       'For example, Spanish 5A, Spanish 5B, and Spanish 5C are one course named Spanish 5; Pre-Calculus Block 1, Block 3, and Block 4 are one course named Pre-Calculus.',
       'A schedule may show the same class group on more than one day at different times. Emit one class object per meeting occurrence, but repeat the exact same course name and class-group label for each occurrence.',
-      'The `period` field is the class-group label, not a bell-period/grid row. Spanish 5B on Monday at 08:10 and Thursday at 13:35 must both use `name: "Spanish 5"` and `period: "Group B"`; only the day and time change. Return every time as 24-hour `HH:MM` (for example, `08:10`) or null when it is not visible.',
-      'For a visual grid, audit every nonempty teaching cell across every weekday column. A shorthand such as 7B means Spanish 7, Group B; text in parentheses is the room/location. Do not omit a group just because another group from that grade appears elsewhere.',
+      'The `period` field is the class-group label, not a bell-period/grid row. Spanish 5B on Monday at 08:10 to 09:05 and Thursday at 13:35 to 14:30 must use `name: "Spanish 5"` and `period: "Group B"`; only the day and time range change.',
+      'For a visual grid, identify weekday columns and time-row boundaries before scanning every nonempty teaching cell. A spanning cell starts at its top boundary and ends at its bottom boundary. Return `time` and `endTime` as 24-hour HH:MM. Use null only when a boundary is not visible, and never replace a visible end time with a guessed duration.',
+      'A shorthand such as 7B means Spanish 7, Group B; text in parentheses is the room/location. Do not omit a group just because another group from that grade appears elsewhere.',
       'Keep every class group and all of its meeting times. Return JSON only.',
       '',
       input.text
     ].join('\n');
   }
   if (input.fileMimeType === 'application/pdf' || input.fileName?.toLowerCase().endsWith('.pdf')) {
-    return `Parse the uploaded PDF schedule. Extract teaching classes and assignments.\n${scheduleCourseGroupingInstructions}\nReturn JSON only.`;
+    return `Parse the uploaded PDF schedule. Identify its weekday columns and time boundaries, then extract every teaching class and visible start/end time.\n${scheduleCourseGroupingInstructions}\nReturn JSON only.`;
   }
-  return `Parse the uploaded schedule image. Extract teaching classes and assignments.\n${scheduleCourseGroupingInstructions}\nReturn JSON only.`;
+  return `Parse the uploaded schedule image. Identify its weekday columns and time-row boundaries, then scan every teaching cell and capture its visible start/end time.\n${scheduleCourseGroupingInstructions}\nReturn JSON only.`;
+}
+
+function scheduleImportAuditPrompt(
+  input: ScheduleImportInput,
+  initialExtraction: z.infer<typeof ParseScheduleResponseSchema>
+): string {
+  return [
+    'Audit the attached visual schedule against the candidate extraction below. Return a complete corrected JSON schedule.',
+    scheduleCourseGroupingInstructions,
+    'Check the weekday headers, time-row boundaries, and every nonempty teaching cell. Keep a candidate only when the source supports it, remove invented records, add a group only when its label is visible, and correct every course, group, day, start time, end time, or room that conflicts with the source.',
+    'Use the visible top and bottom boundaries of a spanning cell for `time` and `endTime`. Use null only when an ending boundary is not visible. Do not infer a standard class duration.',
+    'Keep the exact same `name` and `period` for separate meeting occurrences of one class group. Ignore non-teaching blocks.',
+    '',
+    `Candidate extraction: ${JSON.stringify(initialExtraction)}`,
+    input.text ? `\nOriginal text, if helpful:\n${input.text}` : ''
+  ].join('\n');
 }
 
 export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayload> {
-  const { redisUrl, openAiApiKey, modelParseSchedule, reasoningEffortParseSchedule, modelGenerateSegments, modelContinuity } =
-    config;
+  const {
+    redisUrl,
+    openAiApiKey,
+    modelParseSchedule,
+    reasoningEffortParseSchedule,
+    modelGenerateSegments,
+    modelContinuity
+  } = config;
   const connection = new Redis(redisUrl, {
     maxRetriesPerRequest: null
   });
@@ -160,18 +185,37 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
         let output: Record<string, unknown>;
         if (aiJob.type === 'parse_schedule') {
           const input = aiJob.input as ScheduleImportInput;
-          output = await runStructuredPrompt({
+          const fileDataUrl = scheduleImportFileDataUrl(input);
+          const initialOutput = await runStructuredPrompt<
+            z.infer<typeof ParseScheduleResponseSchema>
+          >({
             apiKey: openAiApiKey,
             model: modelParseSchedule,
             reasoningEffort: reasoningEffortParseSchedule,
             schemaName: 'parse_schedule',
             schema: ParseScheduleResponseSchema,
-            systemPrompt:
-              `Extract classes and assignments from teacher schedules. Return JSON only and skip non-teaching events. Each record is one meeting occurrence: \`name\` is the shared curriculum and \`period\` is the class-group label, never the bell-period/grid row. ${scheduleCourseGroupingInstructions} Repeat a class group label for every one of its distinct meeting times so the app can merge them. For grid images, audit every nonempty teaching cell across every weekday column before returning and translate shorthand such as 7B into Spanish 7, Group B. Return \`time\` and \`endTime\` as 24-hour \`HH:MM\` strings (for example, \`08:10\`) or null when a time is not visible.`,
+            systemPrompt: `Extract classes and assignments from teacher schedules. Return JSON only and skip non-teaching events. ${scheduleCourseGroupingInstructions} Build one record for each distinct course, class group, start time, end time, and room combination. Combine days only when those values match. For grid images, identify weekday columns and time-row boundaries before auditing every nonempty teaching cell. A cell that spans rows starts at its top boundary and ends at its bottom boundary. Return \`time\` and \`endTime\` as 24-hour HH:MM strings or null only when the corresponding boundary is not visible. Never replace a visible end time with a guessed duration. Before returning, verify that every visible class group appears and each non-null end time is later than its start time.`,
             userPrompt: scheduleImportUserPrompt(input),
-            fileDataUrl: scheduleImportFileDataUrl(input),
+            fileDataUrl,
             fileName: input.fileName
           });
+          if (fileDataUrl) {
+            await throwIfCancelled();
+            await job.updateProgress(60);
+            output = await runStructuredPrompt<z.infer<typeof ParseScheduleResponseSchema>>({
+              apiKey: openAiApiKey,
+              model: modelParseSchedule,
+              reasoningEffort: reasoningEffortParseSchedule,
+              schemaName: 'parse_schedule_audit',
+              schema: ParseScheduleResponseSchema,
+              systemPrompt: `Audit teacher schedules against their source and return JSON only. ${scheduleCourseGroupingInstructions}`,
+              userPrompt: scheduleImportAuditPrompt(input, initialOutput),
+              fileDataUrl,
+              fileName: input.fileName
+            });
+          } else {
+            output = initialOutput;
+          }
         } else if (aiJob.type === 'generate_segments') {
           const input = aiJob.input as {
             lessonTitle: string;

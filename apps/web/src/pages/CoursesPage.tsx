@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { ParseScheduleResponseSchema } from '@teacheros/contracts';
 import type {
   CourseDetailResponse,
   CourseInvitationsResponse,
@@ -8,10 +9,14 @@ import type {
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
-import { normalizeImportedCourseVariants } from '../lib/scheduleImport.js';
+import { groupImportedSchedule, normalizeImportedCourseVariants } from '../lib/scheduleImport.js';
 import { timeRange } from '../lib/today.js';
 
 type Course = CourseDetailResponse['course'];
+
+function waitForScheduleJob(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -20,6 +25,78 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
     reader.readAsDataURL(file);
   });
+}
+
+const supportedScheduleImageTypes = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'image/gif'
+]);
+
+function isHeicScheduleFile(file: File): boolean {
+  return /image\/hei[cf](?:-sequence)?/i.test(file.type) || /\.(?:heic|heif)$/i.test(file.name);
+}
+
+async function convertHeicScheduleFile(file: File): Promise<File> {
+  let bitmap: ImageBitmap | null = null;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const maxPixels = 10_000_000;
+    const scale = Math.min(1, Math.sqrt(maxPixels / (bitmap.width * bitmap.height)));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas is unavailable.');
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const jpeg = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error('JPEG conversion failed.'))),
+        'image/jpeg',
+        0.92
+      )
+    );
+    const jpegName = `${file.name.replace(/\.(?:heic|heif)$/i, '')}.jpg`;
+    return new File([jpeg], jpegName, { type: 'image/jpeg', lastModified: file.lastModified });
+  } catch {
+    throw new Error(
+      'This browser could not convert the HEIC photo. Use a screenshot, JPEG, PNG, WebP, or PDF instead.'
+    );
+  } finally {
+    bitmap?.close();
+  }
+}
+
+async function prepareScheduleFile(file: File) {
+  const preparedFile = isHeicScheduleFile(file) ? await convertHeicScheduleFile(file) : file;
+  const isPdf =
+    preparedFile.type === 'application/pdf' || preparedFile.name.toLowerCase().endsWith('.pdf');
+  const imageType = supportedScheduleImageTypes.has(preparedFile.type.toLowerCase())
+    ? preparedFile.type.toLowerCase() === 'image/jpg'
+      ? 'image/jpeg'
+      : preparedFile.type.toLowerCase()
+    : preparedFile.name.toLowerCase().endsWith('.png')
+      ? 'image/png'
+      : /\.jpe?g$/i.test(preparedFile.name)
+        ? 'image/jpeg'
+        : preparedFile.name.toLowerCase().endsWith('.webp')
+          ? 'image/webp'
+          : preparedFile.name.toLowerCase().endsWith('.gif')
+            ? 'image/gif'
+            : null;
+  if (!isPdf && !imageType) {
+    throw new Error('Choose a PDF, PNG, JPEG, WebP, GIF, HEIC, or HEIF schedule file.');
+  }
+
+  const type = isPdf ? 'application/pdf' : (imageType ?? 'application/octet-stream');
+  const dataUrl = (await readFileAsDataUrl(preparedFile)).replace(/^data:[^;]*;/, `data:${type};`);
+  return {
+    name: preparedFile.name,
+    type,
+    dataUrl
+  };
 }
 
 function importKey(courseName: string, sectionName: string) {
@@ -35,6 +112,17 @@ function classPickerLabel(section: GetScheduleResponse['sections'][number]) {
   return `${section.sectionName} · ${meetingLabel} · currently using ${section.courseName}`;
 }
 
+function importedClassIssue(item: ScheduleImportResponse['classes'][number]): string | null {
+  if (!item.name.trim()) return 'Course name is missing.';
+  if (!item.period.trim()) return 'Class group name is missing.';
+  if (!item.days.length) return 'Meeting day is missing.';
+  if (!item.time && !item.endTime) return 'Start and end times are missing.';
+  if (!item.time) return 'Start time is missing.';
+  if (!item.endTime) return 'End time is missing.';
+  if (item.endTime <= item.time) return 'End time must be later than start time.';
+  return null;
+}
+
 function ScheduleImportPanel({
   existingSections,
   onApplied
@@ -47,11 +135,47 @@ function ScheduleImportPanel({
   const [file, setFile] = useState<{ name: string; type: string; dataUrl: string } | null>(null);
   const [draft, setDraft] = useState<ScheduleImportResponse | null>(null);
   const [correction, setCorrection] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<'file' | 'read' | 'correct' | 'apply' | null>(null);
+  const [importProgress, setImportProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const busy = busyAction !== null;
   const existingSectionKeys = new Set(
     existingSections.map((section) => importKey(section.courseName, section.sectionName))
   );
+  const importedCourses = draft ? groupImportedSchedule(draft.classes) : [];
+  const importedClassGroupCount = importedCourses.reduce(
+    (count, course) => count + course.classGroups.length,
+    0
+  );
+  const importedMeetingCount =
+    draft?.classes.reduce((count, item) => count + item.days.length, 0) ?? 0;
+  const reviewIssueCount = draft?.classes.filter((item) => importedClassIssue(item)).length ?? 0;
+
+  const updateDraftClasses = (
+    sourceIndexes: number[],
+    patch: Partial<ScheduleImportResponse['classes'][number]>
+  ) => {
+    const selected = new Set(sourceIndexes);
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            classes: current.classes.map((item, index) =>
+              selected.has(index) ? { ...item, ...patch } : item
+            )
+          }
+        : current
+    );
+  };
+
+  const removeDraftClass = (sourceIndex: number) => {
+    setDraft((current) =>
+      current
+        ? { ...current, classes: current.classes.filter((_, index) => index !== sourceIndex) }
+        : current
+    );
+    setError(null);
+  };
 
   const parse = async () => {
     if (!text.trim() && !file) {
@@ -59,29 +183,86 @@ function ScheduleImportPanel({
       return;
     }
     try {
-      setBusy(true);
+      setBusyAction('read');
+      setImportProgress(5);
       setError(null);
-      setDraft(
-        normalizeImportedCourseVariants(
-          await api.importSchedule({
-            text: text.trim() || undefined,
-            imageBase64: file?.dataUrl,
-            fileName: file?.name,
-            fileMimeType: file?.type
-          })
-        )
-      );
+      const input = {
+        text: text.trim() || undefined,
+        imageBase64: file?.dataUrl,
+        fileName: file?.name,
+        fileMimeType: file?.type
+      };
+      let parsedSchedule: ScheduleImportResponse | null = null;
+      let queuedJobId: string | null = null;
+      try {
+        queuedJobId = (await api.enqueueParseSchedule(input)).jobId;
+      } catch (err) {
+        // Local development can run without Redis. Keep the direct endpoint as
+        // a scoped fallback only when enqueue itself reports no queue.
+        if (err instanceof ApiError && err.status === 503) {
+          setImportProgress(null);
+          parsedSchedule = await api.importSchedule(input);
+        } else {
+          throw err;
+        }
+      }
+
+      if (queuedJobId) {
+        const deadline = Date.now() + 8 * 60_000;
+        let complete = false;
+        let consecutivePollFailures = 0;
+
+        while (!complete && Date.now() < deadline) {
+          let status: Awaited<ReturnType<typeof api.getAiJobStatus>>;
+          try {
+            status = await api.getAiJobStatus(queuedJobId);
+            consecutivePollFailures = 0;
+          } catch (err) {
+            const retryable =
+              err instanceof ApiError &&
+              (err.status === 0 || err.status === 408 || err.status >= 500);
+            consecutivePollFailures += 1;
+            if (retryable && consecutivePollFailures <= 3) {
+              await waitForScheduleJob(2_000);
+              continue;
+            }
+            throw err;
+          }
+          setImportProgress(status.progressPercent);
+          if (status.status === 'succeeded') {
+            if (!status.output) throw new Error('The schedule reader finished without a result.');
+            parsedSchedule = ParseScheduleResponseSchema.parse(status.output);
+            complete = true;
+          } else if (status.status === 'failed' || status.status === 'cancelled') {
+            throw new Error(status.error ?? 'The schedule reader could not finish this import.');
+          } else {
+            await waitForScheduleJob(1_500);
+          }
+        }
+
+        if (!complete) {
+          await api.cancelAiJob(queuedJobId).catch(() => undefined);
+          throw new Error('The schedule reader took too long. Try a clearer image or pasted text.');
+        }
+      }
+      if (!parsedSchedule) throw new Error('The schedule reader finished without a result.');
+      setDraft(normalizeImportedCourseVariants(parsedSchedule));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not read this schedule.');
+      setError(err instanceof Error ? err.message : 'Could not read this schedule.');
     } finally {
-      setBusy(false);
+      setBusyAction(null);
+      setImportProgress(null);
     }
   };
 
   const apply = async () => {
     if (!draft) return;
+    if (!draft.classes.length || reviewIssueCount > 0) {
+      setError('Finish the missing or invalid meeting details before applying this schedule.');
+      return;
+    }
     try {
-      setBusy(true);
+      setBusyAction('apply');
       setError(null);
       await api.applyScheduleImport({ classes: draft.classes });
       await onApplied();
@@ -91,14 +272,15 @@ function ScheduleImportPanel({
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not apply this reviewed schedule.');
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const correct = async () => {
     if (!draft || !correction.trim()) return;
     try {
-      setBusy(true);
+      setBusyAction('correct');
+      setError(null);
       setDraft(
         normalizeImportedCourseVariants(
           await api.correctScheduleImport({
@@ -112,99 +294,323 @@ function ScheduleImportPanel({
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not apply that correction.');
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
+  const startOver = () => {
+    setDraft(null);
+    setCorrection('');
+    setError(null);
+  };
+
   return (
-    <section className="courses-import-panel" aria-label="Import class schedule">
-      <div>
+    <section className="courses-import-panel" aria-busy={busy} aria-label="Import class schedule">
+      <p className="visually-hidden" role="status" aria-live="polite">
+        {busyAction === 'file'
+          ? 'Preparing the schedule image.'
+          : busyAction === 'read'
+            ? `Reading the schedule${importProgress === null ? '.' : `, ${importProgress} percent complete.`}`
+            : busyAction === 'correct'
+              ? 'Updating the schedule review.'
+              : busyAction === 'apply'
+                ? 'Applying the reviewed schedule.'
+                : ''}
+      </p>
+      <div className="courses-import-intro">
         <p className="eyebrow">Import</p>
-        <h2>Import course and class schedule</h2>
+        <h2>Import your teaching schedule</h2>
         <p className="muted">
-          Import creates courses and class groups, not curriculum. Existing groups are updated in
-          place so their curriculum, progress, and history stay intact.
+          A course holds one shared plan. Each class group sits inside that course and keeps its own
+          meeting times.
         </p>
       </div>
-      <textarea
-        className="input"
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        placeholder="Paste a weekly schedule…"
-      />
-      <label className="file-input-label">
-        <span>Or choose schedule image/PDF</span>
-        <input
-          type="file"
-          accept="image/*,application/pdf"
-          onChange={(event) => {
-            const next = event.target.files?.[0];
-            if (!next) return;
-            void readFileAsDataUrl(next)
-              .then((dataUrl) => setFile({ name: next.name, type: next.type, dataUrl }))
-              .catch((err) =>
-                setError(err instanceof Error ? err.message : 'Could not read that file.')
-              );
-          }}
-        />
-      </label>
-      {file ? <span className="status-pill upcoming">{file.name}</span> : null}
-      {error ? <p className="notice warning">{error}</p> : null}
+      <dl className="schedule-import-terms">
+        <div>
+          <dt>Course</dt>
+          <dd>The shared subject and level, such as Spanish 5.</dd>
+        </div>
+        <div>
+          <dt>Class group</dt>
+          <dd>The students who meet together, such as Group A or Group B.</dd>
+        </div>
+      </dl>
+      <div className="schedule-import-source">
+        <label className="schedule-import-text-field">
+          <span>Paste schedule text</span>
+          <textarea
+            className="input"
+            value={text}
+            disabled={busy || Boolean(draft)}
+            onChange={(event) => setText(event.target.value)}
+            placeholder="Spanish 5&#10;Group A: Monday 8:10–8:47&#10;Group B: Tuesday 9:12–10:03"
+          />
+        </label>
+        <div className="schedule-import-file-field">
+          <span>Or upload the original schedule</span>
+          <label className="file-input-label">
+            <span>Choose image or PDF</span>
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              disabled={busy || Boolean(draft)}
+              onChange={(event) => {
+                const next = event.target.files?.[0];
+                if (!next) return;
+                setBusyAction('file');
+                setError(null);
+                void prepareScheduleFile(next)
+                  .then(setFile)
+                  .catch((err) =>
+                    setError(err instanceof Error ? err.message : 'Could not read that file.')
+                  )
+                  .finally(() => setBusyAction(null));
+              }}
+            />
+          </label>
+          {file ? (
+            <span className="schedule-import-file-name" aria-live="polite">
+              Selected: {file.name}
+            </span>
+          ) : (
+            <small>Use a clear image where weekday headings and time boundaries are visible.</small>
+          )}
+          {draft ? <small>Start over below to change the source schedule.</small> : null}
+        </div>
+      </div>
+      {error ? (
+        <p className="notice warning" role="alert">
+          {error}
+        </p>
+      ) : null}
       {!draft ? (
-        <button type="button" disabled={busy} onClick={() => void parse()}>
-          {busy ? 'Reading…' : 'Review schedule'}
+        <button
+          className="schedule-import-read-button"
+          type="button"
+          disabled={busy}
+          onClick={() => void parse()}
+        >
+          {busyAction === 'read'
+            ? `Reading schedule…${importProgress === null ? '' : ` ${importProgress}%`}`
+            : 'Review schedule'}
         </button>
       ) : (
         <div className="schedule-import-review">
           <div className="schedule-import-review-heading">
-            <strong>{draft.classes.length} meeting records found</strong>
-            <span>Review before applying</span>
+            <div>
+              <span>Detected schedule</span>
+              <strong>
+                {importedCourses.length} {importedCourses.length === 1 ? 'course' : 'courses'},{' '}
+                {importedClassGroupCount}{' '}
+                {importedClassGroupCount === 1 ? 'class group' : 'class groups'},{' '}
+                {importedMeetingCount} {importedMeetingCount === 1 ? 'meeting' : 'meetings'}
+              </strong>
+            </div>
+            <span>
+              {reviewIssueCount
+                ? `${reviewIssueCount} ${reviewIssueCount === 1 ? 'meeting needs' : 'meetings need'} attention`
+                : 'Ready to apply'}
+            </span>
           </div>
-          <div className="schedule-import-review-list">
-            {draft.classes.map((item, index) => {
-              const updatesExisting = existingSectionKeys.has(importKey(item.name, item.period));
-              return (
-                <article key={`${item.name}-${item.period}-${index}`}>
-                  <strong>{item.name}</strong>
-                  <span>{item.period}</span>
-                  <small>
-                    {item.days.join(', ')} · {timeRange(item.time, item.endTime)}
-                  </small>
-                  <em className={updatesExisting ? 'schedule-import-match' : 'schedule-import-new'}>
-                    {updatesExisting
-                      ? 'Updates class group · curriculum preserved'
-                      : 'New class group · curriculum stays separate'}
-                  </em>
-                </article>
-              );
-            })}
-          </div>
+          {importedCourses.length ? (
+            <div className="schedule-import-course-list">
+              {importedCourses.map((course, courseIndex) => {
+                const courseSourceIndexes = course.classGroups.flatMap((classGroup) =>
+                  classGroup.meetings.map((meeting) => meeting.sourceIndex)
+                );
+                return (
+                  <article
+                    className="schedule-import-course"
+                    key={courseSourceIndexes[0] ?? courseIndex}
+                    aria-label={`Course ${course.name || 'unnamed'}`}
+                  >
+                    <header className="schedule-import-course-heading">
+                      <div>
+                        <span>Course</span>
+                        <h3>{course.name || 'Unnamed course'}</h3>
+                      </div>
+                      <small>
+                        {course.classGroups.length}{' '}
+                        {course.classGroups.length === 1 ? 'class group' : 'class groups'}
+                      </small>
+                    </header>
+                    <label className="schedule-import-course-name">
+                      <span>Course name</span>
+                      <input
+                        className={`input${course.name.trim() ? '' : ' schedule-import-invalid-field'}`}
+                        value={course.name}
+                        disabled={busy}
+                        aria-invalid={!course.name.trim()}
+                        onChange={(event) =>
+                          updateDraftClasses(courseSourceIndexes, { name: event.target.value })
+                        }
+                      />
+                    </label>
+                    <div className="schedule-import-groups">
+                      {course.classGroups.map((classGroup, groupIndex) => {
+                        const groupSourceIndexes = classGroup.meetings.map(
+                          (meeting) => meeting.sourceIndex
+                        );
+                        const updatesExisting = existingSectionKeys.has(
+                          importKey(course.name, classGroup.name)
+                        );
+                        return (
+                          <section
+                            className="schedule-import-group"
+                            key={groupSourceIndexes[0] ?? groupIndex}
+                            aria-label={`Class group ${classGroup.name || 'unnamed'}`}
+                          >
+                            <header className="schedule-import-group-heading">
+                              <div>
+                                <span>Class group</span>
+                                <h4>{classGroup.name || 'Unnamed class group'}</h4>
+                              </div>
+                              <em
+                                className={
+                                  updatesExisting ? 'schedule-import-match' : 'schedule-import-new'
+                                }
+                              >
+                                {updatesExisting ? 'Updates existing group' : 'Creates new group'}
+                              </em>
+                            </header>
+                            <label className="schedule-import-group-name">
+                              <span>Class group name</span>
+                              <input
+                                className={`input${classGroup.name.trim() ? '' : ' schedule-import-invalid-field'}`}
+                                value={classGroup.name}
+                                disabled={busy}
+                                aria-invalid={!classGroup.name.trim()}
+                                onChange={(event) =>
+                                  updateDraftClasses(groupSourceIndexes, {
+                                    period: event.target.value
+                                  })
+                                }
+                              />
+                            </label>
+                            <div className="schedule-import-meetings">
+                              {classGroup.meetings.map(({ parsedClass, sourceIndex }) => {
+                                const issue = importedClassIssue(parsedClass);
+                                const startInvalid = !parsedClass.time;
+                                const endInvalid =
+                                  !parsedClass.endTime ||
+                                  Boolean(
+                                    parsedClass.time && parsedClass.endTime <= parsedClass.time
+                                  );
+                                return (
+                                  <div className="schedule-import-meeting" key={sourceIndex}>
+                                    <div className="schedule-import-meeting-days">
+                                      <span>Meets</span>
+                                      <strong>{parsedClass.days.join(', ')}</strong>
+                                    </div>
+                                    <label>
+                                      <span>Start time</span>
+                                      <input
+                                        className={`input${startInvalid ? ' schedule-import-invalid-field' : ''}`}
+                                        type="time"
+                                        value={parsedClass.time ?? ''}
+                                        disabled={busy}
+                                        aria-invalid={startInvalid}
+                                        onChange={(event) =>
+                                          updateDraftClasses([sourceIndex], {
+                                            time: event.target.value || null
+                                          })
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      <span>End time</span>
+                                      <input
+                                        className={`input${endInvalid ? ' schedule-import-invalid-field' : ''}`}
+                                        type="time"
+                                        value={parsedClass.endTime ?? ''}
+                                        disabled={busy}
+                                        aria-invalid={endInvalid}
+                                        onChange={(event) =>
+                                          updateDraftClasses([sourceIndex], {
+                                            endTime: event.target.value || null
+                                          })
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      <span>Room</span>
+                                      <input
+                                        className="input"
+                                        value={parsedClass.room ?? ''}
+                                        disabled={busy}
+                                        placeholder="Optional"
+                                        onChange={(event) =>
+                                          updateDraftClasses([sourceIndex], {
+                                            room: event.target.value || null
+                                          })
+                                        }
+                                      />
+                                    </label>
+                                    <button
+                                      className="secondary schedule-import-remove-meeting"
+                                      type="button"
+                                      disabled={busy}
+                                      aria-label={`Remove ${parsedClass.days.join(', ')} meeting from ${course.name}, ${classGroup.name}`}
+                                      onClick={() => removeDraftClass(sourceIndex)}
+                                    >
+                                      Remove meeting
+                                    </button>
+                                    {issue ? (
+                                      <p className="schedule-import-meeting-issue">{issue}</p>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        );
+                      })}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="schedule-import-empty" role="status">
+              <strong>No class meetings were found.</strong>
+              <span>Start over with clearer text or a sharper image.</span>
+            </div>
+          )}
           <div className="courses-import-correction">
-            <input
-              className="input"
-              value={correction}
-              onChange={(event) => setCorrection(event.target.value)}
-              placeholder="Optional correction, e.g. Group B meets Thu at 1:35"
-            />
+            <label>
+              <span>Tell the schedule reader what to correct</span>
+              <input
+                className="input"
+                value={correction}
+                disabled={busy}
+                onChange={(event) => setCorrection(event.target.value)}
+                placeholder="Spanish 5 has Groups A and B. Group B ends at 2:22 PM."
+              />
+            </label>
             <button
               className="secondary"
               type="button"
-              disabled={busy || !correction.trim()}
+              disabled={busy || !correction.trim() || !draft.classes.length}
               onClick={() => void correct()}
             >
-              Correct
+              {busyAction === 'correct' ? 'Updating review…' : 'Update review'}
             </button>
           </div>
+          {reviewIssueCount ? (
+            <p className="schedule-import-review-warning" role="status">
+              Add the missing times above or describe the correction before applying. TeacherDesk
+              will not invent an end time.
+            </p>
+          ) : null}
           <div className="profile-actions">
-            <button type="button" disabled={busy} onClick={() => void apply()}>
-              Apply reviewed schedule
-            </button>
             <button
-              className="secondary"
               type="button"
-              disabled={busy}
-              onClick={() => setDraft(null)}
+              disabled={busy || !draft.classes.length || reviewIssueCount > 0}
+              onClick={() => void apply()}
             >
+              {busyAction === 'apply' ? 'Applying schedule…' : 'Apply reviewed schedule'}
+            </button>
+            <button className="secondary" type="button" disabled={busy} onClick={startOver}>
               Start over
             </button>
           </div>
@@ -292,7 +698,10 @@ export function CoursesPage() {
     }
   };
 
-  const runCourseAction = async (course: Course, action: 'duplicate' | 'end' | 'restore' | 'delete') => {
+  const runCourseAction = async (
+    course: Course,
+    action: 'duplicate' | 'end' | 'restore' | 'delete'
+  ) => {
     try {
       setSaving(true);
       if (action === 'duplicate') {
@@ -345,8 +754,7 @@ export function CoursesPage() {
           name: adoptingInvitation.name.trim()
         });
         setAdoptingInvitation(null);
-      }
-      else await api.declineCourseInvitation(courseId);
+      } else await api.declineCourseInvitation(courseId);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not update this invitation.');
@@ -655,9 +1063,14 @@ export function CoursesPage() {
                   <input
                     type="radio"
                     checked={adoptingInvitation.mode === 'collaborate'}
-                    onChange={() => setAdoptingInvitation({ ...adoptingInvitation, mode: 'collaborate' })}
+                    onChange={() =>
+                      setAdoptingInvitation({ ...adoptingInvitation, mode: 'collaborate' })
+                    }
                   />
-                  <span><strong>Collaborate on curriculum</strong><small>Edit the same curriculum together.</small></span>
+                  <span>
+                    <strong>Collaborate on curriculum</strong>
+                    <small>Edit the same curriculum together.</small>
+                  </span>
                 </label>
                 <label className={adoptingInvitation.mode === 'copy' ? 'selected' : ''}>
                   <input
@@ -665,7 +1078,10 @@ export function CoursesPage() {
                     checked={adoptingInvitation.mode === 'copy'}
                     onChange={() => setAdoptingInvitation({ ...adoptingInvitation, mode: 'copy' })}
                   />
-                  <span><strong>Use as my own course</strong><small>Create an independent version you can modify.</small></span>
+                  <span>
+                    <strong>Use as my own course</strong>
+                    <small>Create an independent version you can modify.</small>
+                  </span>
                 </label>
               </div>
               <label>
@@ -673,13 +1089,25 @@ export function CoursesPage() {
                 <input
                   className="input"
                   value={adoptingInvitation.name}
-                  onChange={(event) => setAdoptingInvitation({ ...adoptingInvitation, name: event.target.value })}
+                  onChange={(event) =>
+                    setAdoptingInvitation({ ...adoptingInvitation, name: event.target.value })
+                  }
                   autoFocus
                 />
               </label>
               <div className="course-row-actions">
-                <button className="secondary" type="button" onClick={() => setAdoptingInvitation(null)}>Cancel</button>
-                <button type="button" disabled={saving || !adoptingInvitation.name.trim()} onClick={() => void respondToInvitation(adoptingInvitation.courseId, 'accept')}>
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => setAdoptingInvitation(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={saving || !adoptingInvitation.name.trim()}
+                  onClick={() => void respondToInvitation(adoptingInvitation.courseId, 'accept')}
+                >
                   {adoptingInvitation.mode === 'copy' ? 'Create my course' : 'Join curriculum'}
                 </button>
               </div>

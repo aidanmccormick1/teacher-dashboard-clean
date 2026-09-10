@@ -90,7 +90,10 @@ import { useAppAuth } from './auth.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
 const API_REQUEST_TIMEOUT_MS = 25_000;
-const AI_REQUEST_TIMEOUT_MS = 120_000;
+// A synchronous fallback may use two bounded 75-second model attempts. Keep
+// the browser deadline just above that server budget so it does not report a
+// false failure while the API is still finishing a valid response.
+const AI_REQUEST_TIMEOUT_MS = 165_000;
 // Queueing is normally fast, but Render can need longer than the ordinary API
 // timeout to wake a sleeping service. Let the first schedule-read request wait
 // long enough to create its job; the actual AI work then happens in the
@@ -159,7 +162,7 @@ async function request<TResponse>(
     if (err instanceof DOMException && err.name === 'AbortError') {
       const message =
         timeoutMs === AI_QUEUE_REQUEST_TIMEOUT_MS
-          ? 'TeacherDesk is starting its schedule reader. The service took longer than expected to wake, so your schedule was not sent. Please try “Read my schedule” once more.'
+          ? 'TeacherDesk is starting its schedule reader. The service took longer than expected to wake, so your schedule was not sent. Please choose “Review schedule” once more.'
           : 'The backend is taking too long to respond. It may be waking up; try again in a moment.';
       throw new ApiError(message, 408);
     }
