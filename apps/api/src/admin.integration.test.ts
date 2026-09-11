@@ -154,6 +154,19 @@ function testConfig(): AppConfig {
 
 async function runMigrations() {
   const { pool } = requireDb();
+  const result = await pool.query<{ ready: boolean }>(`
+    SELECT
+      to_regclass('public.school_invitations') IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'school_invitations'
+            AND column_name = 'expires_at'
+        ) AS ready
+  `);
+  if (result.rows[0]?.ready) return;
+
   for (const fileName of migrationFiles) {
     const sql = await readFile(path.join(migrationsDir, fileName), 'utf8');
     await pool.query(sql);

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, gte, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -566,7 +566,6 @@ export async function adminRoutes(app: FastifyInstance) {
             eq(courses.schoolId, context.schoolId),
             eq(teacherProfiles.schoolId, context.schoolId),
             isNull(courses.archivedAt),
-            or(eq(sectionMeetings.day, 'A-Day'), eq(sectionMeetings.day, 'B-Day')),
             query.day && (query.day === 'A-Day' || query.day === 'B-Day')
               ? eq(sectionMeetings.day, query.day)
               : undefined,

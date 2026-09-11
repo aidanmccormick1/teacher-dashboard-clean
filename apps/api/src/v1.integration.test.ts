@@ -41,6 +41,19 @@ const onboardingBody = {
 };
 
 async function runMigrations() {
+  const result = await pool.query<{ ready: boolean }>(`
+    SELECT
+      to_regclass('public.school_invitations') IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'school_invitations'
+            AND column_name = 'expires_at'
+        ) AS ready
+  `);
+  if (result.rows[0]?.ready) return;
+
   const migrationFiles = [
     '0000_initial.sql',
     '0001_ai_jobs_cancel_status.sql',
