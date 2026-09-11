@@ -433,6 +433,79 @@ describeIf('admin integration (requires RUN_INTEGRATION_DB_TESTS=1 and DATABASE_
     );
   });
 
+  it('supports explicitly confirmed local admin testing without claiming or altering the school', async () => {
+    const invalidConfirmation = await app!.inject({
+      method: 'POST',
+      url: '/v1/dev/admin-role',
+      headers: teacherHeaders,
+      payload: { role: 'admin', confirmation: 'YES' }
+    });
+    expect(invalidConfirmation.statusCode).toBe(400);
+
+    const enabled = await app!.inject({
+      method: 'POST',
+      url: '/v1/dev/admin-role',
+      headers: teacherHeaders,
+      payload: { role: 'admin', confirmation: 'ADMINISTRATOR' }
+    });
+    expect(enabled.statusCode).toBe(200);
+    expect(enabled.json()).toMatchObject({
+      role: 'admin',
+      schoolId: fixture!.schoolAId,
+      temporary: true
+    });
+
+    const adminRoute = await app!.inject({
+      method: 'GET',
+      url: '/v1/admin/teachers',
+      headers: teacherHeaders
+    });
+    expect(adminRoute.statusCode).toBe(200);
+
+    const { db, courses, schoolMemberships, schools, teacherProfiles } = requireDb();
+    const [school] = await db
+      .select({ claimStatus: schools.claimStatus })
+      .from(schools)
+      .where(eq(schools.id, fixture!.schoolAId));
+    const [membership] = await db
+      .select({ role: schoolMemberships.role })
+      .from(schoolMemberships)
+      .where(
+        and(
+          eq(schoolMemberships.userId, fixture!.teacherAId),
+          eq(schoolMemberships.schoolId, fixture!.schoolAId)
+        )
+      );
+    const [profile] = await db
+      .select({ role: teacherProfiles.role })
+      .from(teacherProfiles)
+      .where(eq(teacherProfiles.userId, fixture!.teacherAId));
+    const [course] = await db
+      .select({ id: courses.id })
+      .from(courses)
+      .where(eq(courses.id, fixture!.courseAId));
+    expect(school?.claimStatus).toBe('unclaimed');
+    expect(membership?.role).toBe('admin');
+    expect(profile?.role).toBe('admin');
+    expect(course?.id).toBe(fixture!.courseAId);
+
+    const disabled = await app!.inject({
+      method: 'POST',
+      url: '/v1/dev/admin-role',
+      headers: teacherHeaders,
+      payload: { role: 'teacher', confirmation: 'TEACHER' }
+    });
+    expect(disabled.statusCode).toBe(200);
+    expect(disabled.json()).toMatchObject({ role: 'teacher', temporary: true });
+
+    const teacherRoute = await app!.inject({
+      method: 'GET',
+      url: '/v1/admin/teachers',
+      headers: teacherHeaders
+    });
+    expect(teacherRoute.statusCode).toBe(403);
+  });
+
   it('keeps every admin collection and detail route scoped to the admin school', async () => {
     const teachers = await app!.inject({
       method: 'GET',

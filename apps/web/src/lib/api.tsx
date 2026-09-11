@@ -104,6 +104,7 @@ import type {
   UnitUpdateRequest,
   UnitSlidesProgressResponse,
   LessonSlidesProgressResponse,
+  LocalAdminTestRoleResponse,
   TeacherPreferences,
   TeacherPreferencesUpdateRequest
 } from '@teacheros/contracts';
@@ -226,6 +227,18 @@ export function useApiClient() {
           auth
         ),
       getProfile: () => request<ProfileResponse>('/v1/profile', { method: 'GET' }, auth),
+      setLocalAdminTestRole: (role: 'admin' | 'teacher') =>
+        request<LocalAdminTestRoleResponse>(
+          '/v1/dev/admin-role',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              role,
+              confirmation: role === 'admin' ? 'ADMINISTRATOR' : 'TEACHER'
+            })
+          },
+          auth
+        ),
       updateProfile: (body: ProfileUpdateRequest) =>
         request<ProfileUpdateResponse>(
           '/v1/profile',

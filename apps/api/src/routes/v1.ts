@@ -86,6 +86,8 @@ import {
   LessonWorkspaceResponseSchema,
   LessonCommentCreateRequestSchema,
   LessonCommentsResponseSchema,
+  LocalAdminTestRoleRequestSchema,
+  LocalAdminTestRoleResponseSchema,
   PublicLessonResponseSchema,
   PublicCurriculumResponseSchema,
   PublicCurriculumImportRequestSchema,
@@ -2281,6 +2283,124 @@ export async function v1Routes(app: FastifyInstance) {
                 state: row.state
               }
             : null
+      });
+    }
+  );
+
+  app.post(
+    '/v1/dev/admin-role',
+    {
+      schema: {
+        body: LocalAdminTestRoleRequestSchema,
+        response: { 200: LocalAdminTestRoleResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const localTestMode =
+        app.config.NODE_ENV === 'test' ||
+        (app.config.NODE_ENV === 'development' && app.config.DEV_AUTH_ENABLED);
+      if (!localTestMode) {
+        (reply as any).code(404);
+        return { error: 'Local administrator test mode is unavailable.', requestId: request.id };
+      }
+
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+
+      const devUserId = request.headers['x-dev-user-id'];
+      const isLocalPrincipal =
+        principal.clerkUserId === 'pilot-teacher-demo' ||
+        principal.clerkUserId.startsWith('test-account:') ||
+        (typeof devUserId === 'string' && devUserId === principal.clerkUserId);
+      if (!isLocalPrincipal) {
+        (reply as any).code(403);
+        return {
+          error: 'Local administrator test mode requires a local development session.',
+          requestId: request.id
+        };
+      }
+
+      const body = LocalAdminTestRoleRequestSchema.parse(request.body);
+      const user = await ensureUserFromPrincipal(principal);
+      const [profile] = await db
+        .select({
+          schoolId: teacherProfiles.schoolId,
+          claimStatus: schools.claimStatus,
+          claimedByUserId: schools.claimedByUserId
+        })
+        .from(teacherProfiles)
+        .innerJoin(schools, eq(schools.id, teacherProfiles.schoolId))
+        .where(eq(teacherProfiles.userId, user.id))
+        .limit(1);
+      if (!profile) {
+        (reply as any).code(409);
+        return {
+          error: 'Complete your local profile before changing the administrator test role.',
+          requestId: request.id
+        };
+      }
+
+      const [membership] = await db
+        .select({ role: schoolMemberships.role, status: schoolMemberships.status })
+        .from(schoolMemberships)
+        .where(
+          and(
+            eq(schoolMemberships.userId, user.id),
+            eq(schoolMemberships.schoolId, profile.schoolId)
+          )
+        )
+        .limit(1);
+      if (!membership || membership.status !== 'active') {
+        (reply as any).code(409);
+        return { error: 'An active local school membership is required.', requestId: request.id };
+      }
+
+      if (
+        body.role === 'admin' &&
+        profile.claimStatus === 'claimed' &&
+        profile.claimedByUserId !== user.id
+      ) {
+        (reply as any).code(409);
+        return {
+          error: 'This school is claimed by another administrator. Use the normal claim flow.',
+          requestId: request.id
+        };
+      }
+      if (body.role === 'teacher' && profile.claimStatus === 'claimed') {
+        (reply as any).code(409);
+        return {
+          error: 'The local test role cannot remove access from a claimed school.',
+          requestId: request.id
+        };
+      }
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schoolMemberships)
+          .set({ role: body.role, updatedAt: new Date() })
+          .where(
+            and(
+              eq(schoolMemberships.userId, user.id),
+              eq(schoolMemberships.schoolId, profile.schoolId),
+              eq(schoolMemberships.status, 'active')
+            )
+          );
+        await tx
+          .update(teacherProfiles)
+          .set({ role: body.role, updatedAt: new Date() })
+          .where(
+            and(eq(teacherProfiles.userId, user.id), eq(teacherProfiles.schoolId, profile.schoolId))
+          );
+      });
+
+      return LocalAdminTestRoleResponseSchema.parse({
+        role: body.role,
+        schoolId: profile.schoolId,
+        temporary: true,
+        message:
+          body.role === 'admin'
+            ? 'Temporary administrator mode is enabled. Your classes and course ownership are unchanged; use the Teaching workspace when you want to teach.'
+            : 'Temporary administrator mode is disabled. Your teaching workspace is active again.'
       });
     }
   );

@@ -3548,6 +3548,33 @@ body.course-editor-open {
   line-height: 1.35;
 }
 
+.local-admin-test-control {
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid rgba(196, 154, 83, 0.5);
+  background: #fff8e8;
+}
+
+.local-admin-test-control h3,
+.local-admin-test-control p {
+  margin: 0;
+}
+
+.local-admin-test-control h3 {
+  margin-top: 4px;
+}
+
+.local-admin-test-control p:not(.eyebrow):not(.notice) {
+  max-width: 660px;
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.local-admin-test-control button {
+  justify-self: start;
+}
+
 .profile-save-bar {
   display: flex;
   align-items: center;

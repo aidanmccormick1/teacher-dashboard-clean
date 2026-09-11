@@ -37,15 +37,21 @@ function clearRetiredSessions() {
 function DevAuthProvider({ children }: PropsWithChildren) {
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     const raw = window.localStorage.getItem(DEV_SESSION_KEY);
     if (raw) {
       try {
-        const parsed = JSON.parse(raw) as { userId: string; email: string | null };
+        const parsed = JSON.parse(raw) as {
+          userId: string;
+          email: string | null;
+          token?: string | null;
+        };
         setUserId(parsed.userId);
         setEmail(parsed.email);
+        setToken(parsed.token ?? null);
       } catch {
         window.localStorage.removeItem(DEV_SESSION_KEY);
       }
@@ -61,10 +67,11 @@ function DevAuthProvider({ children }: PropsWithChildren) {
       isPilot: false,
       userId,
       email,
-      getToken: async () => null,
+      getToken: async () => token,
       signOut: async () => {
         setUserId(null);
         setEmail(null);
+        setToken(null);
         window.localStorage.removeItem(DEV_SESSION_KEY);
       },
       signInPilot: () => {
@@ -73,13 +80,24 @@ function DevAuthProvider({ children }: PropsWithChildren) {
       signInDev: (nextUserId, nextEmail) => {
         setUserId(nextUserId);
         setEmail(nextEmail);
-        window.localStorage.setItem(DEV_SESSION_KEY, JSON.stringify({ userId: nextUserId, email: nextEmail }));
+        setToken(null);
+        window.localStorage.setItem(
+          DEV_SESSION_KEY,
+          JSON.stringify({ userId: nextUserId, email: nextEmail, token: null })
+        );
       },
-      signInWithTestToken: () => {
-        throw new Error('Tester-token authentication is unavailable. Sign in with Clerk instead.');
+      signInWithTestToken: (nextToken, username, nextEmail) => {
+        const nextUserId = `test-account:${username}`;
+        setUserId(nextUserId);
+        setEmail(nextEmail);
+        setToken(nextToken);
+        window.localStorage.setItem(
+          DEV_SESSION_KEY,
+          JSON.stringify({ userId: nextUserId, email: nextEmail, token: nextToken })
+        );
       }
     }),
-    [email, isLoaded, userId]
+    [email, isLoaded, token, userId]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -125,6 +143,12 @@ function ClerkAuthBridge({ children }: PropsWithChildren) {
 }
 
 export function AppAuthProvider({ children }: PropsWithChildren) {
+  const localDevAuthRequested =
+    import.meta.env.DEV &&
+    import.meta.env.VITE_ENABLE_DEV_AUTH === 'true' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  if (localDevAuthRequested) return <DevAuthProvider>{children}</DevAuthProvider>;
+
   // This development-instance key is public by design and matches the Clerk
   // verification key configured on the Render API. Cloudflare can override it
   // with either a test or live publishable key when the production Clerk
@@ -132,7 +156,8 @@ export function AppAuthProvider({ children }: PropsWithChildren) {
   const configuredPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
   const developmentPublishableKey = 'pk_test_ZnVuLXdlZXZpbC0xMS5jbGVyay5hY2NvdW50cy5kZXYk';
   const publishableKey =
-    configuredPublishableKey?.startsWith('pk_test_') || configuredPublishableKey?.startsWith('pk_live_')
+    configuredPublishableKey?.startsWith('pk_test_') ||
+    configuredPublishableKey?.startsWith('pk_live_')
       ? configuredPublishableKey
       : developmentPublishableKey;
 

@@ -6,6 +6,9 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     // The integration suites share one disposable Postgres database. Run test
     // files serially so their reset-and-seed hooks cannot race each other.
-    fileParallelism: false
+    fileParallelism: false,
+    // Cold TypeScript route loading on developer machines can take longer than
+    // Vitest's 10-second hook default. Keep the bound finite and explicit.
+    hookTimeout: 120_000
   }
 });

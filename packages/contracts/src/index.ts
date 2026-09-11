@@ -143,6 +143,21 @@ export const AccountResetResponseSchema = z.object({
   reset: z.literal(true)
 });
 
+// This is intentionally separate from onboarding and profile updates. It is
+// only available to the local development test harness and never represents a
+// production administrator grant.
+export const LocalAdminTestRoleRequestSchema = z.discriminatedUnion('role', [
+  z.object({ role: z.literal('admin'), confirmation: z.literal('ADMINISTRATOR') }),
+  z.object({ role: z.literal('teacher'), confirmation: z.literal('TEACHER') })
+]);
+
+export const LocalAdminTestRoleResponseSchema = z.object({
+  role: z.enum(['teacher', 'admin']),
+  schoolId: UuidSchema,
+  temporary: z.literal(true),
+  message: z.string()
+});
+
 export const DashboardTodayResponseSchema = z.object({
   date: IsoDateSchema,
   currentClass: z
@@ -1581,6 +1596,8 @@ export type AccountResetResponse = z.infer<typeof AccountResetResponseSchema>;
 export type ProfileUpdateRequest = z.infer<typeof ProfileUpdateRequestSchema>;
 export type ProfileUpdateResponse = z.infer<typeof ProfileUpdateResponseSchema>;
 export type DashboardTodayResponse = z.infer<typeof DashboardTodayResponseSchema>;
+export type LocalAdminTestRoleRequest = z.infer<typeof LocalAdminTestRoleRequestSchema>;
+export type LocalAdminTestRoleResponse = z.infer<typeof LocalAdminTestRoleResponseSchema>;
 export type GetScheduleResponse = z.infer<typeof GetScheduleResponseSchema>;
 export type SectionMutationRequest = z.infer<typeof SectionMutationRequestSchema>;
 export type SectionUpdateRequest = z.infer<typeof SectionUpdateRequestSchema>;

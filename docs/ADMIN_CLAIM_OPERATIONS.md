@@ -32,6 +32,23 @@ The review endpoint rejects already-reviewed requests and refuses to approve a
 competing request after the school has already been claimed. Pending requests
 do not grant administrator access.
 
+## Local administrator workspace testing
+
+The production claim boundary remains manual. For local testing only, start the
+API with `NODE_ENV=development` and `DEV_AUTH_ENABLED=true`, and start the web
+app with `VITE_ENABLE_DEV_AUTH=true`. After completing a local teacher profile,
+the Profile page exposes `Enable administrator test mode`.
+
+The control requires an explicit browser confirmation and calls
+`POST /v1/dev/admin-role` with the exact confirmation `ADMINISTRATOR`. It updates
+only the current user's active local membership and profile role. It does not
+claim the school, delete classes, change course ownership, or bypass the
+production claim-review endpoint. The control can return an unclaimed local
+school to teacher mode with the exact confirmation `TEACHER`.
+
+This route is unavailable in production and accepts only local development
+sessions. Use the normal claim request and review flow for any real school.
+
 ## Migration preflight
 
 Migration `0024_one_course_owner.sql` intentionally stops if legacy data has

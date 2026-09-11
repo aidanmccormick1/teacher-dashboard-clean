@@ -83,6 +83,8 @@ export function ProfilePage() {
   const [, setSaving] = useState(false);
   const [, setSaved] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [localAdminTestLoading, setLocalAdminTestLoading] = useState(false);
+  const [localAdminTestMessage, setLocalAdminTestMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -168,6 +170,32 @@ export function ProfilePage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not reset your account.');
       setResetting(false);
+    }
+  };
+
+  const changeLocalAdminTestRole = async (role: 'admin' | 'teacher') => {
+    const confirmation =
+      role === 'admin'
+        ? 'Enable temporary administrator test mode? Administrator mode is for school-wide operations and does not teach classes by default. Your existing classes and course ownership will stay in place. Continue?'
+        : 'Return this local test account to teacher mode? This only changes the local test role. Continue?';
+    if (!window.confirm(confirmation)) return;
+
+    try {
+      setLocalAdminTestLoading(true);
+      setLocalAdminTestMessage(null);
+      setError(null);
+      const result = await api.setLocalAdminTestRole(role);
+      setForm((current) => ({ ...current, role: result.role }));
+      setLocalAdminTestMessage(result.message);
+      if (role === 'admin') navigate('/admin', { replace: true });
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'Could not change the local administrator test role.'
+      );
+    } finally {
+      setLocalAdminTestLoading(false);
     }
   };
 
@@ -261,6 +289,38 @@ export function ProfilePage() {
               ) : null}
             </label>
           </div>
+          {import.meta.env.DEV ? (
+            <div className="local-admin-test-control stack">
+              <div>
+                <p className="eyebrow">Local test only</p>
+                <h3>Administrator workspace</h3>
+                <p>
+                  Inspect the school-wide workspace without changing the production claim-review
+                  rules. Your existing classes and course ownership remain available in the Teaching
+                  workspace.
+                </p>
+              </div>
+              {localAdminTestMessage ? (
+                <p className="notice success" role="status">
+                  {localAdminTestMessage}
+                </p>
+              ) : null}
+              <button
+                className="secondary"
+                type="button"
+                disabled={localAdminTestLoading}
+                onClick={() =>
+                  void changeLocalAdminTestRole(form.role === 'admin' ? 'teacher' : 'admin')
+                }
+              >
+                {localAdminTestLoading
+                  ? 'Updating local role…'
+                  : form.role === 'admin'
+                    ? 'Return to teacher test mode'
+                    : 'Enable administrator test mode'}
+              </button>
+            </div>
+          ) : null}
         </article>
         <article className="card stack profile-section">
           <div className="section-heading">
