@@ -176,6 +176,48 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
     });
   });
 
+  it('allows a teacher to join a school during onboarding with its invite code', async () => {
+    const ownerOnboarding = await app.inject({
+      method: 'POST',
+      url: '/v1/onboarding',
+      headers: teacherHeaders,
+      payload: onboardingBody
+    });
+    expect(ownerOnboarding.statusCode).toBe(200);
+
+    const ownerSchool = await app.inject({
+      method: 'GET',
+      url: '/v1/school',
+      headers: teacherHeaders
+    });
+    expect(ownerSchool.statusCode).toBe(200);
+    const inviteCode = ownerSchool.json<{ school: { inviteCode: string } }>().school.inviteCode;
+
+    const invitedOnboarding = await app.inject({
+      method: 'POST',
+      url: '/v1/onboarding',
+      headers: otherTeacherHeaders,
+      payload: {
+        ...onboardingBody,
+        fullName: 'Teacher Two',
+        workEmail: 'teacher2@example.com',
+        schoolName: '',
+        schoolInviteCode: inviteCode.toLowerCase()
+      }
+    });
+    expect(invitedOnboarding.statusCode).toBe(200);
+
+    const invitedSchool = await app.inject({
+      method: 'GET',
+      url: '/v1/school',
+      headers: otherTeacherHeaders
+    });
+    expect(invitedSchool.statusCode).toBe(200);
+    expect(
+      invitedSchool.json<{ school: { name: string; memberCount: number } }>().school
+    ).toMatchObject({ name: 'Integration Test School', memberCount: 2 });
+  });
+
   describe('v1 curriculum CRUD', () => {
     it('supports school discovery, link imports, collaboration statuses, and recipient-only notifications', async () => {
       await app.inject({

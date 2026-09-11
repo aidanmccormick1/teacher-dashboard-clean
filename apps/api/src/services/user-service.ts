@@ -10,6 +10,12 @@ type Principal = {
   email: string | null;
 };
 
+function onboardingError(message: string, statusCode: number) {
+  const error = new Error(message) as Error & { statusCode?: number };
+  error.statusCode = statusCode;
+  return error;
+}
+
 export async function getUserByClerkId(clerkUserId: string) {
   const [user] = await db
     .select({
@@ -78,25 +84,42 @@ export async function upsertOnboarding(principal: Principal, payload: Onboarding
   const user = await ensureUserFromPrincipal(principal);
 
   return db.transaction(async (tx) => {
-    const existingSchool = await tx
-      .select({ id: schools.id })
-      .from(schools)
-      .where(eq(schools.name, payload.schoolName))
-      .limit(1);
+    let schoolId: string | undefined;
+    if (payload.schoolInviteCode) {
+      const [invitedSchool] = await tx
+        .select({ id: schools.id })
+        .from(schools)
+        .where(eq(schools.inviteCode, payload.schoolInviteCode.toUpperCase()))
+        .limit(1);
+      if (!invitedSchool) {
+        throw onboardingError('That school invite code is not active.', 404);
+      }
+      schoolId = invitedSchool.id;
+    } else {
+      if (!payload.schoolName) {
+        throw onboardingError('Add a school name or enter a school invite code.', 400);
+      }
 
-    let schoolId = existingSchool[0]?.id;
-    if (!schoolId) {
-      const [createdSchool] = await tx
-        .insert(schools)
-        .values({
-          name: payload.schoolName,
-          district: payload.district,
-          state: payload.state,
-          inviteCode: randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()
-        })
-        .returning({ id: schools.id });
-      if (!createdSchool) throw new Error('Failed to create school');
-      schoolId = createdSchool.id;
+      const existingSchool = await tx
+        .select({ id: schools.id })
+        .from(schools)
+        .where(eq(schools.name, payload.schoolName))
+        .limit(1);
+
+      schoolId = existingSchool[0]?.id;
+      if (!schoolId) {
+        const [createdSchool] = await tx
+          .insert(schools)
+          .values({
+            name: payload.schoolName,
+            district: payload.district,
+            state: payload.state,
+            inviteCode: randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()
+          })
+          .returning({ id: schools.id });
+        if (!createdSchool) throw new Error('Failed to create school');
+        schoolId = createdSchool.id;
+      }
     }
 
     await tx

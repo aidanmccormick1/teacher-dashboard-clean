@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
+import { schoolDirectory } from '../lib/schoolDirectory.js';
 
 type OnboardingForm = {
   fullName: string;
@@ -10,6 +11,8 @@ type OnboardingForm = {
   phone: string;
   role: 'teacher' | 'department_head' | 'admin';
   schoolName: string;
+  schoolInviteCode: string;
+  schoolJoinMethod: 'invite' | 'name' | null;
   district: string;
   state: string;
   subjects: string;
@@ -27,22 +30,32 @@ const defaultForm: OnboardingForm = {
   phone: '',
   role: 'teacher',
   schoolName: '',
+  schoolInviteCode: '',
+  schoolJoinMethod: null,
   district: '',
   state: '',
   subjects: '',
   grades: ''
 };
 
-const steps: Array<{ number: OnboardingStep; label: string; description: string }> = [
-  { number: 1, label: 'About you', description: 'Your name and role' },
-  { number: 2, label: 'Your school', description: 'Where you teach' },
-  { number: 3, label: 'Your classes', description: 'What you teach' }
-];
+const steps: Record<OnboardingStep, string> = {
+  1: 'About you',
+  2: 'Your school',
+  3: 'Your classes'
+};
 
 function loadOnboardingDraft(): OnboardingForm {
   try {
     const raw = window.localStorage.getItem(ONBOARDING_DRAFT_KEY);
-    return raw ? { ...defaultForm, ...(JSON.parse(raw) as Partial<OnboardingForm>) } : defaultForm;
+    if (!raw) return defaultForm;
+    const saved = JSON.parse(raw) as Partial<OnboardingForm>;
+    return {
+      ...defaultForm,
+      ...saved,
+      schoolJoinMethod:
+        saved.schoolJoinMethod ??
+        (saved.schoolInviteCode?.trim() ? 'invite' : saved.schoolName?.trim() ? 'name' : null)
+    };
   } catch {
     return defaultForm;
   }
@@ -73,6 +86,7 @@ export function OnboardingPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<OnboardingForm>(() => loadOnboardingDraft());
+  const [workEmailAcknowledged, setWorkEmailAcknowledged] = useState(false);
 
   useEffect(() => {
     window.localStorage.setItem(ONBOARDING_DRAFT_KEY, JSON.stringify(form));
@@ -95,11 +109,21 @@ export function OnboardingPage() {
     setError(null);
   };
 
+  const hasName = Boolean(form.fullName.trim());
+  const hasValidEmail = Boolean(form.workEmail.trim() && validEmail(form.workEmail));
+  const showWorkEmail = hasName;
+  const showRoleDetails = hasName && hasValidEmail && workEmailAcknowledged;
+  const schoolUsesInvite = form.schoolJoinMethod === 'invite';
+  const schoolUsesName = form.schoolJoinMethod === 'name';
+
   const stepIsReady =
     step === 1
-      ? Boolean(form.fullName.trim() && validEmail(form.workEmail))
+      ? Boolean(showRoleDetails)
       : step === 2
-        ? Boolean(form.schoolName.trim())
+        ? Boolean(
+            form.schoolJoinMethod &&
+            (schoolUsesInvite ? form.schoolInviteCode.trim().length >= 4 : form.schoolName.trim())
+          )
         : true;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -110,7 +134,7 @@ export function OnboardingPage() {
       setError(
         step === 1
           ? 'Add your name and a valid work email to continue.'
-          : 'Add your school name to continue.'
+          : 'Add a school name or enter a school invite code to continue.'
       );
       return;
     }
@@ -127,7 +151,8 @@ export function OnboardingPage() {
         phone: form.phone.trim() || null,
         workEmail: form.workEmail.trim(),
         role: form.role,
-        schoolName: form.schoolName.trim(),
+        schoolName: schoolUsesName ? form.schoolName.trim() : '',
+        schoolInviteCode: schoolUsesInvite ? form.schoolInviteCode.trim() || null : null,
         district: form.district.trim() || null,
         state: form.state.trim() || null,
         subjects: splitList(form.subjects),
@@ -164,48 +189,15 @@ export function OnboardingPage() {
         </Link>
       </header>
 
-      <section className="onboarding-intro">
-        <div>
-          <p className="eyebrow">Welcome to TeacherDesk</p>
-          <h1>Let’s set up your teaching workspace.</h1>
-          <p>
-            A few details now will make your schedules and plans fit your school from the first day.
-          </p>
-        </div>
-        <div className="onboarding-intro-art" aria-hidden="true">
-          <span className="onboarding-art-sun" />
-          <span className="onboarding-art-line onboarding-art-line-one" />
-          <span className="onboarding-art-line onboarding-art-line-two" />
-          <span className="onboarding-art-card onboarding-art-card-one">01</span>
-          <span className="onboarding-art-card onboarding-art-card-two">02</span>
-          <span className="onboarding-art-card onboarding-art-card-three">03</span>
-        </div>
-      </section>
-
       <div className="onboarding-layout">
-        <nav className="onboarding-progress" aria-label="Profile setup progress">
-          {steps.map((item) => (
-            <div
-              className={`onboarding-progress-step${item.number === step ? ' active' : ''}${item.number < step ? ' complete' : ''}`}
-              aria-current={item.number === step ? 'step' : undefined}
-              key={item.number}
-            >
-              <span aria-hidden="true">{item.number < step ? '✓' : item.number}</span>
-              <div>
-                <strong>{item.label}</strong>
-                <small>{item.description}</small>
-              </div>
-            </div>
-          ))}
-        </nav>
-
-        <form className="card onboarding-form-card" onSubmit={(event) => void submit(event)}>
+        <form
+          key={step}
+          className="card onboarding-form-card onboarding-step-panel"
+          onSubmit={(event) => void submit(event)}
+        >
           <div className="onboarding-form-heading">
-            <p className="eyebrow">
-              Step {step} of {steps.length}
-            </p>
             <h2 ref={stepHeadingRef} tabIndex={-1}>
-              {steps[step - 1]?.label}
+              {steps[step]}
             </h2>
             <p className="muted">
               {step === 1
@@ -231,89 +223,167 @@ export function OnboardingPage() {
                   autoComplete="name"
                   autoFocus
                   value={form.fullName}
-                  onChange={(event) => update('fullName', event.target.value)}
-                  placeholder="Aidan McCormick"
+                  onChange={(event) => {
+                    if (!event.target.value.trim()) setWorkEmailAcknowledged(false);
+                    update('fullName', event.target.value);
+                  }}
+                  placeholder="Taylor Teacher"
                   required
                 />
               </label>
-              <label>
-                Work email <span className="field-required">Required</span>
-                <input
-                  className="input"
-                  type="email"
-                  autoComplete="email"
-                  value={form.workEmail}
-                  onChange={(event) => update('workEmail', event.target.value)}
-                  placeholder="teacher@school.edu"
-                  required
-                />
-                <span className="field-help">
-                  Collaborators use this address when they share curriculum with you.
-                </span>
-              </label>
-              <div className="onboarding-two-col">
-                <label>
-                  Role
-                  <select
-                    className="input"
-                    value={form.role}
-                    onChange={(event) =>
-                      update('role', event.target.value as OnboardingForm['role'])
-                    }
-                  >
-                    <option value="teacher">Teacher</option>
-                    <option value="department_head">Department head</option>
-                    <option value="admin">Administrator</option>
-                  </select>
-                </label>
-                <label>
-                  Phone <span className="field-optional">Optional</span>
+              {showWorkEmail ? (
+                <label className="onboarding-reveal">
+                  Work email <span className="field-required">Required</span>
                   <input
                     className="input"
-                    type="tel"
-                    autoComplete="tel"
-                    value={form.phone}
-                    onChange={(event) => update('phone', event.target.value)}
+                    type="email"
+                    autoComplete="email"
+                    onFocus={() => setWorkEmailAcknowledged(true)}
+                    value={form.workEmail}
+                    onChange={(event) => {
+                      setWorkEmailAcknowledged(true);
+                      update('workEmail', event.target.value);
+                    }}
+                    placeholder="teacher@school.edu"
+                    required
                   />
+                  <span className="field-help">
+                    Collaborators use this address when they share curriculum with you.
+                  </span>
                 </label>
-              </div>
+              ) : null}
+              {showRoleDetails ? (
+                <div className="onboarding-two-col onboarding-reveal">
+                  <label>
+                    Role
+                    <select
+                      className="input"
+                      value={form.role}
+                      onChange={(event) =>
+                        update('role', event.target.value as OnboardingForm['role'])
+                      }
+                    >
+                      <option value="teacher">Teacher</option>
+                      <option value="department_head">Department head</option>
+                      <option value="admin">Administrator</option>
+                    </select>
+                  </label>
+                  <label>
+                    Phone <span className="field-optional">Optional</span>
+                    <input
+                      className="input"
+                      type="tel"
+                      autoComplete="tel"
+                      value={form.phone}
+                      onChange={(event) => update('phone', event.target.value)}
+                    />
+                  </label>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
           {step === 2 ? (
             <div className="onboarding-fields">
-              <label>
-                School name <span className="field-required">Required</span>
-                <input
-                  className="input"
-                  autoComplete="organization"
-                  autoFocus
-                  value={form.schoolName}
-                  onChange={(event) => update('schoolName', event.target.value)}
-                  placeholder="School name"
-                  required
-                />
-              </label>
-              <div className="onboarding-two-col">
-                <label>
-                  District <span className="field-optional">Optional</span>
-                  <input
-                    className="input"
-                    value={form.district}
-                    onChange={(event) => update('district', event.target.value)}
-                  />
-                </label>
-                <label>
-                  State <span className="field-optional">Optional</span>
-                  <input
-                    className="input"
-                    autoComplete="address-level1"
-                    value={form.state}
-                    onChange={(event) => update('state', event.target.value)}
-                    placeholder="CA"
-                  />
-                </label>
+              <div className="onboarding-school-choice">
+                <p className="onboarding-question">Do you have a school invite code?</p>
+                <span className="field-help">
+                  A code connects you to your school’s shared directory and calendar.
+                </span>
+                <div
+                  className="onboarding-choice-grid"
+                  role="radiogroup"
+                  aria-label="School access"
+                >
+                  <button
+                    className={`onboarding-choice${schoolUsesInvite ? ' selected' : ''}`}
+                    type="button"
+                    role="radio"
+                    aria-checked={schoolUsesInvite}
+                    onClick={() => update('schoolJoinMethod', 'invite')}
+                  >
+                    <strong>Yes, I have a code</strong>
+                    <span>Join an existing school workspace.</span>
+                  </button>
+                  <button
+                    className={`onboarding-choice${schoolUsesName ? ' selected' : ''}`}
+                    type="button"
+                    role="radio"
+                    aria-checked={schoolUsesName}
+                    onClick={() => update('schoolJoinMethod', 'name')}
+                  >
+                    <strong>No, I’ll add my school</strong>
+                    <span>Start with the school name.</span>
+                  </button>
+                </div>
               </div>
+              {schoolUsesInvite ? (
+                <label className="onboarding-reveal">
+                  School invite code <span className="field-required">Required</span>
+                  <input
+                    className="input"
+                    aria-label="School invite code"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    autoFocus={!form.schoolInviteCode.trim()}
+                    value={form.schoolInviteCode}
+                    onChange={(event) =>
+                      update('schoolInviteCode', event.target.value.toUpperCase())
+                    }
+                    placeholder="Enter invite code"
+                    minLength={4}
+                    required
+                  />
+                  <span className="field-help">Find this in your school’s Sharing page.</span>
+                </label>
+              ) : null}
+              {schoolUsesName ? (
+                <>
+                  <label className="onboarding-reveal">
+                    School name <span className="field-required">Required</span>
+                    <input
+                      className="input"
+                      autoComplete="organization"
+                      autoFocus={!form.schoolName.trim()}
+                      list="teacherdesk-school-directory"
+                      value={form.schoolName}
+                      onChange={(event) => update('schoolName', event.target.value)}
+                      placeholder="Start typing your school"
+                      required
+                    />
+                    <datalist id="teacherdesk-school-directory">
+                      {schoolDirectory.map((school) => (
+                        <option key={school.name} value={school.name} />
+                      ))}
+                    </datalist>
+                    <span className="field-help">
+                      Choose from your school directory or enter a new school name.
+                    </span>
+                  </label>
+                  {form.schoolName.trim() ? (
+                    <div className="onboarding-two-col onboarding-reveal">
+                      <label>
+                        District <span className="field-optional">Optional</span>
+                        <input
+                          className="input"
+                          value={form.district}
+                          onChange={(event) => update('district', event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        State <span className="field-optional">Optional</span>
+                        <input
+                          className="input"
+                          autoComplete="address-level1"
+                          value={form.state}
+                          onChange={(event) => update('state', event.target.value)}
+                          placeholder="CA"
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
             </div>
           ) : null}
 
@@ -349,22 +419,32 @@ export function OnboardingPage() {
             </div>
           ) : null}
 
-          <footer className="onboarding-form-actions">
-            {step > 1 ? (
-              <button
-                className="secondary"
-                type="button"
-                onClick={() => setStep((current) => (current - 1) as OnboardingStep)}
-              >
-                Back
-              </button>
-            ) : (
-              <span className="onboarding-save-note">Your progress saves in this browser.</span>
-            )}
-            <button type="submit" disabled={saving}>
-              {saving ? 'Saving profile…' : step === 3 ? 'Save profile and continue' : 'Continue'}
-            </button>
-          </footer>
+          {step > 1 || showRoleDetails ? (
+            <footer className="onboarding-form-actions onboarding-reveal">
+              {step > 1 ? (
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => setStep((current) => (current - 1) as OnboardingStep)}
+                >
+                  Back
+                </button>
+              ) : null}
+              {step !== 2 || stepIsReady ? (
+                <button
+                  className={step === 2 ? 'onboarding-reveal' : undefined}
+                  type="submit"
+                  disabled={saving || !stepIsReady}
+                >
+                  {saving
+                    ? 'Saving profile…'
+                    : step === 3
+                      ? 'Save profile and continue'
+                      : 'Continue'}
+                </button>
+              ) : null}
+            </footer>
+          ) : null}
         </form>
       </div>
     </main>
