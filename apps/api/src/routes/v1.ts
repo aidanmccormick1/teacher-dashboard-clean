@@ -2383,7 +2383,7 @@ export async function v1Routes(app: FastifyInstance) {
       const result = await runStructuredPrompt<z.infer<typeof InternalCalendarImportSchema>>({
         apiKey: app.config.OPENAI_API_KEY,
         model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
-        reasoningEffort: app.config.OPENAI_REASONING_EFFORT_PARSE_SCHEDULE,
+        reasoningEffort: 'low',
         schemaName: 'school_calendar_import',
         schema: InternalCalendarImportSchema,
         systemPrompt:
@@ -6615,7 +6615,7 @@ export async function v1Routes(app: FastifyInstance) {
       if (!job) throw new Error('Failed to create AI job');
 
       try {
-        await enqueueAiJob(app.aiQueue, job.id);
+        await enqueueAiJob(app.aiQueue, job.id, { attempts: 1 });
       } catch {
         await db
           .update(aiJobs)

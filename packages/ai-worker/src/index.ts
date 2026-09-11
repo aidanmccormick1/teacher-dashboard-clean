@@ -252,7 +252,7 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
           >({
             apiKey: openAiApiKey,
             model: modelParseSchedule,
-            reasoningEffort: reasoningEffortParseSchedule,
+            reasoningEffort: 'low',
             schemaName: 'school_calendar_import',
             schema: CalendarImportExtractionSchema,
             systemPrompt:
@@ -335,9 +335,10 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
         const attemptNumber = job.attemptsMade + 1;
         const maxAttempts = job.opts.attempts ?? 1;
         const willRetry = attemptNumber < maxAttempts;
+        const readerName = aiJob.type === 'parse_school_calendar' ? 'calendar' : 'schedule';
         const errorMessage =
           error instanceof z.ZodError
-            ? 'The schedule reader could not recognize one or more meeting times. Please try again.'
+            ? `The ${readerName} reader could not recognize the imported dates. Please try again.`
             : error instanceof Error
               ? error.message
               : 'Unknown error';

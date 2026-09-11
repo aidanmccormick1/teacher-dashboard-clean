@@ -21,9 +21,10 @@ export function createAiQueue(redis: Redis | null): Queue<{ jobId: string }> | n
 
 export async function enqueueAiJob(
   queue: Queue<{ jobId: string }> | null,
-  jobId: string
+  jobId: string,
+  options: { attempts?: number } = {}
 ): Promise<boolean> {
   if (!queue) return false;
-  await queue.add('process-ai-job', { jobId }, { jobId });
+  await queue.add('process-ai-job', { jobId }, { jobId, ...options });
   return true;
 }
