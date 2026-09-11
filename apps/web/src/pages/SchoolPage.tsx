@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type {
   CalendarImportResponse,
   CourseListResponse,
@@ -89,6 +89,9 @@ function initials(value: string) {
 
 export function SchoolPage() {
   const api = useApiClient();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const setupFlow = params.get('setup') === '1';
   const [calendar, setCalendar] = useState<SchoolCalendarResponse | null>(null);
   const [overview, setOverview] = useState<SchoolOverviewResponse | null>(null);
   const [courses, setCourses] = useState<CourseListResponse['courses']>([]);
@@ -305,9 +308,10 @@ export function SchoolPage() {
       setFile(null);
       setSaved(mode === 'replace' ? 'Calendar replaced.' : 'Calendar saved.');
       setError(null);
-      void api
-        .updatePreferences({ setupStep: 'courses', walkthroughDismissed: false })
+      await api
+        .updatePreferences({ setupStep: 'complete', walkthroughDismissed: false })
         .catch(() => undefined);
+      if (setupFlow) navigate('/guide', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not save the calendar');
     } finally {

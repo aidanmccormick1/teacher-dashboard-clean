@@ -265,6 +265,9 @@ function ScheduleImportPanel({
       setBusyAction('apply');
       setError(null);
       await api.applyScheduleImport({ classes: draft.classes });
+      await api
+        .updatePreferences({ setupStep: 'calendar', walkthroughDismissed: false })
+        .catch(() => undefined);
       await onApplied();
       setDraft(null);
       setText('');
@@ -646,6 +649,7 @@ export function CoursesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const importOpen = params.get('import') === 'schedule';
+  const setupFlow = params.get('setup') === '1';
 
   const load = useCallback(async () => {
     try {
@@ -1004,7 +1008,16 @@ export function CoursesPage() {
       </header>
       {error ? <p className="notice warning">{error}</p> : null}
       {importOpen ? (
-        <ScheduleImportPanel existingSections={schedule?.sections ?? []} onApplied={load} />
+        <ScheduleImportPanel
+          existingSections={schedule?.sections ?? []}
+          onApplied={async () => {
+            if (setupFlow) {
+              navigate('/guide', { replace: true });
+              return;
+            }
+            await load();
+          }}
+        />
       ) : null}
       {invitations.length ? (
         <section className="courses-create-panel" aria-labelledby="course-invitations-heading">
