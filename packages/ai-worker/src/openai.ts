@@ -67,7 +67,7 @@ async function openAiErrorMessage(response: Response): Promise<string> {
 function buildUserContent(params: PromptInput) {
   if (!params.fileDataUrl) return params.userPrompt;
 
-  if (params.fileDataUrl.startsWith('data:application/pdf')) {
+  if (!params.fileDataUrl.startsWith('data:image/')) {
     return [
       {
         type: 'input_file',

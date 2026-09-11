@@ -40,12 +40,11 @@ export function YearPlanPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    const loadPlan = async () => {
       try {
-        const [courseList, scheduleResult, calendarResult] = await Promise.all([
+        const [courseList, scheduleResult] = await Promise.all([
           api.listCourses(),
-          api.getSchedule(),
-          api.getSchoolCalendar()
+          api.getSchedule()
         ]);
         const details = await Promise.all(
           courseList.courses.map((course) => api.getCourseDetail(course.id))
@@ -53,7 +52,6 @@ export function YearPlanPage() {
         if (!cancelled) {
           setCourses(details.map((detail) => detail.course));
           setSchedule(scheduleResult);
-          setCalendar(calendarResult);
         }
       } catch (err) {
         if (!cancelled)
@@ -61,7 +59,15 @@ export function YearPlanPage() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    };
+    const loadCalendar = async () => {
+      // Calendar dates improve the timeline but should not prevent a teacher
+      // from opening the plan while the calendar service is unavailable.
+      const result = await api.getSchoolCalendar().catch(() => null);
+      if (!cancelled) setCalendar(result);
+    };
+    void loadPlan();
+    void loadCalendar();
     return () => {
       cancelled = true;
     };

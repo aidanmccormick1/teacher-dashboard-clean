@@ -604,6 +604,13 @@ export function useApiClient() {
           auth,
           AI_QUEUE_REQUEST_TIMEOUT_MS
         ),
+      enqueueParseSchoolCalendar: (body: CalendarImportRequest) =>
+        request<AiJobEnqueueResponse>(
+          '/v1/ai/parse-school-calendar/queue',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth,
+          AI_QUEUE_REQUEST_TIMEOUT_MS
+        ),
       enqueueGenerateSegments: (body: GenerateSegmentsRequest) =>
         request<AiJobEnqueueResponse>(
           '/v1/ai/generate-segments/queue',

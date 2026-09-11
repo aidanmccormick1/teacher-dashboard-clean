@@ -287,12 +287,14 @@ export const SchoolTimezoneUpdateRequestSchema = z.object({
   timezone: z.string().min(1).max(100)
 });
 
-export const SchoolYearUpsertRequestSchema = z
+const SchoolYearDateRangeSchema = z
   .object({ startDate: IsoDateSchema, endDate: IsoDateSchema })
   .refine((value) => value.endDate >= value.startDate, {
     path: ['endDate'],
     message: 'End date must be on or after start date.'
   });
+
+export const SchoolYearUpsertRequestSchema = SchoolYearDateRangeSchema;
 
 export const CalendarImportRequestSchema = ScheduleImportRequestSchema;
 const CalendarOverridePreviewSchema = z.object({
@@ -304,14 +306,70 @@ const CalendarOverridePreviewSchema = z.object({
   cancelled: z.boolean().default(false)
 });
 export const CalendarImportResponseSchema = z.object({
-  schoolYear: z.object({
-    startDate: IsoDateSchema,
-    endDate: IsoDateSchema,
-    confidence: z.number().int().min(0).max(100).nullable().optional()
-  }),
+  schoolYear: SchoolYearDateRangeSchema.and(
+    z.object({ confidence: z.number().int().min(0).max(100).nullable().optional() })
+  ),
   events: z.array(InstructionalExceptionSchema),
   overrides: z.array(CalendarOverridePreviewSchema).default([]),
   ignoredEvents: z.array(IgnoredCalendarEventSchema).default([]),
+  notices: z.array(z.string()).default([])
+});
+
+// The AI reader uses unconstrained strings for dates so the structured-output
+// schema stays readable to the model. The API validates the final response
+// with CalendarImportResponseSchema before it reaches the browser.
+export const CalendarImportExtractionSchema = z.object({
+  schoolYear: z.object({
+    startDate: z.string(),
+    endDate: z.string(),
+    confidence: z.number().int().min(0).max(100).default(70),
+    startSourceText: z.string().nullable().default(null),
+    endSourceText: z.string().nullable().default(null)
+  }),
+  events: z.array(
+    z.object({
+      title: z.string(),
+      startDate: z.string(),
+      endDate: z.string(),
+      type: z.enum([
+        'no_school',
+        'minimum_day',
+        'half_day',
+        'early_release',
+        'late_start',
+        'testing_schedule',
+        'special_schedule',
+        'other_abnormal'
+      ]),
+      affectsInstruction: z.literal(true),
+      scheduleKnown: z.boolean().default(false),
+      confidence: z.number().int().min(0).max(100).default(70),
+      sourceText: z.string().nullable().default(null),
+      needsReview: z.boolean().default(false)
+    })
+  ),
+  ignoredEvents: z
+    .array(
+      z.object({
+        title: z.string(),
+        date: z.string().nullable().default(null),
+        reason: z.string(),
+        sourceText: z.string().nullable().default(null)
+      })
+    )
+    .default([]),
+  overrides: z
+    .array(
+      z.object({
+        date: z.string(),
+        classGroup: z.string(),
+        startTime: z.string().nullable(),
+        endTime: z.string().nullable(),
+        room: z.string().nullable(),
+        cancelled: z.boolean().default(false)
+      })
+    )
+    .default([]),
   notices: z.array(z.string()).default([])
 });
 
@@ -328,7 +386,7 @@ export const MeetingInstancesQuerySchema = z
 
 export const CalendarCommitRequestSchema = z.object({
   mode: z.enum(['merge', 'replace']),
-  schoolYear: z.object({ startDate: IsoDateSchema, endDate: IsoDateSchema }),
+  schoolYear: SchoolYearDateRangeSchema,
   events: z.array(InstructionalExceptionSchema),
   overrides: z.array(CalendarOverridePreviewSchema).default([]),
   approvedEventKeys: z.array(z.string()).optional()

@@ -6,6 +6,7 @@ import type {
   SchoolCalendarResponse,
   SchoolOverviewResponse
 } from '@teacheros/contracts';
+import { CalendarImportResponseSchema } from '@teacheros/contracts';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 type ManualDayOff = { title: string; startDate: string; endDate: string };
@@ -98,6 +99,7 @@ export function SchoolPage() {
   const [preview, setPreview] = useState<CalendarImportResponse | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [importProgress, setImportProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [showIgnored, setShowIgnored] = useState(false);
@@ -139,15 +141,68 @@ export function SchoolPage() {
     if (!sourceText.trim() && !file) return setError('Paste calendar text or choose a document.');
     try {
       setBusy(true);
+      setImportProgress(5);
       setError(null);
       setSaved(null);
       const dataUrl = file ? await readFileAsDataUrl(file) : undefined;
-      const result = await api.importSchoolCalendar({
+      const input = {
         text: sourceText.trim() || undefined,
         fileBase64: dataUrl,
         fileName: file?.name,
         fileMimeType: file?.type || undefined
-      });
+      };
+      let result: CalendarImportResponse | null = null;
+      let queuedJobId: string | null = null;
+      try {
+        queuedJobId = (await api.enqueueParseSchoolCalendar(input)).jobId;
+      } catch (err) {
+        if (err instanceof ApiError && [404, 405, 503].includes(err.status)) {
+          setImportProgress(null);
+          result = await api.importSchoolCalendar(input);
+        } else {
+          throw err;
+        }
+      }
+
+      if (queuedJobId) {
+        const deadline = Date.now() + 8 * 60_000;
+        let complete = false;
+        let consecutivePollFailures = 0;
+
+        while (!complete && Date.now() < deadline) {
+          let status: Awaited<ReturnType<typeof api.getAiJobStatus>>;
+          try {
+            status = await api.getAiJobStatus(queuedJobId);
+            consecutivePollFailures = 0;
+          } catch (err) {
+            const retryable =
+              err instanceof ApiError &&
+              (err.status === 0 || err.status === 408 || err.status >= 500);
+            consecutivePollFailures += 1;
+            if (retryable && consecutivePollFailures <= 3) {
+              await new Promise<void>((resolve) => window.setTimeout(resolve, 2_000));
+              continue;
+            }
+            throw err;
+          }
+          setImportProgress(status.progressPercent);
+          if (status.status === 'succeeded') {
+            if (!status.output) throw new Error('The calendar reader finished without a result.');
+            result = CalendarImportResponseSchema.parse(status.output);
+            complete = true;
+          } else if (status.status === 'failed' || status.status === 'cancelled') {
+            throw new Error(status.error ?? 'The calendar reader could not finish this import.');
+          } else {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 1_500));
+          }
+        }
+
+        if (!complete) {
+          await api.cancelAiJob(queuedJobId).catch(() => undefined);
+          throw new Error('The calendar reader took too long. Try a clearer file or pasted text.');
+        }
+      }
+      if (!result) throw new Error('The calendar reader finished without a result.');
       setPreview(result);
       setStartDate(result.schoolYear.startDate);
       setEndDate(result.schoolYear.endDate);
@@ -156,6 +211,7 @@ export function SchoolPage() {
       setError(err instanceof ApiError ? err.message : 'Could not read the school calendar');
     } finally {
       setBusy(false);
+      setImportProgress(null);
     }
   };
   const updateManualDayOff = (index: number, patch: Partial<ManualDayOff>) => {
@@ -608,7 +664,8 @@ export function SchoolPage() {
                 {busy ? (
                   <>
                     <span className="calendar-reader-dot" />
-                    Reading your calendar…
+                    Reading your calendar
+                    {importProgress === null ? '…' : `, ${importProgress}%`}
                   </>
                 ) : (
                   'Read Calendar'

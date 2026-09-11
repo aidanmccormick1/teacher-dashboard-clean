@@ -53,6 +53,12 @@ describe('school calendar contracts', () => {
       SchoolYearUpsertRequestSchema.safeParse({ startDate: '2027-06-04', endDate: '2026-08-17' })
         .success
     ).toBe(false);
+    expect(
+      CalendarImportResponseSchema.safeParse({
+        schoolYear: { startDate: '2027-06-04', endDate: '2026-08-17' },
+        events: []
+      }).success
+    ).toBe(false);
   });
 
   it('requires valid meeting overrides and explicit merge/replace decisions', () => {

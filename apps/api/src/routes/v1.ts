@@ -12,6 +12,7 @@ import {
   AccountResetResponseSchema,
   CalendarCommitRequestSchema,
   CalendarCommitResponseSchema,
+  CalendarImportExtractionSchema,
   CalendarImportRequestSchema,
   CalendarImportResponseSchema,
   ClassroomResumeResponseSchema,
@@ -157,65 +158,7 @@ import {
 // end time even when the vision model read it correctly.
 const InternalParseScheduleSchema = ParseScheduleResponseSchema;
 
-const InternalSchoolYearBoundariesSchema = z.object({
-  startDate: z.string(),
-  endDate: z.string(),
-  confidence: z.number().int().min(0).max(100).default(70),
-  startSourceText: z.string().nullable().default(null),
-  endSourceText: z.string().nullable().default(null)
-});
-
-const InternalParseCalendarSchema = z.object({
-  events: z.array(
-    z.object({
-      title: z.string(),
-      startDate: z.string(),
-      endDate: z.string(),
-      type: z.enum([
-        'no_school',
-        'minimum_day',
-        'half_day',
-        'early_release',
-        'late_start',
-        'testing_schedule',
-        'special_schedule',
-        'other_abnormal'
-      ]),
-      affectsInstruction: z.literal(true),
-      scheduleKnown: z.boolean().default(false),
-      confidence: z.number().int().min(0).max(100).default(70),
-      sourceText: z.string().nullable().default(null),
-      needsReview: z.boolean().default(false)
-    })
-  ),
-  ignoredEvents: z
-    .array(
-      z.object({
-        title: z.string(),
-        date: z.string().nullable().default(null),
-        reason: z.string(),
-        sourceText: z.string().nullable().default(null)
-      })
-    )
-    .default([]),
-  overrides: z
-    .array(
-      z.object({
-        date: z.string(),
-        classGroup: z.string(),
-        startTime: z.string().nullable(),
-        endTime: z.string().nullable(),
-        room: z.string().nullable(),
-        cancelled: z.boolean().default(false)
-      })
-    )
-    .default([]),
-  notices: z.array(z.string()).default([])
-});
-
-const InternalCalendarImportSchema = InternalParseCalendarSchema.extend({
-  schoolYear: InternalSchoolYearBoundariesSchema
-});
+const InternalCalendarImportSchema = CalendarImportExtractionSchema;
 
 type ScheduleImportBody = z.infer<typeof ScheduleImportRequestSchema>;
 type ScheduleImportCorrectionBody = z.infer<typeof ScheduleImportCorrectionRequestSchema>;
@@ -2450,7 +2393,8 @@ export async function v1Routes(app: FastifyInstance) {
           classGroups.map((group) => group.name)
         ),
         fileDataUrl: scheduleImportFileDataUrl(body),
-        fileName: body.fileName
+        fileName: body.fileName,
+        maxAttempts: 1
       });
       return CalendarImportResponseSchema.parse({
         ...result,
@@ -6631,6 +6575,68 @@ export async function v1Routes(app: FastifyInstance) {
   );
 
   app.post(
+    '/v1/ai/parse-school-calendar/queue',
+    {
+      schema: {
+        body: CalendarImportRequestSchema,
+        response: {
+          200: AiJobEnqueueResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+
+      const body = CalendarImportRequestSchema.parse(request.body);
+      if (!hasScheduleImportInput(body)) {
+        (reply as any).code(400);
+        return {
+          error: 'Paste calendar text or upload a calendar image/PDF',
+          requestId: request.id
+        };
+      }
+
+      if (!app.aiQueue) {
+        (reply as any).code(503);
+        return { error: 'AI queue is unavailable. Configure REDIS_URL.', requestId: request.id };
+      }
+
+      const user = await ensureUserFromPrincipal(principal);
+      const [job] = await db
+        .insert(aiJobs)
+        .values({
+          userId: user.id,
+          type: 'parse_school_calendar',
+          status: 'queued',
+          input: body
+        })
+        .returning({ id: aiJobs.id, status: aiJobs.status });
+      if (!job) throw new Error('Failed to create AI job');
+
+      try {
+        await enqueueAiJob(app.aiQueue, job.id);
+      } catch {
+        await db
+          .update(aiJobs)
+          .set({
+            status: 'cancelled',
+            cancelRequested: true,
+            error: 'The AI queue was unavailable while starting this job.',
+            updatedAt: new Date()
+          })
+          .where(eq(aiJobs.id, job.id));
+        (reply as any).code(503);
+        return {
+          error: 'The AI queue is temporarily unavailable. Using the direct calendar reader.',
+          requestId: request.id
+        };
+      }
+      return { jobId: job.id, status: job.status };
+    }
+  );
+
+  app.post(
     '/v1/ai/parse-schedule/queue',
     {
       schema: {
@@ -6839,7 +6845,12 @@ export async function v1Routes(app: FastifyInstance) {
 
       return {
         jobId: job.id,
-        type: job.type as 'parse_schedule' | 'generate_segments' | 'generate_continuity',
+        type: job.type as
+          | 'parse_schedule'
+          | 'parse_school_calendar'
+          | 'generate_segments'
+          | 'generate_continuity'
+          | 'generate_unit_draft',
         status: job.status,
         output: job.output ?? null,
         error: job.error,

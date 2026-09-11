@@ -81,7 +81,7 @@ describe('runStructuredPrompt', () => {
       schema: ParseScheduleResponseSchema
     });
     const request = fetchMock.mock.calls[0]?.[1];
-    const requestBody = JSON.parse(String(request?.body)) as {
+    const requestBody = JSON.parse((request?.body as string | undefined) ?? '') as {
       text: {
         format: {
           schema: {

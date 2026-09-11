@@ -3,11 +3,13 @@ import { Redis } from 'ioredis';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import {
+  CalendarImportExtractionSchema,
+  CalendarImportResponseSchema,
   GenerateContinuityResponseSchema,
   GenerateSegmentsResponseSchema,
   ParseScheduleResponseSchema
 } from '@teacheros/contracts';
-import { aiJobs, aiOutputs, db } from '@teacheros/db';
+import { aiJobs, aiOutputs, db, sections } from '@teacheros/db';
 
 import { runStructuredPrompt } from './openai.js';
 
@@ -37,6 +39,7 @@ type ScheduleImportInput = {
   fileName?: string;
   fileMimeType?: string;
 };
+type CalendarImportInput = ScheduleImportInput;
 
 function scheduleImportFileDataUrl(input: ScheduleImportInput): string | undefined {
   if (input.fileBase64) {
@@ -99,6 +102,27 @@ function scheduleImportAuditPrompt(
   ].join('\n');
 }
 
+function calendarImportPrompt(input: CalendarImportInput, classGroups: string[]): string {
+  const instructions = [
+    'You are not extracting every event from an academic calendar. You are identifying the instructional school year and events that affect normal student instruction.',
+    'First determine the actual instructional school-year boundaries. Find the first instructional day for students and the last instructional day for students. Prioritize explicit wording such as First Day of School, First Day for Students, Students Begin, Classes Begin, School Begins, Last Day of School, Last Day for Students, Classes End, and Final Instructional Day.',
+    'Do not use graduation, teacher checkout, teacher work after students finish, or administrative dates as the final day unless the source explicitly says students attend.',
+    'Return those boundaries as schoolYear, with ISO dates, confidence, and compact source excerpts. Return events only inside those boundaries.',
+    'Return one logical event per date range; never expand a break into daily rows. Only return events inside the instructional-year boundaries that cancel student instruction or alter the normal student schedule.',
+    'Use no_school only when students do not attend. Use minimum_day, half_day, early_release, late_start, testing_schedule, special_schedule, or other_abnormal for altered school days. Do not invent bell times.',
+    'Ignore ceremonies, extracurriculars, parent events, staff-only meetings, fundraisers, administrative deadlines, report cards, and informational events that do not affect regular student instruction. Teacher/staff days matter only when students do not attend or normal classes are affected.',
+    'Use Classes Resume to understand a break boundary, but do not return it as an event. First and last instructional days are boundaries, never events.',
+    'If a date such as Faculty Development Day may affect instruction but the document does not establish whether students attend, return it with needsReview true. Otherwise do not make the teacher review clear information.',
+    'For each ignored event, return its title, date if known, and a concise reason.',
+    'For every returned event include title, startDate, endDate, type, affectsInstruction true, scheduleKnown, confidence, needsReview, and a compact source excerpt.',
+    classGroups.length
+      ? `If an alternate schedule explicitly identifies one of these Class Groups, emit a date-specific override for it: ${classGroups.join(', ')}.`
+      : 'Do not emit an override unless the alternate schedule identifies a class group.',
+    'Return JSON only.'
+  ];
+  return input.text ? [...instructions, '', input.text].join('\n') : instructions.join('\n');
+}
+
 export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayload> {
   const {
     redisUrl,
@@ -118,6 +142,7 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
       const [aiJob] = await db
         .select({
           id: aiJobs.id,
+          userId: aiJobs.userId,
           type: aiJobs.type,
           status: aiJobs.status,
           cancelRequested: aiJobs.cancelRequested,
@@ -216,6 +241,36 @@ export function createAiJobsWorker(config: AiWorkerConfig): Worker<AiQueuePayloa
           } else {
             output = initialOutput;
           }
+        } else if (aiJob.type === 'parse_school_calendar') {
+          const input = aiJob.input as CalendarImportInput;
+          const classGroups = await db
+            .select({ name: sections.name })
+            .from(sections)
+            .where(eq(sections.teacherId, aiJob.userId));
+          const parsedCalendar = await runStructuredPrompt<
+            z.infer<typeof CalendarImportExtractionSchema>
+          >({
+            apiKey: openAiApiKey,
+            model: modelParseSchedule,
+            reasoningEffort: reasoningEffortParseSchedule,
+            schemaName: 'school_calendar_import',
+            schema: CalendarImportExtractionSchema,
+            systemPrompt:
+              'You are a careful school calendar reader. Extract only evidence visible in the teacher supplied calendar.',
+            userPrompt: calendarImportPrompt(
+              input,
+              classGroups.map((group) => group.name)
+            ),
+            fileDataUrl: scheduleImportFileDataUrl(input),
+            fileName: input.fileName
+          });
+          output = CalendarImportResponseSchema.parse({
+            ...parsedCalendar,
+            ignoredEvents: parsedCalendar.ignoredEvents.map(({ date, ...event }) => ({
+              ...event,
+              ...(date ? { date } : {})
+            }))
+          });
         } else if (aiJob.type === 'generate_segments') {
           const input = aiJob.input as {
             lessonTitle: string;
