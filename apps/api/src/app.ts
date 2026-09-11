@@ -19,6 +19,7 @@ import { createAiQueue } from './lib/queue.js';
 import { authPlugin } from './plugins/auth.js';
 import { requestContextPlugin } from './plugins/request-context.js';
 import { healthRoutes } from './routes/health.js';
+import { adminRoutes } from './routes/admin.js';
 import { testAuthRoutes } from './routes/test-auth.js';
 import { v1Routes } from './routes/v1.js';
 
@@ -131,12 +132,13 @@ export async function createApp(config: AppConfig) {
   }
 
   await app.register(requestContextPlugin);
-  if (config.NODE_ENV !== 'production') {
+  if (config.NODE_ENV === 'test' || config.DEV_AUTH_ENABLED) {
     await app.register(testAuthRoutes);
   }
   await app.register(authPlugin);
   await app.register(healthRoutes);
 
+  await app.register(adminRoutes);
   await app.register(v1Routes);
 
   app.setErrorHandler((error, request, reply) => {
@@ -152,7 +154,12 @@ export async function createApp(config: AppConfig) {
       typeof (error as { statusCode?: number }).statusCode === 'number'
         ? (error as { statusCode: number }).statusCode
         : 500;
-    const message = error instanceof Error ? error.message : 'Internal server error';
+    const message =
+      statusCode >= 500
+        ? 'Internal server error'
+        : error instanceof Error
+          ? error.message
+          : 'Request failed';
     reply.code(statusCode).send({
       error: message,
       requestId: request.id

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -95,6 +95,8 @@ import {
   SchoolCalendarResponseSchema,
   SchoolJoinRequestSchema,
   SchoolOverviewResponseSchema,
+  SchoolSearchResponseSchema,
+  SchoolInvitationAcceptResponseSchema,
   SchoolTimezoneUpdateRequestSchema,
   SchoolYearUpsertRequestSchema,
   SectionMeetingOverrideRequestSchema,
@@ -124,7 +126,10 @@ import {
   notifications,
   schoolCalendarEvents,
   schoolHolidays,
+  schoolClaimRequests,
+  schoolInvitations,
   schoolYears,
+  schoolMemberships,
   sectionMeetingOverrides,
   sectionLessonPlans,
   sectionPlanOperations,
@@ -146,6 +151,7 @@ import { safeRedisGet, safeRedisSet } from '../lib/redis.js';
 import { createS3Client, createSignedUploadUrl } from '../lib/s3.js';
 import { AI_JOB_MAX_ATTEMPTS, enqueueAiJob } from '../lib/queue.js';
 import { ensureUserFromPrincipal, upsertOnboarding } from '../services/user-service.js';
+import { canManageSchoolCalendar } from '../services/permissions.js';
 import { buildMeetingInstances, loadActiveSchoolYear } from '../services/meeting-instances.js';
 import {
   localDateFor,
@@ -368,11 +374,25 @@ async function loadTeacherSchoolId(userId: string): Promise<string> {
   const [profile] = await db
     .select({ schoolId: teacherProfiles.schoolId })
     .from(teacherProfiles)
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, teacherProfiles.userId),
+        eq(schoolMemberships.schoolId, teacherProfiles.schoolId),
+        eq(schoolMemberships.status, 'active')
+      )
+    )
     .where(eq(teacherProfiles.userId, userId))
     .limit(1);
 
   if (!profile) {
-    throw new Error('Teacher profile not found. Complete onboarding first.');
+    const error = new Error(
+      'Active school membership required. Complete onboarding first.'
+    ) as Error & {
+      statusCode?: number;
+    };
+    error.statusCode = 403;
+    throw error;
   }
   return profile.schoolId;
 }
@@ -389,6 +409,27 @@ async function loadSchoolTimezone(schoolId: string, request?: FastifyRequest): P
     validTimeZone(typeof browserTimeZone === 'string' ? browserTimeZone : null) ??
     'UTC'
   );
+}
+
+async function assertSchoolCalendarWriteAccess(
+  userId: string,
+  schoolId: string,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const [school] = await db
+    .select({ claimStatus: schools.claimStatus })
+    .from(schools)
+    .where(eq(schools.id, schoolId))
+    .limit(1);
+  if (school?.claimStatus === 'claimed' && !(await canManageSchoolCalendar(userId, schoolId))) {
+    reply.code(403).send({
+      error: 'This school calendar is managed by an administrator.',
+      requestId: request.id
+    });
+    return false;
+  }
+  return true;
 }
 
 async function buildSchoolCalendarResponse(
@@ -510,6 +551,14 @@ async function findOwnedCourse(userId: string, courseId: string) {
         eq(courseCollaborators.status, 'accepted')
       )
     )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
+      )
+    )
     .where(eq(courses.id, courseId))
     .limit(1);
   return course ?? null;
@@ -535,6 +584,14 @@ async function findOwnedCourseIdForUnit(userId: string, unitId: string) {
         eq(courseCollaborators.status, 'accepted')
       )
     )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
+      )
+    )
     .where(eq(units.id, unitId))
     .limit(1);
 
@@ -555,6 +612,14 @@ async function findOwnedCourseIdForLesson(userId: string, lessonId: string) {
         eq(courseCollaborators.courseId, courses.id),
         eq(courseCollaborators.userId, userId),
         eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
       )
     )
     .where(eq(lessons.id, lessonId))
@@ -580,6 +645,14 @@ async function findOwnedCourseIdForSegment(userId: string, segmentId: string) {
         eq(courseCollaborators.status, 'accepted')
       )
     )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
+      )
+    )
     .where(eq(lessonSegments.id, segmentId))
     .limit(1);
 
@@ -603,6 +676,14 @@ async function findOwnedSection(userId: string, sectionId: string) {
         eq(courseCollaborators.courseId, courses.id),
         eq(courseCollaborators.userId, userId),
         eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
       )
     )
     .where(
@@ -633,6 +714,14 @@ async function findOwnedLessonInSectionCourse(userId: string, sectionId: string,
         eq(courseCollaborators.courseId, courses.id),
         eq(courseCollaborators.userId, userId),
         eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
       )
     )
     .innerJoin(units, eq(units.courseId, courses.id))
@@ -666,6 +755,14 @@ async function findOwnedUnitInSectionCourse(userId: string, sectionId: string, u
         eq(courseCollaborators.courseId, courses.id),
         eq(courseCollaborators.userId, userId),
         eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
       )
     )
     .innerJoin(units, eq(units.courseId, courses.id))
@@ -713,6 +810,14 @@ async function buildLessonWorkspace(userId: string, lessonId: string) {
         eq(courseCollaborators.courseId, courses.id),
         eq(courseCollaborators.userId, userId),
         eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
       )
     )
     .leftJoin(lessonShares, eq(lessonShares.lessonId, lessons.id))
@@ -794,8 +899,23 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
         eq(courseCollaborators.status, 'accepted')
       )
     )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
+      )
+    )
     .leftJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
-    .where(and(eq(sections.teacherId, userId), isNull(courseCollaborators.archivedAt)));
+    .where(
+      and(
+        eq(sections.teacherId, userId),
+        eq(courses.schoolId, schoolId),
+        isNull(courses.archivedAt),
+        isNull(courseCollaborators.archivedAt)
+      )
+    );
 
   const curriculumIds = [...new Set(rows.map((row) => row.courseId))];
   const localCourseRows = curriculumIds.length
@@ -1014,7 +1134,11 @@ async function buildCourseDetail(userId: string, courseId: string) {
   });
 }
 
-async function listCoursesForUser(userId: string, status: 'active' | 'archived' | 'all') {
+async function listCoursesForUser(
+  userId: string,
+  schoolId: string,
+  status: 'active' | 'archived' | 'all'
+) {
   const courseRows = await db
     .select({
       id: courses.id,
@@ -1034,6 +1158,15 @@ async function listCoursesForUser(userId: string, status: 'active' | 'archived' 
         eq(courseCollaborators.courseId, courses.id),
         eq(courseCollaborators.userId, userId),
         eq(courseCollaborators.status, 'accepted')
+      )
+    )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, schoolId),
+        eq(schoolMemberships.status, 'active'),
+        eq(schoolMemberships.schoolId, courses.schoolId)
       )
     )
     // Archive status is personal course state. Keep the collaborator join for
@@ -1280,6 +1413,8 @@ async function buildLessonComments(courseId: string, lessonId: string) {
 }
 
 async function buildCoursePacing(userId: string, courseId: string) {
+  const course = await findOwnedCourse(userId, courseId);
+  if (!course) return null;
   const [membership] = await db
     .select({ shareProgress: courseCollaborators.shareProgress })
     .from(courseCollaborators)
@@ -1301,6 +1436,15 @@ async function buildCoursePacing(userId: string, courseId: string) {
     })
     .from(courseCollaborators)
     .innerJoin(users, eq(courseCollaborators.userId, users.id))
+    .innerJoin(courses, eq(courseCollaborators.courseId, courses.id))
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, courseCollaborators.userId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
+      )
+    )
     .where(
       and(
         eq(courseCollaborators.courseId, courseId),
@@ -1421,7 +1565,8 @@ async function buildCoursePacing(userId: string, courseId: string) {
 async function copyCourseCurriculum(
   userId: string,
   sourceCourseId: string,
-  targetCourseId: string
+  targetCourseId: string,
+  visibility: 'private' | 'public' = 'private'
 ) {
   const source = await buildCourseDetail(userId, sourceCourseId);
   if (!source) return false;
@@ -1448,7 +1593,16 @@ async function copyCourseCurriculum(
             unitId: createdUnit.id,
             title: lesson.title,
             description: lesson.description,
-            lessonPlan: lesson.lessonPlan,
+            lessonPlan:
+              visibility === 'public'
+                ? {
+                    objective: lesson.lessonPlan.objective,
+                    teacherNotes: null,
+                    studentDirections: lesson.lessonPlan.studentDirections,
+                    materials: lesson.lessonPlan.materials,
+                    links: []
+                  }
+                : lesson.lessonPlan,
             googleSlidesUrl: lesson.googleSlidesUrl,
             googleSlidesStartSlide: lesson.googleSlidesStartSlide,
             orderIndex: lesson.orderIndex,
@@ -1487,6 +1641,14 @@ async function buildSchoolOverview(userId: string, request?: FastifyRequest) {
     })
     .from(teacherProfiles)
     .innerJoin(schools, eq(teacherProfiles.schoolId, schools.id))
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, teacherProfiles.userId),
+        eq(schoolMemberships.schoolId, teacherProfiles.schoolId),
+        eq(schoolMemberships.status, 'active')
+      )
+    )
     .where(eq(teacherProfiles.userId, userId))
     .limit(1);
   if (!profile) return null;
@@ -1496,13 +1658,21 @@ async function buildSchoolOverview(userId: string, request?: FastifyRequest) {
       userId: users.id,
       email: users.email,
       fullName: users.fullName,
-      role: teacherProfiles.role,
+      role: schoolMemberships.role,
       subjects: teacherProfiles.subjects,
       grades: teacherProfiles.grades,
       joinedAt: teacherProfiles.createdAt
     })
     .from(teacherProfiles)
     .innerJoin(users, eq(teacherProfiles.userId, users.id))
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, teacherProfiles.userId),
+        eq(schoolMemberships.schoolId, profile.schoolId),
+        eq(schoolMemberships.status, 'active')
+      )
+    )
     .where(eq(teacherProfiles.schoolId, profile.schoolId))
     .orderBy(asc(users.fullName), asc(users.email));
 
@@ -1692,6 +1862,46 @@ export async function v1Routes(app: FastifyInstance) {
   );
 
   app.get(
+    '/v1/schools/search',
+    {
+      schema: {
+        querystring: z.object({ q: z.string().trim().min(2).max(80) }),
+        response: { 200: SchoolSearchResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const { q } = z.object({ q: z.string().trim().min(2).max(80) }).parse(request.query);
+      const escaped = q.replace(/[\\%_]/g, (character) => `\\${character}`);
+      const rows = await db
+        .select({
+          id: schools.id,
+          name: schools.name,
+          district: schools.district,
+          state: schools.state,
+          claimStatus: schools.claimStatus
+        })
+        .from(schools)
+        .where(ilike(schools.name, `%${escaped}%`))
+        .orderBy(asc(schools.name))
+        .limit(10);
+      const ids = rows.map((row) => row.id);
+      const memberRows = ids.length
+        ? await db
+            .select({ schoolId: teacherProfiles.schoolId, count: sql<number>`count(*)::int` })
+            .from(teacherProfiles)
+            .where(inArray(teacherProfiles.schoolId, ids))
+            .groupBy(teacherProfiles.schoolId)
+        : [];
+      const memberCounts = new Map(memberRows.map((row) => [row.schoolId, row.count]));
+      return SchoolSearchResponseSchema.parse({
+        schools: rows.map((row) => ({ ...row, memberCount: memberCounts.get(row.id) ?? 0 }))
+      });
+    }
+  );
+
+  app.get(
     '/v1/school',
     { schema: { response: { 200: SchoolOverviewResponseSchema } } },
     async (request, reply) => {
@@ -1721,13 +1931,24 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const body = SchoolJoinRequestSchema.parse(request.body);
       const [school] = await db
-        .select({ id: schools.id })
+        .select({
+          id: schools.id,
+          claimStatus: schools.claimStatus,
+          teacherInvitePolicy: schools.teacherInvitePolicy
+        })
         .from(schools)
         .where(eq(schools.inviteCode, body.inviteCode.toUpperCase()))
         .limit(1);
       if (!school) {
         (reply as any).code(404);
         return { error: 'That school invite code is not active.', requestId: request.id };
+      }
+      if (school.claimStatus === 'claimed' && school.teacherInvitePolicy === 'admin_only') {
+        (reply as any).code(403);
+        return {
+          error: 'This school requires an administrator invitation.',
+          requestId: request.id
+        };
       }
       const [currentProfile] = await db
         .select({ schoolId: teacherProfiles.schoolId })
@@ -1738,18 +1959,54 @@ export async function v1Routes(app: FastifyInstance) {
         (reply as any).code(404);
         return { error: 'Finish setting up your profile first.', requestId: request.id };
       }
+      const [targetMembership] = await db
+        .select({ role: schoolMemberships.role, status: schoolMemberships.status })
+        .from(schoolMemberships)
+        .where(
+          and(eq(schoolMemberships.userId, user.id), eq(schoolMemberships.schoolId, school.id))
+        )
+        .limit(1);
       if (currentProfile.schoolId !== school.id) {
         await db.transaction(async (tx) => {
           await tx
             .update(teacherProfiles)
-            .set({ schoolId: school.id, updatedAt: new Date() })
+            .set({
+              schoolId: school.id,
+              role: targetMembership?.role === 'admin' ? 'admin' : 'teacher',
+              updatedAt: new Date()
+            })
             .where(eq(teacherProfiles.userId, user.id));
-          // Private curricula follow their owner to the new school. Shared
-          // collaborators retain access regardless of school affiliation.
           await tx
-            .update(courses)
-            .set({ schoolId: school.id, updatedAt: new Date() })
-            .where(eq(courses.teacherId, user.id));
+            .update(schoolMemberships)
+            .set({ status: 'inactive', updatedAt: new Date() })
+            .where(
+              and(
+                eq(schoolMemberships.userId, user.id),
+                eq(schoolMemberships.schoolId, currentProfile.schoolId)
+              )
+            );
+          await tx
+            .insert(schoolMemberships)
+            .values({
+              userId: user.id,
+              schoolId: school.id,
+              role:
+                targetMembership?.status === 'active' && targetMembership.role === 'admin'
+                  ? 'admin'
+                  : 'teacher',
+              status: 'active'
+            })
+            .onConflictDoUpdate({
+              target: [schoolMemberships.userId, schoolMemberships.schoolId],
+              set: {
+                role:
+                  targetMembership?.status === 'active' && targetMembership.role === 'admin'
+                    ? 'admin'
+                    : 'teacher',
+                status: 'active',
+                updatedAt: new Date()
+              }
+            });
           await tx.insert(auditEvents).values({
             userId: user.id,
             eventType: 'school_joined',
@@ -1758,10 +2015,165 @@ export async function v1Routes(app: FastifyInstance) {
             metadata: { previousSchoolId: currentProfile.schoolId }
           });
         });
+      } else if (targetMembership?.status === 'inactive') {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(teacherProfiles)
+            .set({ role: 'teacher', updatedAt: new Date() })
+            .where(eq(teacherProfiles.userId, user.id));
+          await tx
+            .update(schoolMemberships)
+            .set({ role: 'teacher', status: 'active', updatedAt: new Date() })
+            .where(
+              and(
+                eq(schoolMemberships.userId, user.id),
+                eq(schoolMemberships.schoolId, school.id),
+                eq(schoolMemberships.status, 'inactive')
+              )
+            );
+        });
       }
       const overview = await buildSchoolOverview(user.id, request);
       if (!overview) throw new Error('Could not load joined school');
       return overview;
+    }
+  );
+
+  app.post(
+    '/v1/school-invitations/:invitationId/accept',
+    {
+      schema: {
+        params: z.object({ invitationId: UuidSchema }),
+        response: { 200: SchoolInvitationAcceptResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const { invitationId } = z.object({ invitationId: UuidSchema }).parse(request.params);
+      const [invitation] = await db
+        .select({
+          id: schoolInvitations.id,
+          schoolId: schoolInvitations.schoolId,
+          schoolName: schools.name,
+          status: schoolInvitations.status,
+          expiresAt: schoolInvitations.expiresAt
+        })
+        .from(schoolInvitations)
+        .innerJoin(schools, eq(schoolInvitations.schoolId, schools.id))
+        .where(
+          and(eq(schoolInvitations.id, invitationId), eq(schoolInvitations.inviteeUserId, user.id))
+        )
+        .limit(1);
+      if (!invitation) {
+        (reply as any).code(404);
+        return { error: 'School invitation not found.', requestId: request.id };
+      }
+      if (invitation.status !== 'pending' || invitation.expiresAt <= new Date()) {
+        (reply as any).code(409);
+        return { error: 'This school invitation is no longer available.', requestId: request.id };
+      }
+      const [currentProfile] = await db
+        .select({ schoolId: teacherProfiles.schoolId })
+        .from(teacherProfiles)
+        .where(eq(teacherProfiles.userId, user.id))
+        .limit(1);
+      if (!currentProfile) {
+        (reply as any).code(409);
+        return {
+          error: 'Complete your TeacherDesk profile before accepting this invitation.',
+          requestId: request.id
+        };
+      }
+      await db.transaction(async (tx) => {
+        const now = new Date();
+        const [accepted] = await tx
+          .update(schoolInvitations)
+          .set({ status: 'accepted', acceptedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(schoolInvitations.id, invitation.id),
+              eq(schoolInvitations.status, 'pending'),
+              gt(schoolInvitations.expiresAt, now)
+            )
+          )
+          .returning({ id: schoolInvitations.id });
+        if (!accepted) {
+          const error = new Error('This school invitation is no longer available.') as Error & {
+            statusCode?: number;
+          };
+          error.statusCode = 409;
+          throw error;
+        }
+        if (currentProfile.schoolId !== invitation.schoolId) {
+          await tx
+            .update(teacherProfiles)
+            .set({ schoolId: invitation.schoolId, role: 'teacher', updatedAt: now })
+            .where(eq(teacherProfiles.userId, user.id));
+        }
+        // The teacher profile has one active school at a time. Clear every
+        // stale membership, not only the profile's previous school, before
+        // activating the accepted invitation.
+        await tx
+          .update(schoolMemberships)
+          .set({ status: 'inactive', updatedAt: now })
+          .where(
+            and(
+              eq(schoolMemberships.userId, user.id),
+              ne(schoolMemberships.schoolId, invitation.schoolId)
+            )
+          );
+        const [targetMembership] = await tx
+          .select({ role: schoolMemberships.role, status: schoolMemberships.status })
+          .from(schoolMemberships)
+          .where(
+            and(
+              eq(schoolMemberships.userId, user.id),
+              eq(schoolMemberships.schoolId, invitation.schoolId)
+            )
+          )
+          .limit(1);
+        await tx
+          .insert(schoolMemberships)
+          .values({
+            userId: user.id,
+            schoolId: invitation.schoolId,
+            role:
+              targetMembership?.status === 'active' && targetMembership.role === 'admin'
+                ? 'admin'
+                : 'teacher',
+            status: 'active',
+            updatedAt: now
+          })
+          .onConflictDoUpdate({
+            target: [schoolMemberships.userId, schoolMemberships.schoolId],
+            set: {
+              role:
+                targetMembership?.status === 'active' && targetMembership.role === 'admin'
+                  ? 'admin'
+                  : 'teacher',
+              status: 'active',
+              updatedAt: now
+            }
+          });
+        await tx
+          .update(notifications)
+          .set({ readAt: now })
+          .where(
+            and(
+              eq(notifications.recipientUserId, user.id),
+              eq(notifications.type, 'school_invitation'),
+              eq(notifications.actionUrl, `/school?schoolInvitation=${invitation.id}`),
+              isNull(notifications.readAt)
+            )
+          );
+      });
+      return SchoolInvitationAcceptResponseSchema.parse({
+        accepted: true,
+        schoolId: invitation.schoolId,
+        schoolName: invitation.schoolName
+      });
     }
   );
 
@@ -2114,6 +2526,45 @@ export async function v1Routes(app: FastifyInstance) {
           .where(eq(teacherProfiles.userId, user.id))
           .limit(1);
 
+        if (profile) {
+          const [adminMembership] = await tx
+            .select({ role: schoolMemberships.role })
+            .from(schoolMemberships)
+            .where(
+              and(
+                eq(schoolMemberships.userId, user.id),
+                eq(schoolMemberships.schoolId, profile.schoolId),
+                eq(schoolMemberships.role, 'admin'),
+                eq(schoolMemberships.status, 'active')
+              )
+            )
+            .limit(1);
+          if (adminMembership) {
+            const [school] = await tx
+              .select({ claimStatus: schools.claimStatus })
+              .from(schools)
+              .where(eq(schools.id, profile.schoolId))
+              .limit(1);
+            const [activeAdministratorCount] = await tx
+              .select({ count: sql<number>`count(*)::int` })
+              .from(schoolMemberships)
+              .where(
+                and(
+                  eq(schoolMemberships.schoolId, profile.schoolId),
+                  eq(schoolMemberships.role, 'admin'),
+                  eq(schoolMemberships.status, 'active')
+                )
+              );
+            if (school?.claimStatus === 'claimed' && (activeAdministratorCount?.count ?? 0) <= 1) {
+              const error = new Error(
+                'Transfer school administrator access before resetting this account.'
+              ) as Error & { statusCode?: number };
+              error.statusCode = 409;
+              throw error;
+            }
+          }
+        }
+
         // Course deletion cascades through sections, lessons, lesson state,
         // meeting overrides, notes, and curriculum. AI outputs cascade with
         // their jobs. The users row is deliberately never touched.
@@ -2121,6 +2572,12 @@ export async function v1Routes(app: FastifyInstance) {
         await tx.delete(aiJobs).where(eq(aiJobs.userId, user.id));
         await tx.delete(auditEvents).where(eq(auditEvents.userId, user.id));
         await tx.delete(teacherPreferences).where(eq(teacherPreferences.userId, user.id));
+        await tx
+          .delete(schoolClaimRequests)
+          .where(eq(schoolClaimRequests.requesterUserId, user.id));
+        await tx.delete(courseCollaborators).where(eq(courseCollaborators.userId, user.id));
+        await tx.delete(notifications).where(eq(notifications.recipientUserId, user.id));
+        await tx.delete(schoolMemberships).where(eq(schoolMemberships.userId, user.id));
         await tx.delete(teacherProfiles).where(eq(teacherProfiles.userId, user.id));
 
         if (profile) {
@@ -2296,6 +2753,7 @@ export async function v1Routes(app: FastifyInstance) {
         return { error: 'Timezone must be a valid IANA timezone', requestId: request.id };
       }
       const schoolId = await loadTeacherSchoolId(user.id);
+      if (!(await assertSchoolCalendarWriteAccess(user.id, schoolId, request, reply))) return;
       await db
         .update(schools)
         .set({ timezone, updatedAt: new Date() })
@@ -2317,6 +2775,7 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
+      if (!(await assertSchoolCalendarWriteAccess(user.id, schoolId, request, reply))) return;
       const body = SchoolYearUpsertRequestSchema.parse(request.body);
       const activeSchoolYear = await loadActiveSchoolYear(
         schoolId,
@@ -2417,6 +2876,7 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
       const body = CalendarCommitRequestSchema.parse(request.body);
+      if (!(await assertSchoolCalendarWriteAccess(user.id, schoolId, request, reply))) return;
       const { schoolYear } = await findOrCreateSchoolYear(schoolId, user.id, body.schoolYear);
       const approved = body.approvedEventKeys ? new Set(body.approvedEventKeys) : null;
       const events = body.events.filter(
@@ -2484,7 +2944,7 @@ export async function v1Routes(app: FastifyInstance) {
           .select({ id: sections.id, name: sections.name })
           .from(sections)
           .innerJoin(courses, eq(sections.courseId, courses.id))
-          .where(eq(sections.teacherId, user.id));
+          .where(and(eq(sections.teacherId, user.id), eq(courses.schoolId, schoolId)));
         for (const override of body.overrides) {
           const section = ownedSections.find(
             (candidate) => importNameKey(candidate.name) === importNameKey(override.classGroup)
@@ -2495,6 +2955,7 @@ export async function v1Routes(app: FastifyInstance) {
             .values({
               sectionId: section.id,
               date: override.date,
+              occurrenceKey: override.occurrenceKey,
               startTime: override.startTime,
               endTime: override.endTime,
               room: override.room,
@@ -2502,7 +2963,11 @@ export async function v1Routes(app: FastifyInstance) {
               createdByUserId: user.id
             })
             .onConflictDoUpdate({
-              target: [sectionMeetingOverrides.sectionId, sectionMeetingOverrides.date],
+              target: [
+                sectionMeetingOverrides.sectionId,
+                sectionMeetingOverrides.date,
+                sectionMeetingOverrides.occurrenceKey
+              ],
               set: {
                 startTime: override.startTime,
                 endTime: override.endTime,
@@ -3317,11 +3782,12 @@ export async function v1Routes(app: FastifyInstance) {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
+      const schoolId = await loadTeacherSchoolId(user.id);
       const status = z
         .object({ status: z.enum(['active', 'archived', 'all']).default('active') })
         .parse(request.query).status;
 
-      return { courses: await listCoursesForUser(user.id, status) };
+      return { courses: await listCoursesForUser(user.id, schoolId, status) };
     }
   );
 
@@ -3337,13 +3803,16 @@ export async function v1Routes(app: FastifyInstance) {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
+      const schoolId = await loadTeacherSchoolId(user.id);
       const body = CourseOrderUpdateRequestSchema.parse(request.body);
       const owned = await db
         .select({ id: teacherCourses.curriculumId })
         .from(teacherCourses)
+        .innerJoin(courses, eq(teacherCourses.curriculumId, courses.id))
         .where(
           and(
             eq(teacherCourses.teacherId, user.id),
+            eq(courses.schoolId, schoolId),
             inArray(teacherCourses.curriculumId, body.courseIds)
           )
         );
@@ -3375,7 +3844,7 @@ export async function v1Routes(app: FastifyInstance) {
         });
       });
 
-      return { courses: await listCoursesForUser(user.id, 'all') };
+      return { courses: await listCoursesForUser(user.id, schoolId, 'all') };
     }
   );
 
@@ -3600,6 +4069,10 @@ export async function v1Routes(app: FastifyInstance) {
     if (!principal) return;
     const user = await ensureUserFromPrincipal(principal);
     const { courseId } = CourseParamsSchema.parse(request.params);
+    if (!(await findOwnedCourse(user.id, courseId))) {
+      (reply as any).code(404);
+      return { error: 'Course not found', requestId: request.id };
+    }
     const [course] = await db
       .update(teacherCourses)
       .set({ archivedAt: new Date(), updatedAt: new Date() })
@@ -3617,6 +4090,10 @@ export async function v1Routes(app: FastifyInstance) {
     if (!principal) return;
     const user = await ensureUserFromPrincipal(principal);
     const { courseId } = CourseParamsSchema.parse(request.params);
+    if (!(await findOwnedCourse(user.id, courseId))) {
+      (reply as any).code(404);
+      return { error: 'Course not found', requestId: request.id };
+    }
     const [course] = await db
       .update(teacherCourses)
       .set({ archivedAt: null, updatedAt: new Date() })
@@ -3649,6 +4126,14 @@ export async function v1Routes(app: FastifyInstance) {
         })
         .from(courseCollaborators)
         .innerJoin(courses, eq(courseCollaborators.courseId, courses.id))
+        .innerJoin(
+          schoolMemberships,
+          and(
+            eq(schoolMemberships.userId, user.id),
+            eq(schoolMemberships.schoolId, courses.schoolId),
+            eq(schoolMemberships.status, 'active')
+          )
+        )
         .where(
           and(eq(courseCollaborators.userId, user.id), eq(courseCollaborators.status, 'invited'))
         )
@@ -3699,12 +4184,27 @@ export async function v1Routes(app: FastifyInstance) {
     const user = await ensureUserFromPrincipal(principal);
     const { courseId } = CourseParamsSchema.parse(request.params);
     const body = CourseInvitationAcceptRequestSchema.parse(request.body);
-    const [sourceCurriculum] = await db
-      .select()
+    const [sourceCourse] = await db
+      .select({
+        id: courses.id,
+        schoolId: courses.schoolId,
+        name: courses.name,
+        subject: courses.subject,
+        gradeLevel: courses.gradeLevel,
+        sortIndex: courses.sortIndex
+      })
       .from(courses)
+      .innerJoin(
+        schoolMemberships,
+        and(
+          eq(schoolMemberships.userId, user.id),
+          eq(schoolMemberships.schoolId, courses.schoolId),
+          eq(schoolMemberships.status, 'active')
+        )
+      )
       .where(eq(courses.id, courseId))
       .limit(1);
-    if (!sourceCurriculum) {
+    if (!sourceCourse) {
       (reply as any).code(404);
       return { error: 'Course invitation not found', requestId: request.id };
     }
@@ -3741,11 +4241,11 @@ export async function v1Routes(app: FastifyInstance) {
           .insert(courses)
           .values({
             teacherId: user.id,
-            schoolId: sourceCurriculum.schoolId,
+            schoolId: sourceCourse.schoolId,
             name: body.name,
-            subject: sourceCurriculum.subject,
-            gradeLevel: sourceCurriculum.gradeLevel,
-            sortIndex: sourceCurriculum.sortIndex
+            subject: sourceCourse.subject,
+            gradeLevel: sourceCourse.gradeLevel,
+            sortIndex: sourceCourse.sortIndex
           })
           .returning({ id: courses.id });
         if (!curriculum) throw new Error('Failed to create an independent curriculum copy');
@@ -3762,10 +4262,10 @@ export async function v1Routes(app: FastifyInstance) {
           curriculumId: curriculum.id,
           sourceCurriculumId: courseId,
           name: body.name,
-          subject: sourceCurriculum.subject,
-          gradeLevel: sourceCurriculum.gradeLevel,
+          subject: sourceCourse.subject,
+          gradeLevel: sourceCourse.gradeLevel,
           relationshipType: 'independent',
-          sortIndex: sourceCurriculum.sortIndex
+          sortIndex: sourceCourse.sortIndex
         });
         return [curriculum];
       });
@@ -3786,10 +4286,10 @@ export async function v1Routes(app: FastifyInstance) {
           teacherId: user.id,
           curriculumId: courseId,
           name: body.name,
-          subject: sourceCurriculum.subject,
-          gradeLevel: sourceCurriculum.gradeLevel,
+          subject: sourceCourse.subject,
+          gradeLevel: sourceCourse.gradeLevel,
           relationshipType: 'shared',
-          sortIndex: sourceCurriculum.sortIndex
+          sortIndex: sourceCourse.sortIndex
         })
         .onConflictDoUpdate({
           target: [teacherCourses.teacherId, teacherCourses.curriculumId],
@@ -3885,18 +4385,34 @@ export async function v1Routes(app: FastifyInstance) {
         (reply as any).code(404);
         return { error: 'Course not found', requestId: request.id };
       }
-      const [recipient] = await db
+      const recipients = await db
         .select({ id: users.id })
         .from(users)
+        .innerJoin(
+          schoolMemberships,
+          and(
+            eq(schoolMemberships.userId, users.id),
+            eq(schoolMemberships.schoolId, ownedCourse.schoolId),
+            eq(schoolMemberships.status, 'active')
+          )
+        )
         .where(sql`lower(${users.email}) = lower(${body.email})`)
-        .limit(1);
-      if (!recipient) {
+        .limit(2);
+      if (recipients.length === 0) {
         (reply as any).code(404);
         return {
           error: 'That teacher needs a TeacherOS account before you can invite them.',
           requestId: request.id
         };
       }
+      if (recipients.length > 1) {
+        (reply as any).code(409);
+        return {
+          error: 'That email matches multiple accounts. Use a unique account email.',
+          requestId: request.id
+        };
+      }
+      const recipient = recipients[0]!;
       if (recipient.id === user.id) {
         (reply as any).code(400);
         return { error: 'You already own this course.', requestId: request.id };
@@ -4052,25 +4568,44 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const { courseId } = CourseParamsSchema.parse(request.params);
       const body = CourseOwnershipTransferRequestSchema.parse(request.body);
-      if (!(await findCourseOwnedBy(user.id, courseId))) {
+      const ownedCourse = await findCourseOwnedBy(user.id, courseId);
+      if (!ownedCourse) {
         (reply as any).code(404);
         return { error: 'Course not found', requestId: request.id };
       }
-      const [nextOwner] = await db
+      const nextOwners = await db
         .select({ id: users.id })
         .from(users)
         .where(sql`lower(${users.email}) = lower(${body.email})`)
-        .limit(1);
-      if (!nextOwner) {
+        .limit(2);
+      if (nextOwners.length === 0) {
         (reply as any).code(404);
         return { error: 'Collaborator not found', requestId: request.id };
       }
+      if (nextOwners.length > 1) {
+        (reply as any).code(409);
+        return {
+          error: 'That email matches multiple accounts. Use a unique account email.',
+          requestId: request.id
+        };
+      }
+      const nextOwner = nextOwners[0]!;
       const [membership] = await db
         .select({ userId: courseCollaborators.userId })
         .from(courseCollaborators)
+        .innerJoin(courses, eq(courseCollaborators.courseId, courses.id))
+        .innerJoin(
+          schoolMemberships,
+          and(
+            eq(schoolMemberships.userId, nextOwner.id),
+            eq(schoolMemberships.schoolId, ownedCourse.schoolId),
+            eq(schoolMemberships.status, 'active')
+          )
+        )
         .where(
           and(
             eq(courseCollaborators.courseId, courseId),
+            eq(courses.schoolId, ownedCourse.schoolId),
             eq(courseCollaborators.userId, nextOwner.id),
             eq(courseCollaborators.status, 'accepted'),
             eq(courseCollaborators.role, 'editor')
@@ -4082,25 +4617,64 @@ export async function v1Routes(app: FastifyInstance) {
         return { error: 'Choose an accepted course collaborator.', requestId: request.id };
       }
       await db.transaction(async (tx) => {
-        await tx
+        const now = new Date();
+        const [updatedCourse] = await tx
           .update(courses)
-          .set({ teacherId: nextOwner.id, updatedAt: new Date() })
-          .where(eq(courses.id, courseId));
-        await tx
+          .set({ teacherId: nextOwner.id, updatedAt: now })
+          .where(and(eq(courses.id, courseId), eq(courses.teacherId, user.id)))
+          .returning({ id: courses.id });
+        if (!updatedCourse) {
+          const error = new Error('Course ownership changed. Reload and try again.') as Error & {
+            statusCode?: number;
+          };
+          error.statusCode = 409;
+          throw error;
+        }
+        const [updatedOwner] = await tx
           .update(courseCollaborators)
-          .set({ role: 'editor', updatedAt: new Date() })
-          .where(
-            and(eq(courseCollaborators.courseId, courseId), eq(courseCollaborators.userId, user.id))
-          );
-        await tx
-          .update(courseCollaborators)
-          .set({ role: 'owner', updatedAt: new Date() })
+          .set({ role: 'editor', updatedAt: now })
           .where(
             and(
               eq(courseCollaborators.courseId, courseId),
-              eq(courseCollaborators.userId, nextOwner.id)
+              eq(courseCollaborators.userId, user.id),
+              eq(courseCollaborators.status, 'accepted'),
+              eq(courseCollaborators.role, 'owner')
             )
-          );
+          )
+          .returning({ userId: courseCollaborators.userId });
+        if (!updatedOwner) {
+          const error = new Error('Course ownership could not be transferred.') as Error & {
+            statusCode?: number;
+          };
+          error.statusCode = 409;
+          throw error;
+        }
+        const [promoted] = await tx
+          .update(courseCollaborators)
+          .set({ role: 'owner', updatedAt: now })
+          .where(
+            and(
+              eq(courseCollaborators.courseId, courseId),
+              eq(courseCollaborators.userId, nextOwner.id),
+              eq(courseCollaborators.status, 'accepted'),
+              eq(courseCollaborators.role, 'editor'),
+              sql`exists (
+                select 1
+                from school_memberships active_membership
+                where active_membership.user_id = ${nextOwner.id}
+                  and active_membership.school_id = ${ownedCourse.schoolId}
+                  and active_membership.status = 'active'
+              )`
+            )
+          )
+          .returning({ userId: courseCollaborators.userId });
+        if (!promoted) {
+          const error = new Error('The selected collaborator is no longer available.') as Error & {
+            statusCode?: number;
+          };
+          error.statusCode = 409;
+          throw error;
+        }
       });
       await recordCourseActivity(
         courseId,
@@ -4174,6 +4748,10 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const { courseId } = CourseParamsSchema.parse(request.params);
       const body = CoursePacingSharingUpdateRequestSchema.parse(request.body);
+      if (!(await findOwnedCourse(user.id, courseId))) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
       const [membership] = await db
         .update(courseCollaborators)
         .set({ shareProgress: body.enabled, updatedAt: new Date() })
@@ -5334,7 +5912,12 @@ export async function v1Routes(app: FastifyInstance) {
         targetCourseId = created.id;
       }
 
-      const copied = await copyCourseCurriculum(shared.teacherId, shared.courseId, targetCourseId);
+      const copied = await copyCourseCurriculum(
+        shared.teacherId,
+        shared.courseId,
+        targetCourseId,
+        'public'
+      );
       if (!copied) throw new Error('Could not copy the shared curriculum');
       await recordCourseActivity(
         targetCourseId,
@@ -5864,6 +6447,7 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
+      if (!(await assertSchoolCalendarWriteAccess(user.id, schoolId, request, reply))) return;
       const body = HolidaysUpsertRequestSchema.parse(request.body);
 
       if (!body.holidays.length) return { count: 0 };
@@ -5901,6 +6485,7 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
+      if (!(await assertSchoolCalendarWriteAccess(user.id, schoolId, request, reply))) return;
       const params = HolidayParamsSchema.parse(request.params);
 
       const [deleted] = await db

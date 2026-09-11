@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 
-import { db, schools, teacherProfiles, users } from '@teacheros/db';
+import { db, schoolMemberships, schools, teacherProfiles, users } from '@teacheros/db';
 import type { OnboardingRequest } from '@teacheros/contracts';
 
 type Principal = {
@@ -83,11 +83,37 @@ export async function ensureUserFromPrincipal(principal: Principal) {
 export async function upsertOnboarding(principal: Principal, payload: OnboardingRequest) {
   const user = await ensureUserFromPrincipal(principal);
 
+  if (payload.schoolId && payload.schoolInviteCode) {
+    throw onboardingError('Choose a school or use its invite code, not both.', 400);
+  }
+
   return db.transaction(async (tx) => {
     let schoolId: string | undefined;
-    if (payload.schoolInviteCode) {
+    let schoolClaimStatus: 'unclaimed' | 'claimed' | undefined;
+    let schoolInvitePolicy: 'admin_only' | 'members' | 'code' | undefined;
+    if (payload.schoolId) {
+      const [selectedSchool] = await tx
+        .select({
+          id: schools.id,
+          claimStatus: schools.claimStatus,
+          teacherInvitePolicy: schools.teacherInvitePolicy
+        })
+        .from(schools)
+        .where(eq(schools.id, payload.schoolId))
+        .limit(1);
+      if (!selectedSchool) {
+        throw onboardingError('That school is no longer available.', 404);
+      }
+      schoolId = selectedSchool.id;
+      schoolClaimStatus = selectedSchool.claimStatus;
+      schoolInvitePolicy = selectedSchool.teacherInvitePolicy;
+    } else if (payload.schoolInviteCode) {
       const [invitedSchool] = await tx
-        .select({ id: schools.id })
+        .select({
+          id: schools.id,
+          claimStatus: schools.claimStatus,
+          teacherInvitePolicy: schools.teacherInvitePolicy
+        })
         .from(schools)
         .where(eq(schools.inviteCode, payload.schoolInviteCode.toUpperCase()))
         .limit(1);
@@ -95,18 +121,26 @@ export async function upsertOnboarding(principal: Principal, payload: Onboarding
         throw onboardingError('That school invite code is not active.', 404);
       }
       schoolId = invitedSchool.id;
+      schoolClaimStatus = invitedSchool.claimStatus;
+      schoolInvitePolicy = invitedSchool.teacherInvitePolicy;
     } else {
       if (!payload.schoolName) {
         throw onboardingError('Add a school name or enter a school invite code.', 400);
       }
 
       const existingSchool = await tx
-        .select({ id: schools.id })
+        .select({
+          id: schools.id,
+          claimStatus: schools.claimStatus,
+          teacherInvitePolicy: schools.teacherInvitePolicy
+        })
         .from(schools)
         .where(eq(schools.name, payload.schoolName))
         .limit(1);
 
       schoolId = existingSchool[0]?.id;
+      schoolClaimStatus = existingSchool[0]?.claimStatus;
+      schoolInvitePolicy = existingSchool[0]?.teacherInvitePolicy;
       if (!schoolId) {
         const [createdSchool] = await tx
           .insert(schools)
@@ -119,15 +153,44 @@ export async function upsertOnboarding(principal: Principal, payload: Onboarding
           .returning({ id: schools.id });
         if (!createdSchool) throw new Error('Failed to create school');
         schoolId = createdSchool.id;
+        schoolClaimStatus = 'unclaimed';
+        schoolInvitePolicy = 'members';
       }
     }
+
+    const [existingMembership] = await tx
+      .select({ role: schoolMemberships.role, status: schoolMemberships.status })
+      .from(schoolMemberships)
+      .where(and(eq(schoolMemberships.userId, user.id), eq(schoolMemberships.schoolId, schoolId)))
+      .limit(1);
+
+    const hasFreshCodeAuthorization = Boolean(payload.schoolInviteCode);
+    if (schoolClaimStatus === 'claimed' && existingMembership?.status !== 'active') {
+      if (schoolInvitePolicy === 'admin_only') {
+        throw onboardingError('This school requires an administrator invitation.', 403);
+      }
+      if (!hasFreshCodeAuthorization) {
+        throw onboardingError('This school requires a valid invite code or invitation.', 403);
+      }
+    }
+    if (existingMembership?.status === 'inactive' && !hasFreshCodeAuthorization) {
+      throw onboardingError('Your school membership is inactive. Use a current invite code.', 403);
+    }
+
+    // A role submitted by a new browser is not an authorization grant. Admin
+    // membership is assigned only by the approved claim flow or an existing
+    // active administrator membership.
+    const persistedRole =
+      existingMembership?.status === 'active' && existingMembership.role === 'admin'
+        ? 'admin'
+        : 'teacher';
 
     await tx
       .insert(teacherProfiles)
       .values({
         userId: user.id,
         schoolId,
-        role: payload.role,
+        role: persistedRole,
         onboarded: true,
         phone: payload.phone,
         workEmail: payload.workEmail,
@@ -138,7 +201,7 @@ export async function upsertOnboarding(principal: Principal, payload: Onboarding
         target: teacherProfiles.userId,
         set: {
           schoolId,
-          role: payload.role,
+          role: persistedRole,
           onboarded: true,
           phone: payload.phone,
           workEmail: payload.workEmail,
@@ -146,6 +209,26 @@ export async function upsertOnboarding(principal: Principal, payload: Onboarding
           grades: payload.grades,
           updatedAt: new Date()
         }
+      });
+
+    await tx
+      .update(schoolMemberships)
+      .set({ status: 'inactive', updatedAt: new Date() })
+      .where(and(eq(schoolMemberships.userId, user.id), ne(schoolMemberships.schoolId, schoolId)));
+
+    await tx
+      .insert(schoolMemberships)
+      .values({
+        userId: user.id,
+        schoolId,
+        role: persistedRole,
+        status: 'active',
+        joinedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .onConflictDoUpdate({
+        target: [schoolMemberships.userId, schoolMemberships.schoolId],
+        set: { role: persistedRole, status: 'active', updatedAt: new Date() }
       });
 
     await tx

@@ -5,6 +5,26 @@ import type {
   AiJobEnqueueResponse,
   AiJobStatusResponse,
   AccountResetResponse,
+  AdminClaimRequestCreate,
+  AdminClaimRequestResponse,
+  AdminClaimReviewRequest,
+  AdminClaimReviewResponse,
+  AdminCourseDetailResponse,
+  AdminCourseListResponse,
+  AdminCalendarResponse,
+  AdminCurriculumResponse,
+  AdminInvitePolicyUpdateRequest,
+  AdminMembershipStatusUpdateRequest,
+  AdminMembershipStatusUpdateResponse,
+  AdminOverviewResponse,
+  AdminScheduleQuery,
+  AdminScheduleResponse,
+  AdminSchoolResponse,
+  AdminSchoolInvitationRevokeResponse,
+  AdminTeacherDetailResponse,
+  AdminTeacherInviteRequest,
+  AdminTeacherInviteResponse,
+  AdminTeacherListResponse,
   CalendarCommitRequest,
   CalendarCommitResponse,
   CalendarImportRequest,
@@ -71,7 +91,9 @@ import type {
   ScheduleImportRequest,
   SchoolCalendarResponse,
   SchoolJoinRequest,
+  SchoolInvitationAcceptResponse,
   SchoolOverviewResponse,
+  SchoolSearchResponse,
   SchoolYearUpsertRequest,
   SectionMeetingOverrideRequest,
   SectionPlanningContextResponse,
@@ -223,10 +245,113 @@ export function useApiClient() {
         request<SchoolCalendarResponse>('/v1/school-calendar', { method: 'GET' }, auth),
       getSchoolOverview: () =>
         request<SchoolOverviewResponse>('/v1/school', { method: 'GET' }, auth),
+      searchSchools: (query: string) =>
+        request<SchoolSearchResponse>(
+          `/v1/schools/search?${new URLSearchParams({ q: query }).toString()}`,
+          { method: 'GET' },
+          auth
+        ),
+      getAdminOverview: () => request<AdminOverviewResponse>('/v1/admin', { method: 'GET' }, auth),
+      getAdminTeachers: () =>
+        request<AdminTeacherListResponse>('/v1/admin/teachers', { method: 'GET' }, auth),
+      getAdminTeacher: (teacherId: string) =>
+        request<AdminTeacherDetailResponse>(
+          `/v1/admin/teachers/${teacherId}`,
+          { method: 'GET' },
+          auth
+        ),
+      getAdminSchedule: (query: AdminScheduleQuery = {}) => {
+        const params = new URLSearchParams();
+        if (query.day) params.set('day', query.day);
+        if (query.teacherId) params.set('teacherId', query.teacherId);
+        if (query.courseId) params.set('courseId', query.courseId);
+        if (query.startDate) params.set('startDate', query.startDate);
+        if (query.endDate) params.set('endDate', query.endDate);
+        const suffix = params.toString() ? `?${params.toString()}` : '';
+        return request<AdminScheduleResponse>(
+          `/v1/admin/schedule${suffix}`,
+          { method: 'GET' },
+          auth
+        );
+      },
+      getAdminCourses: () =>
+        request<AdminCourseListResponse>('/v1/admin/courses', { method: 'GET' }, auth),
+      getAdminCourse: (courseId: string) =>
+        request<AdminCourseDetailResponse>(
+          `/v1/admin/courses/${courseId}`,
+          { method: 'GET' },
+          auth
+        ),
+      getAdminCurriculum: () =>
+        request<AdminCurriculumResponse>('/v1/admin/curriculum', { method: 'GET' }, auth),
+      getAdminCalendar: () =>
+        request<AdminCalendarResponse>('/v1/admin/calendar', { method: 'GET' }, auth),
+      saveAdminCalendarOverride: (body: SectionMeetingOverrideRequest & { sectionId: string }) =>
+        request<AdminCalendarResponse>(
+          '/v1/admin/calendar/overrides',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      deleteAdminCalendarOverride: (overrideId: string) =>
+        request<AdminCalendarResponse>(
+          `/v1/admin/calendar/overrides/${overrideId}`,
+          { method: 'DELETE' },
+          auth
+        ),
+      getAdminSchool: () =>
+        request<AdminSchoolResponse>('/v1/admin/school', { method: 'GET' }, auth),
+      updateAdminInvitePolicy: (body: AdminInvitePolicyUpdateRequest) =>
+        request<AdminSchoolResponse>(
+          '/v1/admin/school/invite-policy',
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      rotateAdminInviteCode: () =>
+        request<AdminSchoolResponse>(
+          '/v1/admin/school/invite-code/rotate',
+          { method: 'POST', body: JSON.stringify({}) },
+          auth
+        ),
+      inviteAdminTeacher: (body: AdminTeacherInviteRequest) =>
+        request<AdminTeacherInviteResponse>(
+          '/v1/admin/members/invite',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      revokeAdminSchoolInvitation: (invitationId: string) =>
+        request<AdminSchoolInvitationRevokeResponse>(
+          `/v1/admin/school/invitations/${invitationId}`,
+          { method: 'DELETE' },
+          auth
+        ),
+      updateAdminMemberStatus: (userId: string, body: AdminMembershipStatusUpdateRequest) =>
+        request<AdminMembershipStatusUpdateResponse>(
+          `/v1/admin/members/${userId}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      requestAdminClaim: (body: AdminClaimRequestCreate) =>
+        request<AdminClaimRequestResponse>(
+          '/v1/admin/claims',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      reviewAdminClaim: (claimId: string, body: AdminClaimReviewRequest) =>
+        request<AdminClaimReviewResponse>(
+          `/v1/admin/claims/${claimId}/review`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
       joinSchool: (body: SchoolJoinRequest) =>
         request<SchoolOverviewResponse>(
           '/v1/school/join',
           { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      acceptSchoolInvitation: (invitationId: string) =>
+        request<SchoolInvitationAcceptResponse>(
+          `/v1/school-invitations/${invitationId}/accept`,
+          { method: 'POST', body: JSON.stringify({}) },
           auth
         ),
       getNotifications: () =>

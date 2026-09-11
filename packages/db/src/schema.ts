@@ -1,4 +1,4 @@
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
   date,
@@ -15,7 +15,28 @@ import {
   uuid
 } from 'drizzle-orm/pg-core';
 
-export const userRoleEnum = pgEnum('user_role', ['teacher', 'department_head', 'admin']);
+export const userRoleEnum = pgEnum('user_role', ['teacher', 'admin']);
+export const schoolMembershipRoleEnum = pgEnum('school_membership_role', ['teacher', 'admin']);
+export const schoolMembershipStatusEnum = pgEnum('school_membership_status', [
+  'active',
+  'inactive'
+]);
+export const schoolClaimStatusEnum = pgEnum('school_claim_status', ['unclaimed', 'claimed']);
+export const teacherInvitePolicyEnum = pgEnum('teacher_invite_policy', [
+  'admin_only',
+  'members',
+  'code'
+]);
+export const schoolClaimRequestStatusEnum = pgEnum('school_claim_request_status', [
+  'pending',
+  'approved',
+  'rejected'
+]);
+export const schoolInvitationStatusEnum = pgEnum('school_invitation_status', [
+  'pending',
+  'accepted',
+  'revoked'
+]);
 export const lessonStateStatusEnum = pgEnum('lesson_state_status', [
   'not_started',
   'in_progress',
@@ -76,6 +97,14 @@ export const schools = pgTable('schools', {
   state: text('state'),
   timezone: text('timezone'),
   inviteCode: text('invite_code').notNull().unique(),
+  claimStatus: schoolClaimStatusEnum('claim_status').notNull().default('unclaimed'),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+  claimedByUserId: uuid('claimed_by_user_id').references(() => users.id, {
+    onDelete: 'set null'
+  }),
+  teacherInvitePolicy: teacherInvitePolicyEnum('teacher_invite_policy')
+    .notNull()
+    .default('members'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
@@ -101,6 +130,87 @@ export const teacherProfiles = pgTable(
   (table) => [
     primaryKey({ columns: [table.userId] }),
     index('idx_teacher_profiles_school').on(table.schoolId)
+  ]
+);
+
+// This is the forward-compatible school-scoped membership model. The legacy
+// teacher profile remains the source of teaching details while permissions
+// read this table so one user can hold different roles in different schools.
+export const schoolMemberships = pgTable(
+  'school_memberships',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    schoolId: uuid('school_id')
+      .notNull()
+      .references(() => schools.id, { onDelete: 'cascade' }),
+    role: schoolMembershipRoleEnum('role').notNull().default('teacher'),
+    status: schoolMembershipStatusEnum('status').notNull().default('active'),
+    joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.schoolId] }),
+    index('idx_school_memberships_school_status').on(table.schoolId, table.status),
+    index('idx_school_memberships_user_status').on(table.userId, table.status)
+  ]
+);
+
+export const schoolClaimRequests = pgTable(
+  'school_claim_requests',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    schoolId: uuid('school_id')
+      .notNull()
+      .references(() => schools.id, { onDelete: 'cascade' }),
+    requesterUserId: uuid('requester_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: schoolClaimRequestStatusEnum('status').notNull().default('pending'),
+    schoolEmail: text('school_email').notNull(),
+    position: text('position').notNull(),
+    verificationNotes: text('verification_notes'),
+    reviewNotes: text('review_notes'),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    reviewedByUserId: uuid('reviewed_by_user_id').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index('idx_school_claim_requests_school_status').on(table.schoolId, table.status),
+    index('idx_school_claim_requests_requester_status').on(table.requesterUserId, table.status)
+  ]
+);
+
+export const schoolInvitations = pgTable(
+  'school_invitations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    schoolId: uuid('school_id')
+      .notNull()
+      .references(() => schools.id, { onDelete: 'cascade' }),
+    inviteeUserId: uuid('invitee_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    invitedByUserId: uuid('invited_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: schoolInvitationStatusEnum('status').notNull().default('pending'),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now() + interval '14 days'`),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index('idx_school_invitations_invitee_status').on(table.inviteeUserId, table.status),
+    index('idx_school_invitations_school_status').on(table.schoolId, table.status)
   ]
 );
 

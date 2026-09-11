@@ -24,14 +24,21 @@ const ConfigSchema = z.object({
   ),
   REQUEST_ID_HEADER: z.string().default('x-request-id'),
   ENABLE_API_DOCS: z.coerce.boolean().default(false),
+  // Local-only auth shortcuts are opt-in. Test mode enables them for the
+  // database-backed integration and auth unit suites.
+  DEV_AUTH_ENABLED: booleanFromEnv.default(false),
   CLERK_SECRET_KEY: optionalStringFromEnv,
   CLERK_JWT_KEY: optionalStringFromEnv,
   CLERK_AUTHORIZED_PARTIES: z.string().default('http://localhost:5173'),
+  ADMIN_CLAIM_REVIEW_TOKEN: optionalStringFromEnv,
+  ADMIN_CLAIM_REVIEWER_EMAILS: z.string().default(''),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: optionalStringFromEnv,
   OPENAI_API_KEY: optionalStringFromEnv,
   OPENAI_MODEL_PARSE_SCHEDULE: z.string().default('gpt-5.6-sol'),
-  OPENAI_REASONING_EFFORT_PARSE_SCHEDULE: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('xhigh'),
+  OPENAI_REASONING_EFFORT_PARSE_SCHEDULE: z
+    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+    .default('xhigh'),
   OPENAI_MODEL_GENERATE_SEGMENTS: z.string().default('gpt-4o'),
   OPENAI_MODEL_CONTINUITY: z.string().default('gpt-4o'),
   RUN_EMBEDDED_AI_WORKER: booleanFromEnv.default(false),
@@ -47,5 +54,9 @@ const ConfigSchema = z.object({
 export type AppConfig = z.infer<typeof ConfigSchema>;
 
 export function loadConfig(): AppConfig {
-  return ConfigSchema.parse(process.env);
+  const config = ConfigSchema.parse(process.env);
+  if (config.NODE_ENV === 'production' && config.DEV_AUTH_ENABLED) {
+    throw new Error('DEV_AUTH_ENABLED cannot be enabled in production.');
+  }
+  return config;
 }

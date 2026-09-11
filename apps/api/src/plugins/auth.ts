@@ -48,10 +48,11 @@ export const authPlugin = fp(async (app) => {
 
   app.addHook('onRequest', async (request, reply) => {
     const path = request.url.split('?')[0] ?? '/';
+    const devAuthEnabled = app.config.NODE_ENV === 'test' || app.config.DEV_AUTH_ENABLED;
     if (
       path.startsWith('/health') ||
       path.startsWith('/docs') ||
-      (app.config.NODE_ENV !== 'production' && path.startsWith('/v1/test-auth')) ||
+      (devAuthEnabled && path.startsWith('/v1/test-auth')) ||
       (request.method === 'GET' &&
         /^\/v1\/public\/(?:lessons|curriculum)\/[0-9a-f-]{36}$/i.test(path))
     )
@@ -63,7 +64,7 @@ export const authPlugin = fp(async (app) => {
 
     if (!authHeader) {
       if (
-        app.config.NODE_ENV !== 'production' &&
+        devAuthEnabled &&
         typeof devUser === 'string' &&
         devUser.length > 0
       ) {
@@ -84,7 +85,7 @@ export const authPlugin = fp(async (app) => {
       return;
     }
 
-    if (app.config.NODE_ENV !== 'production' && token === pilotToken) {
+    if (devAuthEnabled && token === pilotToken) {
       request.principal = {
         clerkUserId: 'pilot-teacher-demo',
         email: 'teacher.test@example.com'
@@ -92,7 +93,7 @@ export const authPlugin = fp(async (app) => {
       return;
     }
 
-    if (token.startsWith('test_')) {
+    if (devAuthEnabled && token.startsWith('test_')) {
       const [account] = await db
         .select({ username: testAccounts.username, email: testAccounts.email })
         .from(testAccounts)

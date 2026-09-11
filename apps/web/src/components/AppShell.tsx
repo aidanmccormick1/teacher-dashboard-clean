@@ -77,6 +77,7 @@ export function AppShell() {
   const location = useLocation();
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [profileDisplayName, setProfileDisplayName] = useState(readProfileDisplayName);
+  const [profileRole, setProfileRole] = useState<'teacher' | 'admin' | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
@@ -104,6 +105,7 @@ export function AppShell() {
       .getProfile()
       .then((profile) => {
         setProfileDisplayName(readProfileDisplayName() ?? profile.user.fullName);
+        setProfileRole(profile.profile?.role ?? null);
       })
       .catch(() => undefined);
   }, [api]);
@@ -492,6 +494,15 @@ export function AppShell() {
             ))}
           </nav>
           <nav className="sidebar-secondary" aria-label="Secondary navigation">
+            {profileRole === 'admin' ? (
+              <NavLink
+                to="/admin"
+                className="sidebar-secondary-link admin-workspace-link"
+                onClick={closeMobileNavigation}
+              >
+                <span className="sidebar-nav-label">Admin workspace</span>
+              </NavLink>
+            ) : null}
             <div className="sidebar-import">
               <button
                 className="sidebar-secondary-action secondary"

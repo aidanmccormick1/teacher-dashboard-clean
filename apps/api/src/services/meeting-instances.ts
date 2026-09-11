@@ -12,6 +12,7 @@ import {
   schoolYears,
   sectionMeetingOverrides,
   sectionMeetings,
+  schoolMemberships,
   sections
 } from '@teacheros/db';
 
@@ -77,10 +78,21 @@ export async function buildMeetingInstances(
         eq(courseCollaborators.status, 'accepted')
       )
     )
+    .innerJoin(
+      schoolMemberships,
+      and(
+        eq(schoolMemberships.userId, userId),
+        eq(schoolMemberships.schoolId, schoolId),
+        eq(schoolMemberships.schoolId, courses.schoolId),
+        eq(schoolMemberships.status, 'active')
+      )
+    )
     .leftJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
     .where(
       and(
         eq(sections.teacherId, userId),
+        eq(courses.schoolId, schoolId),
+        isNull(courses.archivedAt),
         isNull(courseCollaborators.archivedAt),
         ...(options.sectionId ? [eq(sections.id, options.sectionId)] : [])
       )
@@ -160,11 +172,9 @@ export async function buildMeetingInstances(
         // Backward-compatible date-only overrides continue to affect every
         // pre-existing regular block for that section/date.
         overrideByKey.get(`${row.sectionId}:${date}:legacy`);
-      // A special/minimum/testing day does not inherit the ordinary bell
-      // schedule. We only create a real meeting when the calendar import (or
-      // teacher) supplied a date-specific group override. This keeps the next
-      // class calculation honest while still surfacing the calendar event.
-      if (calendarEvents.length > 0 && !override) continue;
+      // Only closures suppress the ordinary meeting. Other abnormal calendar
+      // labels remain attached to the meeting until a date-specific override
+      // supplies a replacement time or cancellation.
       if (override?.cancelled) continue;
       output.push({
         sectionId: row.sectionId,

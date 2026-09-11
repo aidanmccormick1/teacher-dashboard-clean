@@ -78,10 +78,11 @@ export const OnboardingRequestSchema = z.object({
   phone: z.string().nullable(),
   workEmail: z.string().trim().email(),
   schoolName: z.string().trim().default(''),
+  schoolId: UuidSchema.nullable().optional(),
   schoolInviteCode: z.string().trim().min(4).max(32).nullable().optional(),
   district: z.string().nullable(),
   state: z.string().nullable(),
-  role: z.enum(['teacher', 'department_head', 'admin']).default('teacher'),
+  role: z.enum(['teacher', 'admin']).default('teacher'),
   subjects: z.array(z.string()).default([]),
   grades: z.array(z.string()).default([])
 });
@@ -92,6 +93,19 @@ export const OnboardingResponseSchema = z.object({
   onboarded: z.literal(true)
 });
 
+export const SchoolSearchResponseSchema = z.object({
+  schools: z.array(
+    z.object({
+      id: UuidSchema,
+      name: z.string(),
+      district: z.string().nullable(),
+      state: z.string().nullable(),
+      memberCount: z.number().int().nonnegative(),
+      claimStatus: z.enum(['unclaimed', 'claimed'])
+    })
+  )
+});
+
 export const ProfileResponseSchema = z.object({
   user: z.object({
     id: UuidSchema,
@@ -100,7 +114,7 @@ export const ProfileResponseSchema = z.object({
   }),
   profile: z
     .object({
-      role: z.enum(['teacher', 'department_head', 'admin']),
+      role: z.enum(['teacher', 'admin']),
       phone: z.string().nullable(),
       workEmail: z.string().nullable(),
       subjects: z.array(z.string()),
@@ -248,7 +262,10 @@ const CalendarEventSchema = z.object({
   type: CalendarEventTypeSchema,
   label: z.string().min(1),
   confidence: z.number().int().min(0).max(100).nullable().optional(),
-  sourceText: z.string().nullable().optional()
+  sourceText: z.string().nullable().optional(),
+  // Legacy teacher-calendar holidays remain visible to administrators but
+  // are not rewritten as new shared calendar events.
+  legacy: z.boolean().optional()
 });
 
 export const InstructionalExceptionSchema = z.object({
@@ -284,6 +301,33 @@ export const SchoolCalendarResponseSchema = z.object({
   timezone: z.string()
 });
 
+export const AdminCalendarOverrideSchema = z.object({
+  id: UuidSchema,
+  sectionId: UuidSchema,
+  courseId: UuidSchema,
+  courseName: z.string(),
+  sectionName: z.string(),
+  date: IsoDateSchema,
+  occurrenceKey: z.string(),
+  startTime: IsoTimeSchema.nullable(),
+  endTime: IsoTimeSchema.nullable(),
+  room: z.string().nullable(),
+  cancelled: z.boolean()
+});
+
+export const AdminCalendarSectionSchema = z.object({
+  id: UuidSchema,
+  courseId: UuidSchema,
+  courseName: z.string(),
+  name: z.string(),
+  meetings: z.array(SectionMeetingSchema)
+});
+
+export const AdminCalendarResponseSchema = SchoolCalendarResponseSchema.extend({
+  sections: z.array(AdminCalendarSectionSchema),
+  overrides: z.array(AdminCalendarOverrideSchema)
+});
+
 export const SchoolTimezoneUpdateRequestSchema = z.object({
   timezone: z.string().min(1).max(100)
 });
@@ -301,6 +345,7 @@ export const CalendarImportRequestSchema = ScheduleImportRequestSchema;
 const CalendarOverridePreviewSchema = z.object({
   date: IsoDateSchema,
   classGroup: z.string().min(1),
+  occurrenceKey: z.string().trim().min(1).max(100).default('legacy'),
   startTime: IsoTimeSchema.nullable(),
   endTime: IsoTimeSchema.nullable(),
   room: z.string().nullable(),
@@ -364,6 +409,7 @@ export const CalendarImportExtractionSchema = z.object({
       z.object({
         date: z.string(),
         classGroup: z.string(),
+        occurrenceKey: z.string().trim().min(1).max(100).default('legacy'),
         startTime: z.string().nullable(),
         endTime: z.string().nullable(),
         room: z.string().nullable(),
@@ -829,7 +875,7 @@ export const SchoolOverviewResponseSchema = z.object({
       userId: UuidSchema,
       email: z.string().email(),
       fullName: z.string().nullable(),
-      role: z.enum(['teacher', 'department_head', 'admin']),
+      role: z.enum(['teacher', 'admin']),
       subjects: z.array(z.string()),
       grades: z.array(z.string()),
       joinedAt: z.string(),
@@ -853,6 +899,277 @@ export const SchoolOverviewResponseSchema = z.object({
       })
     })
   )
+});
+
+const AdminMembershipRoleSchema = z.enum(['teacher', 'admin']);
+const AdminInvitePolicySchema = z.enum(['admin_only', 'members', 'code']);
+const AdminClaimStatusSchema = z.enum(['unclaimed', 'claimed']);
+
+const AdminTeacherSummarySchema = z.object({
+  userId: UuidSchema,
+  fullName: z.string().nullable(),
+  email: z.string().email(),
+  role: AdminMembershipRoleSchema,
+  membershipStatus: z.enum(['active', 'inactive']),
+  courseCount: z.number().int().nonnegative(),
+  sectionCount: z.number().int().nonnegative(),
+  scheduledSectionCount: z.number().int().nonnegative(),
+  curriculumCount: z.number().int().nonnegative()
+});
+
+export const AdminOverviewResponseSchema = z.object({
+  school: z.object({
+    id: UuidSchema,
+    name: z.string(),
+    district: z.string().nullable(),
+    state: z.string().nullable(),
+    timezone: z.string(),
+    claimStatus: AdminClaimStatusSchema,
+    invitePolicy: AdminInvitePolicySchema
+  }),
+  counts: z.object({
+    teachers: z.number().int().nonnegative(),
+    courses: z.number().int().nonnegative(),
+    sections: z.number().int().nonnegative(),
+    coursesWithCurriculum: z.number().int().nonnegative(),
+    teachersWithSchedule: z.number().int().nonnegative(),
+    schoolSharedCurricula: z.number().int().nonnegative()
+  }),
+  calendar: z.object({
+    configured: z.boolean(),
+    schoolYear: SchoolYearSchema.nullable()
+  })
+});
+
+export const AdminTeacherListResponseSchema = z.object({
+  teachers: z.array(AdminTeacherSummarySchema)
+});
+
+export const AdminTeacherDetailResponseSchema = z.object({
+  teacher: AdminTeacherSummarySchema.extend({
+    subjects: z.array(z.string()),
+    grades: z.array(z.string()),
+    joinedAt: z.string(),
+    courses: z.array(
+      z.object({
+        id: UuidSchema,
+        name: z.string(),
+        subject: z.string().nullable(),
+        gradeLevel: z.string().nullable(),
+        archivedAt: z.string().nullable()
+      })
+    ),
+    sections: z.array(
+      z.object({
+        id: UuidSchema,
+        courseId: UuidSchema,
+        courseName: z.string(),
+        name: z.string(),
+        meetings: z.array(SectionMeetingSchema)
+      })
+    )
+  })
+});
+
+export const AdminScheduleQuerySchema = z.object({
+  day: MeetingDaySchema.optional(),
+  teacherId: UuidSchema.optional(),
+  courseId: UuidSchema.optional(),
+  startDate: IsoDateSchema.optional(),
+  endDate: IsoDateSchema.optional()
+});
+
+export const AdminScheduleResponseSchema = z.object({
+  entries: z.array(
+    z.object({
+      sectionId: UuidSchema,
+      courseId: UuidSchema,
+      teacherId: UuidSchema,
+      date: IsoDateSchema.nullable(),
+      effective: z.boolean(),
+      teacherName: z.string().nullable(),
+      teacherEmail: z.string().email(),
+      courseName: z.string(),
+      sectionName: z.string(),
+      day: MeetingDaySchema,
+      startTime: IsoTimeSchema.nullable(),
+      endTime: IsoTimeSchema.nullable(),
+      room: z.string().nullable()
+    })
+  )
+});
+
+const AdminCourseSummarySchema = z.object({
+  id: UuidSchema,
+  name: z.string(),
+  subject: z.string().nullable(),
+  gradeLevel: z.string().nullable(),
+  archivedAt: z.string().nullable(),
+  teacherCount: z.number().int().nonnegative(),
+  sectionCount: z.number().int().nonnegative(),
+  unitCount: z.number().int().nonnegative(),
+  lessonCount: z.number().int().nonnegative(),
+  shared: z.boolean(),
+  teachers: z.array(
+    z.object({
+      userId: UuidSchema,
+      fullName: z.string().nullable(),
+      email: z.string().email()
+    })
+  )
+});
+
+export const AdminCourseListResponseSchema = z.object({
+  courses: z.array(AdminCourseSummarySchema)
+});
+
+export const AdminCourseDetailResponseSchema = z.object({
+  course: AdminCourseSummarySchema.extend({
+    units: z.array(
+      z.object({
+        id: UuidSchema,
+        title: z.string(),
+        orderIndex: z.number().int(),
+        plannedStartMeeting: z.number().int().nullable(),
+        plannedMeetingCount: z.number().int().nullable(),
+        projectedStartDate: IsoDateSchema.nullable(),
+        projectedEndDate: IsoDateSchema.nullable(),
+        lessonCount: z.number().int().nonnegative()
+      })
+    ),
+    sections: z.array(
+      z.object({
+        id: UuidSchema,
+        teacherId: UuidSchema,
+        teacherName: z.string().nullable(),
+        name: z.string(),
+        meetings: z.array(SectionMeetingSchema)
+      })
+    )
+  })
+});
+
+export const AdminCurriculumResponseSchema = z.object({
+  curricula: z.array(
+    z.object({
+      courseId: UuidSchema,
+      name: z.string(),
+      subject: z.string().nullable(),
+      gradeLevel: z.string().nullable(),
+      owner: z.object({
+        userId: UuidSchema,
+        fullName: z.string().nullable(),
+        email: z.string().email()
+      }),
+      unitCount: z.number().int().nonnegative(),
+      lessonCount: z.number().int().nonnegative(),
+      adoptedByCount: z.number().int().nonnegative(),
+      source: z.enum(['teacher-shared', 'school-owned'])
+    })
+  )
+});
+
+export const AdminSchoolInvitationSchema = z.object({
+  id: UuidSchema,
+  inviteeEmail: z.string().email(),
+  status: z.enum(['pending', 'accepted', 'revoked']),
+  createdAt: z.string(),
+  expiresAt: z.string()
+});
+
+export const AdminSchoolInvitationRevokeResponseSchema = z.object({
+  revoked: z.literal(true)
+});
+
+export const AdminSchoolResponseSchema = z.object({
+  school: z.object({
+    id: UuidSchema,
+    name: z.string(),
+    inviteCode: z.string(),
+    district: z.string().nullable(),
+    state: z.string().nullable(),
+    timezone: z.string(),
+    claimStatus: AdminClaimStatusSchema,
+    invitePolicy: AdminInvitePolicySchema,
+    claimedAt: z.string().nullable(),
+    claimedByUserId: UuidSchema.nullable()
+  }),
+  administrators: z.array(
+    z.object({
+      userId: UuidSchema,
+      fullName: z.string().nullable(),
+      email: z.string().email(),
+      status: z.enum(['active', 'inactive'])
+    })
+  ),
+  invitations: z.array(AdminSchoolInvitationSchema),
+  pendingClaims: z.array(
+    z.object({
+      id: UuidSchema,
+      requesterUserId: UuidSchema,
+      requesterName: z.string().nullable(),
+      schoolEmail: z.string().email(),
+      position: z.string(),
+      verificationNotes: z.string().nullable(),
+      status: z.enum(['pending', 'approved', 'rejected']),
+      createdAt: z.string(),
+      reviewedAt: z.string().nullable()
+    })
+  )
+});
+
+export const AdminInvitePolicyUpdateRequestSchema = z.object({
+  policy: AdminInvitePolicySchema
+});
+
+export const AdminTeacherInviteRequestSchema = z.object({
+  email: z.string().trim().email()
+});
+
+export const AdminTeacherInviteResponseSchema = z.object({
+  invitationId: UuidSchema,
+  schoolId: UuidSchema,
+  inviteeEmail: z.string().email(),
+  status: z.enum(['pending', 'accepted', 'revoked'])
+});
+
+export const AdminMembershipStatusUpdateRequestSchema = z.object({
+  status: z.enum(['active', 'inactive'])
+});
+
+export const AdminMembershipStatusUpdateResponseSchema = z.object({
+  userId: UuidSchema,
+  schoolId: UuidSchema,
+  status: z.enum(['active', 'inactive'])
+});
+
+export const AdminClaimRequestCreateSchema = z.object({
+  schoolId: UuidSchema,
+  schoolEmail: z.string().trim().email(),
+  position: z.string().trim().min(2).max(120),
+  verificationNotes: z.string().trim().max(2_000).nullable().optional()
+});
+
+export const AdminClaimRequestResponseSchema = z.object({
+  id: UuidSchema,
+  schoolId: UuidSchema,
+  status: z.enum(['pending', 'approved', 'rejected']),
+  createdAt: z.string()
+});
+
+export const AdminClaimReviewRequestSchema = z.object({
+  status: z.enum(['approved', 'rejected']),
+  reviewNotes: z.string().trim().max(2_000).nullable().optional()
+});
+
+export const AdminClaimReviewResponseSchema = AdminClaimRequestResponseSchema.extend({
+  reviewedAt: z.string().nullable()
+});
+
+export const SchoolInvitationAcceptResponseSchema = z.object({
+  accepted: z.literal(true),
+  schoolId: UuidSchema,
+  schoolName: z.string()
 });
 
 export const SchoolJoinRequestSchema = z.object({
@@ -1274,6 +1591,7 @@ export type ScheduleImportApplyRequest = z.infer<typeof ScheduleImportApplyReque
 export type HolidaysUpsertRequest = z.infer<typeof HolidaysUpsertRequestSchema>;
 export type HolidaysUpsertResponse = z.infer<typeof HolidaysUpsertResponseSchema>;
 export type SchoolCalendarResponse = z.infer<typeof SchoolCalendarResponseSchema>;
+export type AdminCalendarResponse = z.infer<typeof AdminCalendarResponseSchema>;
 export type SchoolYearUpsertRequest = z.infer<typeof SchoolYearUpsertRequestSchema>;
 export type CalendarImportRequest = z.infer<typeof CalendarImportRequestSchema>;
 export type CalendarImportResponse = z.infer<typeof CalendarImportResponseSchema>;
@@ -1320,6 +1638,34 @@ export type CourseActivityResponse = z.infer<typeof CourseActivityResponseSchema
 export type NotificationListResponse = z.infer<typeof NotificationListResponseSchema>;
 export type SchoolOverviewResponse = z.infer<typeof SchoolOverviewResponseSchema>;
 export type SchoolJoinRequest = z.infer<typeof SchoolJoinRequestSchema>;
+export type AdminOverviewResponse = z.infer<typeof AdminOverviewResponseSchema>;
+export type AdminTeacherListResponse = z.infer<typeof AdminTeacherListResponseSchema>;
+export type AdminTeacherDetailResponse = z.infer<typeof AdminTeacherDetailResponseSchema>;
+export type AdminScheduleQuery = z.infer<typeof AdminScheduleQuerySchema>;
+export type AdminScheduleResponse = z.infer<typeof AdminScheduleResponseSchema>;
+export type AdminCourseListResponse = z.infer<typeof AdminCourseListResponseSchema>;
+export type AdminCourseDetailResponse = z.infer<typeof AdminCourseDetailResponseSchema>;
+export type AdminCurriculumResponse = z.infer<typeof AdminCurriculumResponseSchema>;
+export type AdminSchoolResponse = z.infer<typeof AdminSchoolResponseSchema>;
+export type AdminInvitePolicyUpdateRequest = z.infer<typeof AdminInvitePolicyUpdateRequestSchema>;
+export type AdminTeacherInviteRequest = z.infer<typeof AdminTeacherInviteRequestSchema>;
+export type AdminTeacherInviteResponse = z.infer<typeof AdminTeacherInviteResponseSchema>;
+export type AdminSchoolInvitation = z.infer<typeof AdminSchoolInvitationSchema>;
+export type AdminSchoolInvitationRevokeResponse = z.infer<
+  typeof AdminSchoolInvitationRevokeResponseSchema
+>;
+export type AdminMembershipStatusUpdateRequest = z.infer<
+  typeof AdminMembershipStatusUpdateRequestSchema
+>;
+export type AdminMembershipStatusUpdateResponse = z.infer<
+  typeof AdminMembershipStatusUpdateResponseSchema
+>;
+export type AdminClaimRequestCreate = z.infer<typeof AdminClaimRequestCreateSchema>;
+export type AdminClaimRequestResponse = z.infer<typeof AdminClaimRequestResponseSchema>;
+export type AdminClaimReviewRequest = z.infer<typeof AdminClaimReviewRequestSchema>;
+export type AdminClaimReviewResponse = z.infer<typeof AdminClaimReviewResponseSchema>;
+export type SchoolInvitationAcceptResponse = z.infer<typeof SchoolInvitationAcceptResponseSchema>;
+export type SchoolSearchResponse = z.infer<typeof SchoolSearchResponseSchema>;
 export type LessonCommentsResponse = z.infer<typeof LessonCommentsResponseSchema>;
 export type LessonCommentCreateRequest = z.infer<typeof LessonCommentCreateRequestSchema>;
 export type CoursePacingResponse = z.infer<typeof CoursePacingResponseSchema>;

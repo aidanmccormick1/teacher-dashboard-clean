@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import type { SchoolSearchResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
@@ -9,8 +10,9 @@ type OnboardingForm = {
   fullName: string;
   workEmail: string;
   phone: string;
-  role: 'teacher' | 'department_head' | 'admin';
+  role: 'teacher' | 'admin';
   schoolName: string;
+  schoolId: string | null;
   schoolInviteCode: string;
   schoolJoinMethod: 'invite' | 'name' | null;
   district: string;
@@ -30,6 +32,7 @@ const defaultForm: OnboardingForm = {
   phone: '',
   role: 'teacher',
   schoolName: '',
+  schoolId: null,
   schoolInviteCode: '',
   schoolJoinMethod: null,
   district: '',
@@ -87,6 +90,13 @@ export function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<OnboardingForm>(() => loadOnboardingDraft());
   const [workEmailAcknowledged, setWorkEmailAcknowledged] = useState(false);
+  const [schoolSearch, setSchoolSearch] = useState<SchoolSearchResponse['schools']>([]);
+  const [schoolSearchLoading, setSchoolSearchLoading] = useState(false);
+  const [schoolSearchError, setSchoolSearchError] = useState<string | null>(null);
+  const [selectedSchool, setSelectedSchool] = useState<
+    SchoolSearchResponse['schools'][number] | null
+  >(null);
+  const [adminCreateNewSchool, setAdminCreateNewSchool] = useState(false);
 
   useEffect(() => {
     window.localStorage.setItem(ONBOARDING_DRAFT_KEY, JSON.stringify(form));
@@ -104,6 +114,40 @@ export function OnboardingPage() {
     );
   }, [auth.email]);
 
+  useEffect(() => {
+    if (step !== 2 || form.role !== 'admin' || form.schoolName.trim().length < 2) {
+      setSchoolSearch([]);
+      setSchoolSearchLoading(false);
+      setSchoolSearchError(null);
+      return;
+    }
+
+    const query = form.schoolName.trim();
+    const timer = window.setTimeout(() => {
+      setSchoolSearchLoading(true);
+      setSchoolSearchError(null);
+      void api
+        .searchSchools(query)
+        .then((result) => {
+          setSchoolSearch(result.schools);
+          const exact = result.schools.find(
+            (school) => school.name.trim().toLowerCase() === query.toLowerCase()
+          );
+          setSelectedSchool((current) =>
+            current?.name === exact?.name ? current : (exact ?? null)
+          );
+          if (exact) setAdminCreateNewSchool(false);
+        })
+        .catch((err) => {
+          setSchoolSearchError(
+            err instanceof ApiError ? err.message : 'Could not search existing schools.'
+          );
+        })
+        .finally(() => setSchoolSearchLoading(false));
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [api, form.role, form.schoolName, step]);
+
   const update = <TKey extends keyof OnboardingForm>(key: TKey, value: OnboardingForm[TKey]) => {
     setForm((previous) => ({ ...previous, [key]: value }));
     setError(null);
@@ -115,6 +159,8 @@ export function OnboardingPage() {
   const showRoleDetails = hasName && hasValidEmail && workEmailAcknowledged;
   const schoolUsesInvite = form.schoolJoinMethod === 'invite';
   const schoolUsesName = form.schoolJoinMethod === 'name';
+  const isAdminOnboarding = form.role === 'admin';
+  const selectedClaimedSchool = selectedSchool?.claimStatus === 'claimed';
 
   const stepIsReady =
     step === 1
@@ -122,7 +168,13 @@ export function OnboardingPage() {
       : step === 2
         ? Boolean(
             form.schoolJoinMethod &&
-            (schoolUsesInvite ? form.schoolInviteCode.trim().length >= 4 : form.schoolName.trim())
+            (schoolUsesInvite
+              ? form.schoolInviteCode.trim().length >= 4
+              : Boolean(
+                  form.schoolName.trim() &&
+                  (!isAdminOnboarding || Boolean(selectedSchool) || adminCreateNewSchool) &&
+                  !selectedClaimedSchool
+                ))
           )
         : true;
 
@@ -152,6 +204,7 @@ export function OnboardingPage() {
         workEmail: form.workEmail.trim(),
         role: form.role,
         schoolName: schoolUsesName ? form.schoolName.trim() : '',
+        schoolId: schoolUsesName ? form.schoolId : null,
         schoolInviteCode: schoolUsesInvite ? form.schoolInviteCode.trim() || null : null,
         district: form.district.trim() || null,
         state: form.state.trim() || null,
@@ -167,7 +220,7 @@ export function OnboardingPage() {
         .catch(() => undefined);
       window.localStorage.removeItem(ONBOARDING_DRAFT_KEY);
       window.localStorage.removeItem(ONBOARDING_STEP_KEY);
-      navigate('/guide', { replace: true });
+      navigate(form.role === 'admin' ? '/admin/request-access' : '/guide', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not save your profile. Try again.');
     } finally {
@@ -264,7 +317,6 @@ export function OnboardingPage() {
                       }
                     >
                       <option value="teacher">Teacher</option>
-                      <option value="department_head">Department head</option>
                       <option value="admin">Administrator</option>
                     </select>
                   </label>
@@ -347,7 +399,12 @@ export function OnboardingPage() {
                       autoFocus={!form.schoolName.trim()}
                       list="teacherdesk-school-directory"
                       value={form.schoolName}
-                      onChange={(event) => update('schoolName', event.target.value)}
+                      onChange={(event) => {
+                        update('schoolName', event.target.value);
+                        update('schoolId', null);
+                        setSelectedSchool(null);
+                        setAdminCreateNewSchool(false);
+                      }}
                       placeholder="Start typing your school"
                       required
                     />
@@ -360,6 +417,99 @@ export function OnboardingPage() {
                       Choose from your school directory or enter a new school name.
                     </span>
                   </label>
+                  {isAdminOnboarding ? (
+                    <div className="admin-school-search" aria-live="polite">
+                      <div>
+                        <strong>Find the existing school first</strong>
+                        <p className="field-help">
+                          Administrator access is requested after you join the school. This keeps
+                          teachers, courses, and schedules together.
+                        </p>
+                      </div>
+                      {schoolSearchLoading ? (
+                        <p className="muted">Searching existing schools...</p>
+                      ) : null}
+                      {schoolSearchError ? (
+                        <p className="notice warning">{schoolSearchError}</p>
+                      ) : null}
+                      {schoolSearch.length ? (
+                        <div
+                          className="admin-school-search-results"
+                          role="list"
+                          aria-label="Existing school matches"
+                        >
+                          {schoolSearch.map((school) => {
+                            const isSelected = selectedSchool?.id === school.id;
+                            const isClaimed = school.claimStatus === 'claimed';
+                            return (
+                              <button
+                                key={school.id}
+                                className={`admin-school-search-result${isSelected ? ' selected' : ''}`}
+                                type="button"
+                                role="listitem"
+                                disabled={isClaimed}
+                                aria-pressed={isSelected}
+                                onClick={() => {
+                                  setSelectedSchool(school);
+                                  setAdminCreateNewSchool(false);
+                                  update('schoolName', school.name);
+                                  update('schoolId', school.id);
+                                }}
+                              >
+                                <span>
+                                  <strong>{school.name}</strong>
+                                  <small>
+                                    {[school.district, school.state].filter(Boolean).join(' · ') ||
+                                      'School location not listed'}
+                                  </small>
+                                </span>
+                                <span>
+                                  {school.memberCount}{' '}
+                                  {school.memberCount === 1 ? 'member' : 'members'}
+                                  <small>
+                                    {isClaimed
+                                      ? 'Already claimed'
+                                      : isSelected
+                                        ? 'Selected'
+                                        : 'Unclaimed'}
+                                  </small>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                      {selectedSchool ? (
+                        <p className={selectedClaimedSchool ? 'notice warning' : 'notice success'}>
+                          {selectedClaimedSchool
+                            ? 'This school already has administrator access. Choose another school or join it as a teacher.'
+                            : 'Existing school selected. After setup, submit the administrator access request for this school.'}
+                        </p>
+                      ) : schoolSearch.length ? (
+                        <button
+                          className="secondary admin-create-school-action"
+                          type="button"
+                          onClick={() => setAdminCreateNewSchool(true)}
+                        >
+                          None of these schools, create a new one
+                        </button>
+                      ) : form.schoolName.trim().length >= 2 && !schoolSearchLoading ? (
+                        <button
+                          className="secondary admin-create-school-action"
+                          type="button"
+                          onClick={() => setAdminCreateNewSchool(true)}
+                        >
+                          No match, continue with a new school
+                        </button>
+                      ) : null}
+                      {adminCreateNewSchool && !selectedSchool ? (
+                        <p className="notice">
+                          New school selected. You will still need to request administrator access
+                          after setup.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {form.schoolName.trim() ? (
                     <div className="onboarding-two-col onboarding-reveal">
                       <label>

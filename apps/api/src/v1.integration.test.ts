@@ -61,7 +61,13 @@ async function runMigrations() {
     '0016_section_original_schedule_label.sql',
     '0017_unit_google_slides.sql',
     '0018_lesson_google_slides.sql',
-    '0019_school_sharing_notifications.sql'
+    '0019_school_sharing_notifications.sql',
+    '0020_role_cleanup.sql',
+    '0021_admin_foundation.sql',
+    '0022_admin_claim_safety.sql',
+    '0023_school_invitations.sql',
+    '0024_one_course_owner.sql',
+    '0025_school_invitation_expiry.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -92,6 +98,9 @@ async function resetDatabase() {
       sections,
       course_activity,
       teacher_courses,
+      school_claim_requests,
+      school_invitations,
+      school_memberships,
       course_collaborators,
       courses,
       teacher_profiles,
@@ -111,6 +120,7 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       API_PORT: 3001,
       REQUEST_ID_HEADER: 'x-request-id',
       ENABLE_API_DOCS: false,
+      DEV_AUTH_ENABLED: false,
       CLERK_AUTHORIZED_PARTIES: 'http://localhost:5173',
       DATABASE_URL:
         process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/teacheros_test',
@@ -122,6 +132,8 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       REDIS_URL: undefined,
       OPENAI_API_KEY: undefined,
       CLERK_SECRET_KEY: undefined,
+      ADMIN_CLAIM_REVIEW_TOKEN: undefined,
+      ADMIN_CLAIM_REVIEWER_EMAILS: '',
       S3_REGION: 'auto',
       S3_ENDPOINT: undefined,
       S3_FORCE_PATH_STYLE: false,
@@ -295,6 +307,22 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       });
       expect(segment.statusCode).toBe(200);
 
+      const privateLessonPlan = await app.inject({
+        method: 'PATCH',
+        url: `/v1/lessons/${lessonId}`,
+        headers: teacherHeaders,
+        payload: {
+          lessonPlan: {
+            objective: 'Describe a neighborhood',
+            teacherNotes: 'PRIVATE PUBLIC-IMPORT SENTINEL',
+            studentDirections: 'Describe your neighborhood.',
+            materials: 'Map paper',
+            links: [{ title: 'Private planning link', url: 'https://example.com/private' }]
+          }
+        }
+      });
+      expect(privateLessonPlan.statusCode).toBe(200);
+
       const enabledShare = await app.inject({
         method: 'PATCH',
         url: `/v1/courses/${sourceCourseId}/share`,
@@ -333,12 +361,35 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       expect(addedCopy.statusCode).toBe(200);
       expect(
         addedCopy.json<{
-          course: { id: string; name: string; lifecycle: string; units: Array<{ title: string }> };
+          course: {
+            id: string;
+            name: string;
+            lifecycle: string;
+            units: Array<{
+              title: string;
+              lessons: Array<{ lessonPlan: { teacherNotes: string | null; links: unknown[] } }>;
+            }>;
+          };
         }>().course
       ).toMatchObject({
         name: 'Spanish 7 Reference',
         lifecycle: 'unlinked',
         units: [expect.objectContaining({ title: 'La comunidad' })]
+      });
+      expect(
+        addedCopy.json<{
+          course: {
+            units: Array<{
+              lessons: Array<{ lessonPlan: { teacherNotes: string | null; links: unknown[] } }>;
+            }>;
+          };
+        }>().course.units[0]?.lessons[0]?.lessonPlan
+      ).toEqual({
+        objective: 'Describe a neighborhood',
+        teacherNotes: null,
+        studentDirections: 'Describe your neighborhood.',
+        materials: 'Map paper',
+        links: []
       });
 
       const blankCourse = await app.inject({

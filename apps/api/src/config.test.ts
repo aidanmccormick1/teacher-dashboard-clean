@@ -13,6 +13,7 @@ describe('loadConfig', () => {
     process.env = {
       ...originalEnv,
       DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/teacheros_test',
+      DEV_AUTH_ENABLED: 'false',
       CLERK_SECRET_KEY: '',
       CLERK_JWT_KEY: '',
       REDIS_URL: '',
@@ -21,10 +22,12 @@ describe('loadConfig', () => {
       S3_BUCKET: '',
       S3_ACCESS_KEY_ID: '',
       S3_SECRET_ACCESS_KEY: '',
-      SENTRY_DSN: ''
+      SENTRY_DSN: '',
+      ADMIN_CLAIM_REVIEW_TOKEN: ''
     };
 
     expect(loadConfig()).toMatchObject({
+      DEV_AUTH_ENABLED: false,
       CLERK_SECRET_KEY: undefined,
       CLERK_JWT_KEY: undefined,
       REDIS_URL: undefined,
@@ -33,7 +36,8 @@ describe('loadConfig', () => {
       S3_BUCKET: undefined,
       S3_ACCESS_KEY_ID: undefined,
       S3_SECRET_ACCESS_KEY: undefined,
-      SENTRY_DSN: undefined
+      SENTRY_DSN: undefined,
+      ADMIN_CLAIM_REVIEW_TOKEN: undefined
     });
   });
 });

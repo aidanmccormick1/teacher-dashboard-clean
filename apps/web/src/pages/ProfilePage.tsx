@@ -11,7 +11,7 @@ type ProfileForm = {
   preferredName: string;
   workEmail: string;
   phone: string;
-  role: 'teacher' | 'department_head' | 'admin';
+  role: 'teacher' | 'admin';
   schoolName: string;
   district: string;
   state: string;
@@ -40,11 +40,7 @@ function splitList(value: string) {
     .filter(Boolean);
 }
 function roleLabel(role: ProfileForm['role']) {
-  return role === 'department_head'
-    ? 'Department head'
-    : role === 'admin'
-      ? 'Administrator'
-      : 'Teacher';
+  return role === 'admin' ? 'Administrator' : 'Teacher';
 }
 function isGeneratedPlaceholderEmail(email: string | null | undefined) {
   return Boolean(email?.endsWith('@placeholder.local'));
@@ -251,12 +247,18 @@ export function ProfilePage() {
               <select
                 className="input"
                 value={form.role}
+                disabled={form.role !== 'admin'}
                 onChange={(event) => update('role', event.target.value as ProfileForm['role'])}
               >
                 <option value="teacher">Teacher</option>
-                <option value="department_head">Department head</option>
-                <option value="admin">Administrator</option>
+                {form.role === 'admin' ? <option value="admin">Administrator</option> : null}
               </select>
+              {form.role === 'teacher' ? (
+                <span className="field-help">
+                  Administrator access is granted through school claim review.{' '}
+                  <Link to="/admin/request-access">Request access</Link>
+                </span>
+              ) : null}
             </label>
           </div>
         </article>

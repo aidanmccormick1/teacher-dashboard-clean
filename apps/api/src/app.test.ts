@@ -11,6 +11,7 @@ beforeAll(async () => {
     API_PORT: 3001,
     REQUEST_ID_HEADER: 'x-request-id',
     ENABLE_API_DOCS: false,
+    DEV_AUTH_ENABLED: false,
     CLERK_AUTHORIZED_PARTIES: 'http://localhost:5173',
     DATABASE_URL:
       process.env.TEST_DATABASE_URL ??
@@ -23,6 +24,8 @@ beforeAll(async () => {
     REDIS_URL: undefined,
     OPENAI_API_KEY: undefined,
     CLERK_SECRET_KEY: undefined,
+    ADMIN_CLAIM_REVIEW_TOKEN: undefined,
+    ADMIN_CLAIM_REVIEWER_EMAILS: '',
     S3_REGION: 'auto',
     S3_ENDPOINT: undefined,
     S3_FORCE_PATH_STYLE: false,

@@ -9405,6 +9405,482 @@ button,
   line-height: 1;
 }
 
+/* Administrator workspace: same warm paper/card language, with a quieter
+   density so school status is easy to scan without becoming surveillance UI. */
+.admin-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr);
+  background: var(--paper, #f6f2eb);
+  color: var(--ink, #1f2928);
+}
+
+.admin-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  min-height: 100vh;
+  padding: 24px 18px;
+  border-right: 1px solid var(--line, #d8d0c3);
+  background: rgba(255, 253, 248, 0.86);
+}
+
+.admin-sidebar-topbar,
+.admin-sidebar-content,
+.admin-sidebar-secondary,
+.admin-navigation {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.admin-brand-mark,
+.admin-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--ink, #1f2928);
+  color: var(--paper, #f6f2eb);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.admin-brand small,
+.admin-record small,
+.admin-simple-list small,
+.admin-schedule-list small,
+.admin-record-stats small {
+  display: block;
+  color: var(--muted, #6b746e);
+  font-size: 0.82rem;
+}
+
+.admin-brand small {
+  margin-top: 2px;
+}
+
+.admin-menu-toggle {
+  display: none;
+}
+
+.admin-sidebar-content {
+  margin-top: 32px;
+}
+
+.admin-sidebar-account {
+  display: grid;
+  gap: 4px;
+  padding: 0 10px 12px;
+  border-bottom: 1px solid var(--line, #d8d0c3);
+}
+
+.admin-navigation a,
+.admin-sidebar-secondary a,
+.admin-sidebar-signout {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+
+.admin-navigation a:hover,
+.admin-navigation a:focus-visible,
+.admin-sidebar-secondary a:hover,
+.admin-sidebar-secondary a:focus-visible,
+.admin-sidebar-signout:hover,
+.admin-sidebar-signout:focus-visible,
+.admin-navigation a.active {
+  background: var(--wash, #ebe4d8);
+}
+
+.admin-main {
+  min-width: 0;
+  padding: 42px clamp(20px, 4vw, 64px) 72px;
+}
+
+.admin-page {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+}
+
+.admin-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 26px;
+}
+
+.admin-page-header h1 {
+  max-width: 760px;
+  margin: 0;
+  font-size: clamp(2.1rem, 4vw, 3.8rem);
+  letter-spacing: -0.055em;
+}
+
+.admin-page-header p:last-child {
+  max-width: 720px;
+  margin-bottom: 0;
+}
+
+.admin-header-action {
+  flex: 0 0 auto;
+}
+
+.admin-count-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-count-grid-small {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.admin-count-card,
+.admin-stat {
+  display: grid;
+  gap: 8px;
+  min-height: 132px;
+  padding: 20px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.admin-count-card:hover,
+.admin-count-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--ink, #1f2928);
+}
+
+.admin-count-card strong,
+.admin-stat strong {
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+
+.admin-stat span {
+  color: var(--muted, #6b746e);
+}
+
+.admin-overview-grid,
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-overview-grid {
+  margin-top: 16px;
+}
+
+.admin-status-card,
+.admin-boundary-note {
+  padding: 22px;
+}
+
+.admin-boundary-note {
+  margin-top: 16px;
+  border-left: 4px solid var(--accent, #cf775c);
+}
+
+.admin-record-list {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-record {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.admin-record-main,
+.admin-record > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.admin-record > div:first-child:not(.admin-record-main) {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-record strong,
+.admin-record span > strong {
+  display: block;
+  font-size: 1.02rem;
+}
+
+.admin-record-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 14px;
+  text-align: right;
+}
+
+.admin-record-stats span {
+  min-width: 58px;
+}
+
+.admin-record-stats strong {
+  display: block;
+  font-size: 1.1rem;
+}
+
+.admin-simple-list,
+.admin-schedule-list {
+  display: grid;
+  gap: 0;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-simple-list li,
+.admin-schedule-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line, #d8d0c3);
+}
+
+.admin-simple-list li > span,
+.admin-schedule-list li > span {
+  min-width: 0;
+}
+
+.admin-simple-list strong,
+.admin-schedule-list strong {
+  display: block;
+}
+
+.admin-simple-list small,
+.admin-schedule-list small {
+  margin-top: 4px;
+}
+
+.admin-empty,
+.admin-state {
+  padding: 28px;
+}
+
+.admin-filter-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-filter-bar label,
+.admin-claim-form label,
+.admin-detail-grid label {
+  display: grid;
+  gap: 7px;
+}
+
+.admin-schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-day-card {
+  padding: 22px;
+}
+
+.admin-schedule-list li {
+  justify-content: flex-start;
+}
+
+.admin-schedule-list time {
+  flex: 0 0 112px;
+  color: var(--muted, #6b746e);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-badge {
+  display: inline-block;
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--wash, #ebe4d8);
+  color: var(--muted, #6b746e);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.admin-route-gate {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.admin-route-gate-card,
+.admin-claim-form {
+  width: min(100%, 560px);
+  padding: clamp(24px, 5vw, 44px);
+}
+
+.admin-route-gate-card h1,
+.admin-claim-form h1 {
+  margin-top: 0;
+}
+
+.admin-school-search,
+.admin-school-search-results {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-school-search-results {
+  max-height: 280px;
+  overflow: auto;
+}
+
+.admin-school-search-result {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line, #d8d0c3);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.admin-school-search-result:hover:not(:disabled),
+.admin-school-search-result:focus-visible,
+.admin-school-search-result.selected {
+  border-color: var(--ink, #1f2928);
+  background: var(--wash, #ebe4d8);
+}
+
+.admin-school-search-result:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.admin-school-search-result small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted, #6b746e);
+}
+
+@media (max-width: 860px) {
+  .admin-shell {
+    display: block;
+  }
+
+  .admin-sidebar {
+    position: relative;
+    min-height: 0;
+    padding: 14px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line, #d8d0c3);
+  }
+
+  .admin-sidebar-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .admin-menu-toggle {
+    display: inline-flex;
+  }
+
+  .admin-sidebar-content {
+    display: none;
+    margin-top: 18px;
+  }
+
+  .admin-sidebar-content[data-mobile-open='true'] {
+    display: grid;
+  }
+
+  .admin-main {
+    padding: 28px 18px 56px;
+  }
+
+  .admin-page-header {
+    display: grid;
+  }
+
+  .admin-overview-grid,
+  .admin-detail-grid,
+  .admin-schedule-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .admin-count-grid,
+  .admin-count-grid-small,
+  .admin-filter-bar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .admin-record {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-record-stats {
+    justify-content: flex-start;
+    width: 100%;
+    text-align: left;
+  }
+
+  .admin-schedule-list li {
+    display: grid;
+    gap: 5px;
+  }
+
+  .admin-schedule-list time {
+    flex-basis: auto;
+  }
+
+  .admin-school-search-result {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .shared-lesson-page .shared-lesson-description {
   max-width: 760px;
   margin-top: 14px;

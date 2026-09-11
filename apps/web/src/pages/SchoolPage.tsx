@@ -92,6 +92,7 @@ export function SchoolPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const setupFlow = params.get('setup') === '1';
+  const schoolInvitationId = params.get('schoolInvitation');
   const [calendar, setCalendar] = useState<SchoolCalendarResponse | null>(null);
   const [overview, setOverview] = useState<SchoolOverviewResponse | null>(null);
   const [courses, setCourses] = useState<CourseListResponse['courses']>([]);
@@ -140,6 +141,22 @@ export function SchoolPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    if (!schoolInvitationId) return;
+    setBusy(true);
+    setError(null);
+    void api
+      .acceptSchoolInvitation(schoolInvitationId)
+      .then(async (result) => {
+        setSaved(`You joined ${result.schoolName}.`);
+        await load();
+        navigate('/school', { replace: true });
+      })
+      .catch((err) =>
+        setError(err instanceof ApiError ? err.message : 'Could not accept school invitation.')
+      )
+      .finally(() => setBusy(false));
+  }, [api, load, navigate, schoolInvitationId]);
   const readCalendar = async () => {
     if (!sourceText.trim() && !file) return setError('Paste calendar text or choose a document.');
     try {
