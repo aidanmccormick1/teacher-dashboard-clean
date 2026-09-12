@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent
 } from 'react';
@@ -1064,6 +1065,42 @@ export function CurriculumTimeline({
     return Boolean(delta);
   };
 
+  const requestUnitResize = (unit: PositionedUnit, nextSpan: number) => {
+    const span = Math.max(1, nextSpan);
+    if (span === unit.span) return;
+    const change: PendingChange = {
+      kind: 'resize',
+      unit,
+      span,
+      delta: span - unit.span
+    };
+    const proposed: PositionedUnit = { unit: unit.unit, start: unit.start, span };
+    const hasCollision = positions.some(
+      (other) => other.unit.id !== unit.unit.id && overlaps(proposed, other)
+    );
+    if (hasCollision) setPendingChange(change);
+    else void applyPendingChange('only', change);
+  };
+
+  const adjustUnitResize = (event: ReactKeyboardEvent<HTMLElement>, unit: PositionedUnit) => {
+    if (!canEditSharedPlan || saving) return;
+    const maxSpan = Math.max(unit.span, visibleMeetings - unit.start);
+    const nextSpan =
+      event.key === 'Home'
+        ? 1
+        : event.key === 'End'
+          ? maxSpan
+          : event.key === 'ArrowRight' || event.key === 'ArrowUp'
+            ? unit.span + 1
+            : event.key === 'ArrowLeft' || event.key === 'ArrowDown'
+              ? unit.span - 1
+              : null;
+    if (nextSpan === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    requestUnitResize(unit, nextSpan);
+  };
+
   const beginLessonDrag = (
     event: ReactPointerEvent<HTMLElement>,
     lesson: Lesson,
@@ -1140,6 +1177,42 @@ export function CurriculumTimeline({
       setSaving(false);
     }
     return true;
+  };
+
+  const adjustLessonResize = async (
+    event: ReactKeyboardEvent<HTMLElement>,
+    lesson: Lesson,
+    start: number,
+    span: number,
+    unitStart: number,
+    unitSpan: number
+  ) => {
+    if (!canEditSharedPlan || saving) return;
+    const maxSpan = Math.max(span, unitStart + unitSpan - start);
+    const nextSpan =
+      event.key === 'Home'
+        ? 1
+        : event.key === 'End'
+          ? maxSpan
+          : event.key === 'ArrowRight' || event.key === 'ArrowUp'
+            ? span + 1
+            : event.key === 'ArrowLeft' || event.key === 'ArrowDown'
+              ? span - 1
+              : null;
+    if (nextSpan === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const next = clamp(nextSpan, 1, maxSpan);
+    if (next === span) return;
+    try {
+      setSaving(true);
+      onCourseChange(await api.updateLesson(lesson.id, { plannedMeetingCount: next }));
+      setStatus(`${lesson.title} duration updated`);
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Could not update lesson timing');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const createQuickLesson = async (unit: Unit) => {
@@ -2734,16 +2807,28 @@ export function CurriculumTimeline({
                       <button
                         className="curriculum-unit-resize"
                         type="button"
-                        aria-label={`Resize ${position.unit.title}`}
+                        role="slider"
+                        aria-label={`Adjust ${position.unit.title} length`}
+                        aria-orientation="horizontal"
+                        aria-valuemin={1}
+                        aria-valuemax={Math.max(span, visibleMeetings - start)}
+                        aria-valuenow={span}
+                        aria-valuetext={`${span} ${span === 1 ? 'meeting' : 'meetings'}`}
                         disabled={!canEditSharedPlan}
+                        title="Drag to resize, or use the arrow keys"
                         onPointerDown={(event) => beginUnitDrag(event, position, 'resize')}
                         onPointerMove={updateUnitDrag}
                         onPointerUp={finishUnitDrag}
+                        onKeyDown={(event) => adjustUnitResize(event, position)}
                         onPointerCancel={() => {
                           setDrag(null);
                           setDragPreview(null);
                         }}
-                      />
+                      >
+                        <span className="curriculum-resize-glyph" aria-hidden="true">
+                          <span />
+                        </span>
+                      </button>
                     </article>
                   </div>
                   {expanded
@@ -2837,7 +2922,15 @@ export function CurriculumTimeline({
                               <button
                                 className="curriculum-lesson-resize"
                                 type="button"
-                                aria-label={`Resize ${lesson.title}`}
+                                role="slider"
+                                aria-label={`Adjust ${lesson.title} length`}
+                                aria-orientation="horizontal"
+                                aria-valuemin={1}
+                                aria-valuemax={Math.max(lessonSpan, start + span - lessonStart)}
+                                aria-valuenow={displaySpan}
+                                aria-valuetext={`${displaySpan} ${displaySpan === 1 ? 'meeting' : 'meetings'}`}
+                                disabled={!canEditSharedPlan}
+                                title="Drag to resize, or use the arrow keys"
                                 onPointerDown={(event) =>
                                   beginLessonDrag(
                                     event,
@@ -2851,12 +2944,26 @@ export function CurriculumTimeline({
                                 }
                                 onPointerMove={updateLessonDrag}
                                 onPointerUp={() => void finishLessonDrag()}
+                                onKeyDown={(event) =>
+                                  void adjustLessonResize(
+                                    event,
+                                    lesson,
+                                    lessonStart,
+                                    lessonSpan,
+                                    start,
+                                    span
+                                  )
+                                }
                                 onPointerCancel={() => {
                                   setLessonDrag(null);
                                   setLessonDragPreview(null);
                                   setLessonDragRemainder(0);
                                 }}
-                              />
+                              >
+                                <span className="curriculum-resize-glyph" aria-hidden="true">
+                                  <span />
+                                </span>
+                              </button>
                             </article>
                           </div>
                         );

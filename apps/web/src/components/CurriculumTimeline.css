@@ -617,12 +617,102 @@
 .curriculum-unit-resize {
   position: absolute;
   top: 50%;
-  right: -6px;
+  right: -16px;
   z-index: 3;
-  width: 12px;
-  height: 28px;
+  display: grid;
+  width: 34px;
+  height: 44px;
+  place-items: center;
   padding: 0;
   transform: translateY(-50%);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #244836;
+  cursor: ew-resize;
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.curriculum-unit-resize::before,
+.curriculum-lesson-resize::before {
+  position: absolute;
+  inset: 3px 2px;
+  z-index: 0;
+  border: 1px solid #5b7b68;
+  border-radius: 8px;
+  background: #f8fbf9;
+  box-shadow: 0 2px 5px rgba(41, 68, 90, 0.14);
+  content: '';
+}
+
+.curriculum-unit-resize::after,
+.curriculum-lesson-resize::after {
+  content: none;
+}
+
+.curriculum-unit-resize:hover:not(:disabled),
+.curriculum-lesson-resize:hover:not(:disabled),
+.curriculum-unit-resize:active:not(:disabled),
+.curriculum-lesson-resize:active:not(:disabled) {
+  color: #173c2b;
+}
+
+.curriculum-unit-resize:hover:not(:disabled)::before,
+.curriculum-lesson-resize:hover:not(:disabled)::before,
+.curriculum-unit-resize:focus-visible::before,
+.curriculum-lesson-resize:focus-visible::before {
+  border-color: #244836;
+  background: #ffffff;
+  box-shadow: 0 3px 8px rgba(41, 68, 90, 0.2);
+}
+
+.curriculum-resize-glyph {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 24px;
+  height: 28px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.curriculum-resize-glyph::before,
+.curriculum-resize-glyph::after {
+  position: absolute;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  content: '';
+  transform: translateY(-50%);
+}
+
+.curriculum-resize-glyph::before {
+  left: 3px;
+  border-right: 6px solid currentColor;
+}
+
+.curriculum-resize-glyph::after {
+  right: 3px;
+  border-left: 6px solid currentColor;
+}
+
+.curriculum-resize-glyph > span {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 50%;
+  width: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  content: '';
+  transform: translateX(-50%);
 }
 
 .curriculum-unit-content strong {
@@ -1102,7 +1192,7 @@
   display: flex;
   height: calc(var(--timeline-lesson-row-height) - 6px);
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 6px;
   padding: 0;
   cursor: grab;
@@ -1147,20 +1237,34 @@
 }
 
 .curriculum-lesson-resize {
-  flex: 0 0 10px;
+  position: absolute;
+  top: 50%;
+  right: -14px;
+  z-index: 3;
+  display: grid;
+  width: 30px;
+  height: 36px;
+  place-items: center;
+  flex: 0 0 auto;
   padding: 0;
+  border-radius: 7px;
+  color: #315d47;
   cursor: ew-resize;
+  -webkit-appearance: none;
+  appearance: none;
+  transform: translateY(-50%);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
-.curriculum-lesson-resize::after {
-  display: block;
-  width: 2px;
-  height: 18px;
-  margin: auto;
-  border-radius: 2px;
-  background: currentColor;
-  opacity: 0.3;
-  content: '';
+.curriculum-lesson-resize::before {
+  inset: 2px 1px;
+}
+
+.curriculum-lesson-resize .curriculum-resize-glyph {
+  width: 22px;
+  height: 26px;
 }
 
 .curriculum-lesson-action-track {
