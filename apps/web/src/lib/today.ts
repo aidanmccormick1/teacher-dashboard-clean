@@ -1,6 +1,33 @@
 import type { ClassroomResumeResponse, DashboardTodayResponse } from '@teacheros/contracts';
 
 export type TodayMeeting = DashboardTodayResponse['todaySchedule'][number];
+export type ClassroomLessonSequence = {
+  units: Array<{ lessons: Array<{ id: string }> }>;
+};
+
+export function nextClassroomLesson(
+  course: ClassroomLessonSequence,
+  currentLessonId: string
+): { id: string } | null {
+  const currentUnitIndex = course.units.findIndex((unit) =>
+    unit.lessons.some((lesson) => lesson.id === currentLessonId)
+  );
+  if (currentUnitIndex < 0) return null;
+
+  const currentUnit = course.units[currentUnitIndex];
+  if (!currentUnit) return null;
+  const currentLessonIndex = currentUnit.lessons.findIndex(
+    (lesson) => lesson.id === currentLessonId
+  );
+  if (currentLessonIndex < 0) return null;
+  const nextLessonInUnit = currentUnit.lessons[currentLessonIndex + 1];
+  if (nextLessonInUnit) return nextLessonInUnit;
+
+  return (
+    course.units.slice(currentUnitIndex + 1).find((unit) => unit.lessons.length > 0)?.lessons[0] ??
+    null
+  );
+}
 
 export function classroomPath(sectionId: string, meetingTime: string | null): string {
   const query = new URLSearchParams({ section: sectionId });

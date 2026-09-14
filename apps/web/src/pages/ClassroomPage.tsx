@@ -8,7 +8,7 @@ import type {
 } from '@teacheros/contracts';
 import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
 import { ApiError, useApiClient } from '../lib/api.js';
-import { timeRange } from '../lib/today.js';
+import { nextClassroomLesson, timeRange } from '../lib/today.js';
 
 function safeHtml(value: string | null) {
   const doc = new DOMParser().parseFromString(value ?? '', 'text/html');
@@ -69,7 +69,7 @@ export function ClassroomPage() {
   const latest = useRef<{ checks: string[]; note: string; version: number } | null>(null);
   const draftVersion = useRef(0);
   const meetingRevision = useRef<number | null>(null);
-  const persistRef = useRef<(endClass?: boolean) => void>(() => undefined);
+  const persistRef = useRef<(endClass?: boolean) => Promise<boolean>>(() => Promise.resolve(false));
   const chain = useRef<Promise<void>>(Promise.resolve());
   const unitSlideChain = useRef<Promise<void>>(Promise.resolve());
   const unitSlideVersion = useRef(0);
@@ -285,11 +285,11 @@ export function ClassroomPage() {
     resume?.state?.carryOverNote,
     draftStorageKey
   ]);
-  const persist = (endClass = false) => {
-    if (!lesson || !context || !dashboard) return;
+  const persist = (endClass = false): Promise<boolean> => {
+    if (!lesson || !context || !dashboard) return Promise.resolve(false);
     const current = latest.current ?? { checks, note, version: draftVersion.current };
     setState('saving');
-    chain.current = chain.current.then(async () => {
+    const save = chain.current.then(async () => {
       try {
         const response = await api.upsertClassMeeting({
           sectionId: context.sectionId,
@@ -338,6 +338,7 @@ export function ClassroomPage() {
           );
           setEnding(false);
         }
+        return true;
       } catch (err) {
         setState('error');
         const lessonConflict = scheduledLessonFromError(err);
@@ -381,8 +382,11 @@ export function ClassroomPage() {
         } else {
           setError(err instanceof ApiError ? err.message : 'Could not save this class meeting.');
         }
+        return false;
       }
     });
+    chain.current = save.then(() => undefined);
+    return save;
   };
   persistRef.current = persist;
   const queue = (nextChecks: string[], nextNote: string) => {
@@ -397,9 +401,9 @@ export function ClassroomPage() {
     setNote(nextNote);
     setState('saving');
     if (timer.current) clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => persist(), 500);
+    timer.current = window.setTimeout(() => void persist(), 500);
   };
-  const completeLessonAndMoveOn = () => {
+  const completeLessonAndMoveOn = async () => {
     if (!lesson) return;
     const nextChecks = lesson.segments
       .filter((step) => !prior.includes(step.id))
@@ -410,7 +414,13 @@ export function ClassroomPage() {
     if (draftStorageKey)
       window.localStorage.setItem(draftStorageKey, JSON.stringify({ checks: nextChecks, note }));
     setChecks(nextChecks);
-    persist(true);
+    if (!(await persist(true))) return;
+    const nextLesson = course ? nextClassroomLesson(course, lesson.id) : null;
+    if (nextLesson) {
+      changeLesson(nextLesson.id);
+    } else {
+      setEndedSummary('Class saved. This lesson is complete; there are no more lessons to open.');
+    }
   };
   const changeUnitSlide = (nextSlide: number) => {
     if (!contextSectionId || !selectedUnit?.googleSlidesUrl) return;
@@ -446,7 +456,7 @@ export function ClassroomPage() {
     () => () => {
       if (timer.current) {
         clearTimeout(timer.current);
-        persistRef.current();
+        void persistRef.current();
       }
     },
     []
@@ -470,6 +480,7 @@ export function ClassroomPage() {
     const next = new URLSearchParams(params);
     if (lessonId) next.set('lesson', lessonId);
     else next.delete('lesson');
+    setEndedSummary(null);
     setParams(next);
   };
   const chooseScheduledLesson = () => {

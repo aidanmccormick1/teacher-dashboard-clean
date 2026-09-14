@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { ClassroomResumeResponse, DashboardTodayResponse } from '@teacheros/contracts';
 
-import { classroomPath, formatTime, lessonDisplay, priorityMeeting, timeRange } from './today.js';
+import {
+  classroomPath,
+  formatTime,
+  lessonDisplay,
+  nextClassroomLesson,
+  priorityMeeting,
+  timeRange
+} from './today.js';
 
 const today = {
   date: '2026-09-14',
@@ -67,6 +74,36 @@ describe('Today helpers', () => {
   it('preserves the authoritative classroom meeting identity in links', () => {
     expect(classroomPath('section-id', '10:00')).toBe(
       '/classroom?section=section-id&meetingTime=10%3A00'
+    );
+  });
+
+  it('advances to the next lesson in the same unit', () => {
+    expect(
+      nextClassroomLesson(
+        { units: [{ lessons: [{ id: 'lesson-1' }, { id: 'lesson-2' }] }] },
+        'lesson-1'
+      )
+    ).toEqual({ id: 'lesson-2' });
+  });
+
+  it('starts the next non-empty unit after the current unit ends', () => {
+    expect(
+      nextClassroomLesson(
+        {
+          units: [
+            { lessons: [{ id: 'lesson-1' }] },
+            { lessons: [] },
+            { lessons: [{ id: 'lesson-3' }] }
+          ]
+        },
+        'lesson-1'
+      )
+    ).toEqual({ id: 'lesson-3' });
+  });
+
+  it('returns no next lesson at the end of the course', () => {
+    expect(nextClassroomLesson({ units: [{ lessons: [{ id: 'lesson-1' }] }] }, 'lesson-1')).toBe(
+      null
     );
   });
 });
