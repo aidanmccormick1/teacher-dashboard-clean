@@ -2870,6 +2870,13 @@ body.course-editor-open {
   font-size: 0.82rem;
 }
 
+.curriculum-change-conflict {
+  max-width: 460px;
+  margin: 2px 0;
+  color: var(--red);
+  font-size: 0.86rem;
+}
+
 @media (max-width: 900px) {
   .curriculum-workspace-topbar,
   .curriculum-draft-card {

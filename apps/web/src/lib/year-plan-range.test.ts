@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizePlanningRange,
   planningRangeIntersects,
-  planningRangeLabel
+  planningRangeLabel,
+  planningRangesOverlap
 } from './year-plan-range.js';
 
 const meetings = [
@@ -48,5 +49,14 @@ describe('normalizePlanningRange', () => {
     expect(planningRangeIntersects({ start: 1, meetingCount: 2 }, planned)).toBe(false);
     expect(planningRangeIntersects({ start: 2, meetingCount: 2 }, planned)).toBe(true);
     expect(planningRangeIntersects({ start: 5, meetingCount: 2 }, planned)).toBe(false);
+  });
+
+  it('allows a unit to end where the next unit begins', () => {
+    expect(
+      planningRangesOverlap({ start: 1, meetingCount: 2 }, { start: 3, meetingCount: 2 })
+    ).toBe(false);
+    expect(
+      planningRangesOverlap({ start: 1, meetingCount: 3 }, { start: 3, meetingCount: 2 })
+    ).toBe(true);
   });
 });

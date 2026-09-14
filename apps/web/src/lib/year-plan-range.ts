@@ -8,15 +8,22 @@ type PlannedSpan = Pick<PlanningRange, 'start' | 'meetingCount'>;
 type RangeMeeting = { date?: string };
 
 /**
+ * Planned ranges use half-open meeting intervals: a range ending at the
+ * meeting where another begins is back-to-back, not overlapping.
+ */
+export function planningRangesOverlap(left: PlannedSpan, right: PlannedSpan): boolean {
+  return (
+    left.start < right.start + right.meetingCount && right.start < left.start + left.meetingCount
+  );
+}
+
+/**
  * A drag-create range is additive: it may never silently write over an
  * existing planned unit. This comparison deliberately operates on meeting
  * indexes, after the schedule service has already resolved real dates.
  */
 export function planningRangeIntersects(range: PlannedSpan, planned: PlannedSpan[]): boolean {
-  return planned.some(
-    (item) =>
-      range.start < item.start + item.meetingCount && item.start < range.start + range.meetingCount
-  );
+  return planned.some((item) => planningRangesOverlap(range, item));
 }
 
 /**

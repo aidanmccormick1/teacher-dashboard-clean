@@ -213,6 +213,7 @@ export function YearPlanPage() {
         </p>
       ) : null}
       <CurriculumTimeline
+        key={`${selectedCourse.id}_${selectedSection?.sectionId ?? 'shared'}_${context.view}`}
         course={selectedCourse}
         selectedSection={selectedSection}
         dateProjectionOnly

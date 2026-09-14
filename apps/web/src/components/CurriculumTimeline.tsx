@@ -23,11 +23,22 @@ import {
   normalizePlanningRange,
   planningRangeIntersects,
   planningRangeLabel,
+  planningRangesOverlap,
   type PlanningRange
 } from '../lib/year-plan-range.js';
 import { isGoogleSlidesUrl } from '../lib/googleSlides.js';
 import { projectMeetingsForSection } from '../lib/year-plan-projection.js';
+import {
+  editClipRange,
+  reflowLessonRanges,
+  snapClipDelta,
+  type ClipRange,
+  type TrimMode
+} from '../lib/timeline-editing.js';
+import { TimelineIcon } from './TimelineIcon.js';
+import { useTimelineViewport } from './useTimelineViewport.js';
 import './CurriculumTimeline.css';
+import './TimelineEditor.css';
 
 type Course = CourseDetailResponse['course'];
 type Unit = Course['units'][number];
@@ -39,7 +50,6 @@ type SchoolYearSettings = {
   meetingDays: string[];
   bellScheduleType: 'weekly' | 'block' | 'ab' | 'rotating';
 };
-type Zoom = 'year' | 'month' | 'week' | 'meeting';
 type TimelineSlot = {
   startMeeting: number;
   endMeeting: number;
@@ -50,12 +60,13 @@ type ContextMenu = { type: 'unit' | 'lesson'; id: string; x: number; y: number }
 type PositionedUnit = { unit: Unit; start: number; span: number };
 type PendingChange =
   | { kind: 'move'; unit: PositionedUnit; start: number; delta: number }
-  | { kind: 'resize'; unit: PositionedUnit; span: number; delta: number };
-type Drag = { unit: PositionedUnit; mode: 'move' | 'resize'; originX: number };
+  | { kind: 'resize'; unit: PositionedUnit; start?: number; span: number; delta: number };
+type Drag = { unit: PositionedUnit; mode: TrimMode; originX: number; scrollLeft: number };
 type LessonDrag = {
   lesson: Lesson;
-  mode: 'move' | 'resize';
+  mode: TrimMode;
   originX: number;
+  scrollLeft: number;
   start: number;
   span: number;
   unitStart: number;
@@ -94,14 +105,6 @@ const emptyLessonPlan = (): LessonPlanDraft => ({
 
 const nullable = (value: string) => value.trim() || null;
 
-const zoomLabels: Array<{ id: Zoom; label: string }> = [
-  { id: 'meeting', label: 'Meetings' },
-  { id: 'week', label: 'Weeks' },
-  { id: 'month', label: 'Month' },
-  { id: 'year', label: 'Year' },
-];
-const zoomOrder: Zoom[] = ['year', 'month', 'week', 'meeting'];
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -121,75 +124,21 @@ function unitMeetingCount(unit: Unit) {
 
 function positionUnits(units: Unit[]): PositionedUnit[] {
   let cursor = 0;
-  return [...units].sort((left, right) => left.orderIndex - right.orderIndex).map((unit) => {
-    const span = unitMeetingCount(unit);
-    const start = unit.plannedStartMeeting ?? cursor;
-    cursor = Math.max(cursor, start + span);
-    return { unit, start, span };
-  });
+  return [...units]
+    .sort((left, right) => left.orderIndex - right.orderIndex)
+    .map((unit) => {
+      const span = unitMeetingCount(unit);
+      const start = unit.plannedStartMeeting ?? cursor;
+      cursor = Math.max(cursor, start + span);
+      return { unit, start, span };
+    });
 }
 
 function overlaps(a: PositionedUnit, b: PositionedUnit) {
-  return a.start < b.start + b.span && b.start < a.start + a.span;
-}
-
-function dateLabel(date: Date | undefined, zoom: Zoom, index: number) {
-  if (zoom === 'meeting') return `Meeting ${index + 1}`;
-  if (!date) return `Meeting ${index + 1}`;
-  if (zoom === 'month')
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  return date.toLocaleDateString(undefined, { month: 'short' });
-}
-
-function mondayKey(date: Date) {
-  const monday = new Date(date);
-  const day = monday.getDay() || 7;
-  monday.setDate(monday.getDate() - day + 1);
-  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(
-    monday.getDate()
-  ).padStart(2, '0')}`;
-}
-
-function buildTimelineSlots(zoom: Zoom, meetingCount: number, meetings: Date[]): TimelineSlot[] {
-  if (zoom !== 'week') {
-    return Array.from({ length: meetingCount }, (_, index) => ({
-      startMeeting: index,
-      endMeeting: index + 1,
-      label: dateLabel(meetings[index], zoom, index)
-    }));
-  }
-
-  if (!meetings.length) {
-    return Array.from({ length: meetingCount }, (_, index) => ({
-      startMeeting: index,
-      endMeeting: index + 1,
-      label: `Week ${index + 1}`
-    }));
-  }
-
-  const slots: TimelineSlot[] = [];
-  for (let index = 0; index < meetingCount; index += 1) {
-    const date = meetings[index];
-    const key = date ? mondayKey(date) : `sequence-${index}`;
-    const current = slots[slots.length - 1];
-    const currentKey = current && meetings[current.startMeeting]
-      ? mondayKey(meetings[current.startMeeting]!)
-      : current
-        ? `sequence-${current.startMeeting}`
-        : null;
-    if (current && currentKey === key) {
-      current.endMeeting = index + 1;
-      continue;
-    }
-    slots.push({
-      startMeeting: index,
-      endMeeting: index + 1,
-      label: date
-        ? `Week of ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
-        : `Week ${index + 1}`
-    });
-  }
-  return slots;
+  return planningRangesOverlap(
+    { start: a.start, meetingCount: a.span },
+    { start: b.start, meetingCount: b.span }
+  );
 }
 
 function nextOrder(items: Array<{ orderIndex: number }>) {
@@ -245,8 +194,8 @@ export function CurriculumTimeline({
 }) {
   const api = useApiClient();
   const navigate = useNavigate();
-  const [zoom, setZoom] = useState<Zoom>('meeting');
   const [selection, setSelection] = useState<Selection>(null);
+  const [openLessonPlanId, setOpenLessonPlanId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenu>(null);
   const [expandedUnitIds, setExpandedUnitIds] = useState<string[]>(() =>
     course.units.map((unit) => unit.id)
@@ -274,13 +223,16 @@ export function CurriculumTimeline({
   const [saving, setSaving] = useState(false);
   const [isGeneratingUnit, setIsGeneratingUnit] = useState(false);
   const [drag, setDrag] = useState<Drag | null>(null);
-  const [dragPreview, setDragPreview] = useState<number | null>(null);
+  const [dragPreview, setDragPreview] = useState<ClipRange | null>(null);
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [timingStart, setTimingStart] = useState('');
+  const [timingSpan, setTimingSpan] = useState('');
   const [lessonDrag, setLessonDrag] = useState<LessonDrag | null>(null);
   const [lessonDragPreview, setLessonDragPreview] = useState<{
     start: number;
     span: number;
   } | null>(null);
-  const [lessonDragRemainder, setLessonDragRemainder] = useState(0);
   const [outlineDraggedLessonId, setOutlineDraggedLessonId] = useState<string | null>(null);
   const [outlineDropPosition, setOutlineDropPosition] = useState<OutlineDropPosition>(null);
   const [outlineDraggedUnitId, setOutlineDraggedUnitId] = useState<string | null>(null);
@@ -309,7 +261,18 @@ export function CurriculumTimeline({
   const [selectedUnitStartSlide, setSelectedUnitStartSlide] = useState('1');
   const [selectedLessonSlidesUrl, setSelectedLessonSlidesUrl] = useState('');
   const [selectedLessonStartSlide, setSelectedLessonStartSlide] = useState('1');
-  const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
+  const pointerRef = useRef<{ clientX: number; altKey: boolean } | null>(null);
+  const suppressClick = useRef(false);
+  const busyRef = useRef(false);
+  type TimingPatch = {
+    type: 'unit' | 'lesson';
+    id: string;
+    before: { plannedStartMeeting: number | null; plannedMeetingCount: number | null };
+    after: { plannedStartMeeting: number | null; plannedMeetingCount: number | null };
+  };
+  const [undoStack, setUndoStack] = useState<TimingPatch[][]>([]);
+  const [redoStack, setRedoStack] = useState<TimingPatch[][]>([]);
   const lessonPlanSaveTimer = useRef<number | null>(null);
   const lessonPlanSaveChain = useRef<Promise<void>>(Promise.resolve());
   const lessonPlanDraftRef = useRef<LessonPlanDraft>(emptyLessonPlan());
@@ -321,10 +284,16 @@ export function CurriculumTimeline({
   >(null);
   const scrollStorageKey = `teacheros_year_plan_scroll_${course.id}_${selectedSection?.sectionId ?? 'none'}_${displayMode}`;
   const selectedSectionId = selectedSection?.sectionId;
+  const knownUnitIds = useRef(course.units.map((unit) => unit.id));
+  const structureKey = course.units.map((unit) => `${unit.id}:${unit.lessons.map((lesson) => lesson.id).join(',')}`).join('|');
 
   useEffect(() => {
-    setExpandedUnitIds(course.units.map((unit) => unit.id));
-  }, [course.id, course.units]);
+    const ids = course.units.map((unit) => unit.id);
+    const added = ids.filter((id) => !knownUnitIds.current.includes(id));
+    setExpandedUnitIds((previous) => [...previous.filter((id) => ids.includes(id)), ...added]);
+    knownUnitIds.current = ids;
+  }, [course.units]);
+  useEffect(() => { setUndoStack([]); setRedoStack([]); }, [structureKey]);
 
   useEffect(() => {
     let active = true;
@@ -388,35 +357,6 @@ export function CurriculumTimeline({
     setSelection({ type: 'lesson', id: initialLessonId });
   }, [initialLessonId]);
 
-  useEffect(() => {
-    const canvas = canvasWrapRef.current;
-    if (!canvas) return;
-    const stored = window.sessionStorage.getItem(scrollStorageKey);
-    if (stored) canvas.scrollLeft = Number(stored) || 0;
-    const persistScroll = () =>
-      window.sessionStorage.setItem(scrollStorageKey, String(canvas.scrollLeft));
-    canvas.addEventListener('scroll', persistScroll, { passive: true });
-    return () => canvas.removeEventListener('scroll', persistScroll);
-  }, [scrollStorageKey]);
-
-  useEffect(() => {
-    const canvas = canvasWrapRef.current;
-    if (!canvas) return;
-    const handleWheel = (event: WheelEvent) => {
-      // Browsers expose a trackpad pinch as Ctrl + wheel. Keep ordinary
-      // two-finger horizontal and vertical scrolling untouched.
-      if (!event.ctrlKey) return;
-      event.preventDefault();
-      setZoom((current) => {
-        const currentIndex = zoomOrder.indexOf(current);
-        const nextIndex = clamp(currentIndex + (event.deltaY < 0 ? 1 : -1), 0, zoomOrder.length - 1);
-        return zoomOrder[nextIndex] ?? current;
-      });
-    };
-    canvas.addEventListener('wheel', handleWheel, { passive: false });
-    return () => canvas.removeEventListener('wheel', handleWheel);
-  }, []);
-
   const positions = useMemo(() => positionUnits(course.units), [course.units]);
   const sectionPlanByLesson = useMemo(
     () => new Map(sectionPlans.map((plan) => [plan.lessonId, plan])),
@@ -473,7 +413,19 @@ export function CurriculumTimeline({
     furthestMeeting,
     selectedSection ? sectionMeetings.length : schoolYearWeeks
   );
-  const slotWidth = zoom === 'year' ? 34 : zoom === 'month' ? 78 : zoom === 'week' ? 132 : 116;
+  const {
+    canvasRef: canvasWrapRef,
+    scale: slotWidth,
+    zoomTo,
+    minScale,
+    viewport,
+    handTool,
+    setHandTool,
+    spaceHeld,
+    setSpaceHeld,
+    panning,
+    panHandlers
+  } = useTimelineViewport(visibleMeetings, scrollStorageKey, Boolean(drag || lessonDrag || rangeDrag));
   const courseMeetingSlots = useMemo(
     () =>
       Array.from(
@@ -482,9 +434,16 @@ export function CurriculumTimeline({
       ),
     [furthestMeeting, visibleMeetings]
   );
-  const timelineSlots = useMemo(
-    () => buildTimelineSlots(zoom, visibleMeetings, meetings),
-    [meetings, visibleMeetings, zoom]
+  const timelineSlots = useMemo<TimelineSlot[]>(
+    () =>
+      Array.from({ length: visibleMeetings }, (_, index) => ({
+        startMeeting: index,
+        endMeeting: index + 1,
+        label:
+          meetings[index]?.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) ??
+          `Meeting ${index + 1}`
+      })),
+    [meetings, visibleMeetings]
   );
   const displaySlotForMeeting = (meetingIndex: number) =>
     Math.max(
@@ -504,6 +463,21 @@ export function CurriculumTimeline({
       .filter((other) => overlaps(position, other))
       .map((other) => `${position.unit.title} overlaps ${other.unit.title}`)
   );
+  const pendingPosition: PositionedUnit | null = pendingChange
+    ? {
+        unit: pendingChange.unit.unit,
+        start:
+          pendingChange.kind === 'move'
+            ? pendingChange.start
+            : (pendingChange.start ?? pendingChange.unit.start),
+        span: pendingChange.kind === 'resize' ? pendingChange.span : pendingChange.unit.span
+      }
+    : null;
+  const pendingConflicts = pendingPosition
+    ? positions.filter(
+        (other) => other.unit.id !== pendingPosition.unit.id && overlaps(pendingPosition, other)
+      )
+    : [];
   const plannedMeetings = positions.reduce((count, item) => count + item.span, 0);
   const planningBase = meetings.length || visibleMeetings;
   const plannedPercent = planningBase
@@ -529,7 +503,7 @@ export function CurriculumTimeline({
 
   // Course planning is expressed as a shared sequence of meeting numbers.
   // A selected section contributes real dates, but is never required to plan.
-  const rangeMeetings = selectedSection ? sectionMeetings : courseMeetingSlots;
+  const rangeMeetings = sectionMeetings.length ? sectionMeetings : courseMeetingSlots;
   const slotFromPointer = (clientX: number) => {
     const canvas = canvasWrapRef.current;
     if (!canvas || !rangeMeetings.length) return null;
@@ -538,7 +512,7 @@ export function CurriculumTimeline({
     return clamp(index, 0, timelineSlots.length - 1);
   };
   const beginRangeDrag = (event: ReactPointerEvent<HTMLDivElement>, unitId: string | null) => {
-    if (!rangeMeetings.length || saving) return;
+    if (!rangeMeetings.length || saving || !canEditSharedPlan || event.button !== 0) return;
     const slotIndex = slotFromPointer(event.clientX);
     if (slotIndex === null) return;
     const slot = timelineSlots[slotIndex];
@@ -688,7 +662,10 @@ export function CurriculumTimeline({
     try {
       setSaving(true);
       onCourseChange(
-        await api.updateLesson(selectedLesson.id, { googleSlidesUrl: null, googleSlidesStartSlide: 1 })
+        await api.updateLesson(selectedLesson.id, {
+          googleSlidesUrl: null,
+          googleSlidesStartSlide: 1
+        })
       );
       setSelectedLessonSlidesUrl('');
       setSelectedLessonStartSlide('1');
@@ -949,67 +926,141 @@ export function CurriculumTimeline({
     return () => window.removeEventListener('keydown', cancelRange);
   }, []);
 
+  const persistTiming = async (
+    patches: TimingPatch[],
+    direction: 'before' | 'after' = 'after',
+    record = true
+  ) => {
+    if (busyRef.current || saving || !canEditSharedPlan || !patches.length) return false;
+    busyRef.current = true;
+    setSaving(true);
+    let detail: CourseDetailResponse | null = null;
+    const applied: TimingPatch[] = [];
+    try {
+      for (const patch of patches) {
+        detail =
+          patch.type === 'unit'
+            ? await api.updateUnit(patch.id, patch[direction])
+            : await api.updateLesson(patch.id, patch[direction]);
+        applied.push(patch);
+      }
+      if (detail) onCourseChange(detail);
+      if (record) {
+        setUndoStack((stack) => [...stack.slice(-29), patches]);
+        setRedoStack([]);
+      }
+      setStatus('Timing saved');
+      return true;
+    } catch (err) {
+      // The API updates one item at a time. Restore applied writes if a later
+      // write fails, then reload so the canvas reflects persisted timing.
+      let restored = true;
+      for (const patch of applied.reverse()) {
+        try {
+          const original = patch[direction === 'after' ? 'before' : 'after'];
+          if (patch.type === 'unit') await api.updateUnit(patch.id, original);
+          else await api.updateLesson(patch.id, original);
+        } catch {
+          restored = false;
+        }
+      }
+      try {
+        onCourseChange(await api.getCourseDetail(course.id));
+      } catch {
+        restored = false;
+      }
+      setStatus(
+        restored
+          ? err instanceof ApiError
+            ? err.message
+            : 'Could not save timing. Previous timing restored.'
+          : 'Some timing changes could not be restored. Reload the plan before editing again.'
+      );
+      return false;
+    } finally {
+      busyRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const timingPatch = (
+    type: 'unit' | 'lesson',
+    item: Unit | Lesson,
+    start: number,
+    span: number
+  ): TimingPatch => ({
+    type,
+    id: item.id,
+    before: {
+      plannedStartMeeting: item.plannedStartMeeting,
+      plannedMeetingCount: item.plannedMeetingCount
+    },
+    after: { plannedStartMeeting: start, plannedMeetingCount: span }
+  });
+
+  const travelHistory = async (direction: 'undo' | 'redo') => {
+    const stack = direction === 'undo' ? undoStack : redoStack;
+    const patches = stack[stack.length - 1];
+    if (!patches) return;
+    if (await persistTiming(patches, direction === 'undo' ? 'before' : 'after', false)) {
+      if (direction === 'undo') {
+        setUndoStack((value) => value.slice(0, -1));
+        setRedoStack((value) => [...value, patches]);
+      } else {
+        setRedoStack((value) => value.slice(0, -1));
+        setUndoStack((value) => [...value, patches]);
+      }
+      setStatus(direction === 'undo' ? 'Timing change undone' : 'Timing change redone');
+    }
+  };
+
   const applyPendingChange = async (
     mode: 'only' | 'shift' | 'fixed',
     change: PendingChange | null = pendingChange
   ) => {
     if (!change) return;
     const { unit } = change;
-    try {
-      setSaving(true);
-      let detail: CourseDetailResponse | null = null;
-      if (change.kind === 'move') {
-        detail = await api.updateUnit(unit.unit.id, { plannedStartMeeting: change.start });
-        const movedUnit = detail.course.units.find((item) => item.id === unit.unit.id);
-        for (const lesson of movedUnit?.lessons ?? []) {
-          if (lesson.plannedStartMeeting !== null) {
-            detail = await api.updateLesson(lesson.id, {
-              plannedStartMeeting: Math.max(0, lesson.plannedStartMeeting + change.delta)
-            });
+    const start = change.kind === 'move' ? change.start : (change.start ?? unit.start);
+    const span = change.kind === 'resize' ? change.span : unit.span;
+    const patches = [timingPatch('unit', unit.unit, start, span)];
+    const orderedLessons = [...unit.unit.lessons].sort((a, b) => a.orderIndex - b.orderIndex);
+    const ranges = reflowLessonRanges(start, span, orderedLessons.length);
+    orderedLessons.forEach((lesson, index) => {
+      const range = ranges[index]!;
+      patches.push(
+        timingPatch(
+          'lesson',
+          lesson,
+          change.kind === 'move' && lesson.plannedStartMeeting !== null
+            ? Math.max(start, lesson.plannedStartMeeting + change.delta)
+            : range.start,
+          change.kind === 'move' ? (lesson.plannedMeetingCount ?? range.span) : range.span
+        )
+      );
+    });
+    if (mode === 'shift') {
+      const following = positions.filter(
+        (item) => item.unit.id !== unit.unit.id && item.start >= unit.start + unit.span
+      );
+      const first = Math.min(...following.map((item) => item.start));
+      const delta = Math.max(0, start + span - first);
+      if (delta)
+        for (const later of following) {
+          patches.push(timingPatch('unit', later.unit, later.start + delta, later.span));
+          for (const lesson of later.unit.lessons) {
+            if (lesson.plannedStartMeeting !== null)
+              patches.push(
+                timingPatch(
+                  'lesson',
+                  lesson,
+                  lesson.plannedStartMeeting + delta,
+                  lesson.plannedMeetingCount ?? 1
+                )
+              );
           }
         }
-        if (mode === 'shift' && change.delta) {
-          for (const later of positions.filter((item) => item.start > unit.start)) {
-            detail = await api.updateUnit(later.unit.id, {
-              plannedStartMeeting: Math.max(0, later.start + change.delta)
-            });
-          }
-        }
-      } else {
-        detail = await api.updateUnit(unit.unit.id, { plannedMeetingCount: change.span });
-        // Lesson bars belong to their unit, not to fixed meeting IDs. Reflow
-        // them over the resized unit while preserving their order.
-        const refreshedUnit = detail.course.units.find((item) => item.id === unit.unit.id);
-        if (refreshedUnit?.lessons.length) {
-          const lessonSpan = Math.max(1, Math.floor(change.span / refreshedUnit.lessons.length));
-          for (const [index, lesson] of refreshedUnit.lessons.entries()) {
-            detail = await api.updateLesson(lesson.id, {
-              plannedStartMeeting: unit.start + Math.min(change.span - 1, index * lessonSpan),
-              plannedMeetingCount:
-                index === refreshedUnit.lessons.length - 1
-                  ? Math.max(1, change.span - lessonSpan * index)
-                  : lessonSpan
-            });
-          }
-        }
-        if (mode === 'shift' && change.delta) {
-          for (const later of positions.filter(
-            (item) => item.start >= unit.start + unit.span && item.unit.id !== unit.unit.id
-          )) {
-            detail = await api.updateUnit(later.unit.id, {
-              plannedStartMeeting: Math.max(0, later.start + change.delta)
-            });
-          }
-        }
-      }
-      if (detail) onCourseChange(detail);
-      setStatus(null);
-    } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not update the timeline');
-    } finally {
-      setSaving(false);
-      setPendingChange(null);
     }
+    if (await persistTiming(patches)) setPendingChange(null);
   };
 
   const beginUnitDrag = (
@@ -1017,35 +1068,48 @@ export function CurriculumTimeline({
     unit: PositionedUnit,
     mode: Drag['mode']
   ) => {
-    if (!canEditSharedPlan) return;
+    if (!canEditSharedPlan || saving || pendingChange || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
-    setDrag({ unit, mode, originX: event.clientX });
-    setDragPreview(mode === 'move' ? unit.start : unit.span);
+    suppressClick.current = false;
+    pointerRef.current = { clientX: event.clientX, altKey: event.altKey };
+    setDrag({
+      unit,
+      mode,
+      originX: event.clientX,
+      scrollLeft: canvasWrapRef.current?.scrollLeft ?? 0
+    });
+    setDragPreview({ start: unit.start, span: unit.span });
   };
 
   const updateUnitDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (!drag) return;
-    const delta = Math.round((event.clientX - drag.originX) / slotWidth);
-    setDragPreview(
-      drag.mode === 'move'
-        ? clamp(drag.unit.start + delta, 0, visibleMeetings - 1)
-        : Math.max(1, drag.unit.span + delta)
-    );
+    pointerRef.current = { clientX: event.clientX, altKey: event.altKey };
+    updateDragAt(event.clientX, event.altKey);
   };
 
   const finishUnitDrag = () => {
     if (!drag || dragPreview === null) return false;
-    const delta = dragPreview - (drag.mode === 'move' ? drag.unit.start : drag.unit.span);
+    const finalRange = { start: Math.round(dragPreview.start), span: Math.round(dragPreview.span) };
+    const delta =
+      drag.mode === 'move' ? finalRange.start - drag.unit.start : finalRange.span - drag.unit.span;
+    suppressClick.current = Boolean(delta);
+    pointerRef.current = null;
     if (delta) {
       const change: PendingChange =
         drag.mode === 'move'
-          ? { kind: 'move', unit: drag.unit, start: dragPreview, delta }
-          : { kind: 'resize', unit: drag.unit, span: dragPreview, delta };
+          ? { kind: 'move', unit: drag.unit, start: finalRange.start, delta }
+          : {
+              kind: 'resize',
+              unit: drag.unit,
+              start: finalRange.start,
+              span: finalRange.span,
+              delta
+            };
       const proposed: PositionedUnit = {
         unit: drag.unit.unit,
-        start: change.kind === 'move' ? change.start : drag.unit.start,
+        start: finalRange.start,
         span: change.kind === 'resize' ? change.span : drag.unit.span
       };
       const hasCollision = positions.some(
@@ -1065,16 +1129,17 @@ export function CurriculumTimeline({
     return Boolean(delta);
   };
 
-  const requestUnitResize = (unit: PositionedUnit, nextSpan: number) => {
+  const requestUnitResize = (unit: PositionedUnit, nextSpan: number, start = unit.start) => {
     const span = Math.max(1, nextSpan);
-    if (span === unit.span) return;
+    if (!canEditSharedPlan || saving || (span === unit.span && start === unit.start)) return;
     const change: PendingChange = {
       kind: 'resize',
       unit,
       span,
+      start,
       delta: span - unit.span
     };
-    const proposed: PositionedUnit = { unit: unit.unit, start: unit.start, span };
+    const proposed: PositionedUnit = { unit: unit.unit, start, span };
     const hasCollision = positions.some(
       (other) => other.unit.id !== unit.unit.id && overlaps(proposed, other)
     );
@@ -1110,72 +1175,43 @@ export function CurriculumTimeline({
     unitStart: number,
     unitSpan: number
   ) => {
-    if (!canEditSharedPlan) return;
+    if (!canEditSharedPlan || saving || pendingChange || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
+    suppressClick.current = false;
+    pointerRef.current = { clientX: event.clientX, altKey: event.altKey };
     setLessonDrag({
       lesson,
       mode,
       originX: event.clientX,
+      scrollLeft: canvasWrapRef.current?.scrollLeft ?? 0,
       start,
       span,
       unitStart,
       unitEnd: unitStart + unitSpan
     });
     setLessonDragPreview({ start, span });
-    setLessonDragRemainder(0);
   };
 
   const updateLessonDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (!lessonDrag) return;
     event.preventDefault();
-    const pixelDelta = event.clientX - lessonDrag.originX;
-    const delta = Math.round(pixelDelta / slotWidth);
-    const maxStart = Math.max(lessonDrag.unitStart, lessonDrag.unitEnd - lessonDrag.span);
-    const nextStart = clamp(lessonDrag.start + delta, lessonDrag.unitStart, maxStart);
-    const appliedDelta = nextStart - lessonDrag.start;
-    let remainder = pixelDelta - appliedDelta * slotWidth;
-    if (lessonDrag.unitStart === maxStart) remainder = 0;
-    else if (nextStart === lessonDrag.unitStart) remainder = Math.max(0, remainder);
-    else if (nextStart === maxStart) remainder = Math.min(0, remainder);
-    setLessonDragPreview({
-      start: lessonDrag.mode === 'move' ? nextStart : lessonDrag.start,
-      span:
-        lessonDrag.mode === 'resize'
-          ? clamp(lessonDrag.span + delta, 1, lessonDrag.unitEnd - lessonDrag.start)
-          : lessonDrag.span
-    });
-    setLessonDragRemainder(lessonDrag.mode === 'move' ? remainder : 0);
+    pointerRef.current = { clientX: event.clientX, altKey: event.altKey };
+    updateDragAt(event.clientX, event.altKey);
   };
 
   const finishLessonDrag = async () => {
     if (!lessonDrag || !lessonDragPreview) return false;
-    const patch =
-      lessonDrag.mode === 'move'
-        ? { plannedStartMeeting: lessonDragPreview.start }
-        : { plannedMeetingCount: lessonDragPreview.span };
-    const changed =
-      lessonDrag.mode === 'move'
-        ? lessonDragPreview.start !== lessonDrag.start
-        : lessonDragPreview.span !== lessonDrag.span;
+    const start = Math.round(lessonDragPreview.start);
+    const span = Math.round(lessonDragPreview.span);
+    const changed = start !== lessonDrag.start || span !== lessonDrag.span;
+    suppressClick.current = changed;
+    pointerRef.current = null;
     setLessonDrag(null);
     setLessonDragPreview(null);
-    setLessonDragRemainder(0);
     if (!changed) return false;
-    try {
-      setSaving(true);
-      onCourseChange(await api.updateLesson(lessonDrag.lesson.id, patch));
-      setStatus(
-        lessonDrag.mode === 'move'
-          ? `${lessonDrag.lesson.title} moved`
-          : `${lessonDrag.lesson.title} duration updated`
-      );
-    } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not update lesson timing');
-    } finally {
-      setSaving(false);
-    }
+    await persistTiming([timingPatch('lesson', lessonDrag.lesson, start, span)]);
     return true;
   };
 
@@ -1204,15 +1240,212 @@ export function CurriculumTimeline({
     event.stopPropagation();
     const next = clamp(nextSpan, 1, maxSpan);
     if (next === span) return;
-    try {
-      setSaving(true);
-      onCourseChange(await api.updateLesson(lesson.id, { plannedMeetingCount: next }));
-      setStatus(`${lesson.title} duration updated`);
-    } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not update lesson timing');
-    } finally {
-      setSaving(false);
+    await persistTiming([timingPatch('lesson', lesson, start, next)]);
+  };
+
+  const updateDragAt = (clientX: number, altKey: boolean) => {
+    const active = drag ?? lessonDrag;
+    if (!active) return;
+    const range = drag
+      ? { start: drag.unit.start, span: drag.unit.span }
+      : { start: lessonDrag!.start, span: lessonDrag!.span };
+    let delta =
+      (clientX - active.originX + (canvasWrapRef.current?.scrollLeft ?? 0) - active.scrollLeft) /
+      slotWidth;
+    if (Math.abs(delta * slotWidth) < 4) delta = 0;
+    if (snapEnabled && !altKey) {
+      const anchors = positions
+        .filter((item) => item.unit.id !== drag?.unit.unit.id)
+        .flatMap((item) => [item.start, item.start + item.span]);
+      delta = snapClipDelta(range, active.mode, delta, anchors, slotWidth);
     }
+    const preview = editClipRange(
+      range,
+      active.mode,
+      delta,
+      drag ? 0 : lessonDrag!.unitStart,
+      drag ? visibleMeetings : lessonDrag!.unitEnd
+    );
+    if (drag) setDragPreview(preview);
+    else setLessonDragPreview(preview);
+  };
+  const dragUpdateRef = useRef(updateDragAt);
+  dragUpdateRef.current = updateDragAt;
+  useEffect(() => {
+    if (!drag && !lessonDrag) return;
+    let frame = 0;
+    const tick = () => {
+      const pointer = pointerRef.current;
+      const canvas = canvasWrapRef.current;
+      if (pointer && canvas) {
+        const bounds = canvas.getBoundingClientRect();
+        const edge = 48;
+        const velocity =
+          pointer.clientX < bounds.left + edge
+            ? -Math.min(18, (bounds.left + edge - pointer.clientX) / 4)
+            : pointer.clientX > bounds.right - edge
+              ? Math.min(18, (pointer.clientX - bounds.right + edge) / 4)
+              : 0;
+        if (velocity) {
+          canvas.scrollLeft += velocity;
+          dragUpdateRef.current(pointer.clientX, pointer.altKey);
+        }
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [Boolean(drag || lessonDrag), canvasWrapRef]);
+
+  const selectedPosition = positions.find(
+    (item) =>
+      item.unit.id === selection?.id ||
+      item.unit.lessons.some((lesson) => lesson.id === selection?.id)
+  );
+  const selectedRange = (() => {
+    if (!selectedPosition) return null;
+    if (selection?.type === 'unit')
+      return { start: selectedPosition.start, span: selectedPosition.span };
+    if (!selectedLesson) return null;
+    const lessons = [...selectedPosition.unit.lessons].sort((a, b) => a.orderIndex - b.orderIndex);
+    const fallback = reflowLessonRanges(
+      selectedPosition.start,
+      selectedPosition.span,
+      lessons.length
+    )[lessons.findIndex((lesson) => lesson.id === selectedLesson.id)]!;
+    const span = Math.min(
+      selectedPosition.span,
+      effectiveLessonSpan(selectedLesson, fallback.span)
+    );
+    return {
+      start: clamp(
+        effectiveLessonStart(selectedLesson, fallback.start),
+        selectedPosition.start,
+        selectedPosition.start + selectedPosition.span - span
+      ),
+      span
+    };
+  })();
+  useEffect(() => {
+    setTimingStart(selectedRange ? String(selectedRange.start + 1) : '');
+    setTimingSpan(selectedRange ? String(selectedRange.span) : '');
+  }, [selection?.id, selectedRange?.start, selectedRange?.span]);
+
+  const changeSelectedRange = (range: ClipRange) => {
+    if (!selectedPosition || !selectedRange || !canEditSharedPlan || saving || pendingChange)
+      return;
+    if (selection?.type === 'unit') {
+      if (range.span !== selectedRange.span)
+        requestUnitResize(selectedPosition, range.span, range.start);
+      else if (range.start !== selectedRange.start) {
+        const change: PendingChange = {
+          kind: 'move',
+          unit: selectedPosition,
+          start: range.start,
+          delta: range.start - selectedRange.start
+        };
+        if (
+          positions.some(
+            (other) =>
+              other.unit.id !== selectedPosition.unit.id &&
+              overlaps({ unit: selectedPosition.unit, ...range }, other)
+          )
+        )
+          setPendingChange(change);
+        else void applyPendingChange('only', change);
+      }
+    } else if (
+      selectedLesson &&
+      (range.start !== selectedRange.start || range.span !== selectedRange.span)
+    )
+      void persistTiming([timingPatch('lesson', selectedLesson, range.start, range.span)]);
+  };
+  const fitSelection = () => {
+    if (!selectedRange) return;
+    zoomTo(Math.min(200, viewport.width / (selectedRange.span + 2)));
+    requestAnimationFrame(() =>
+      canvasWrapRef.current?.scrollTo({
+        left:
+          Math.max(0, selectedRange.start - 1) *
+          Math.min(200, viewport.width / (selectedRange.span + 2))
+      })
+    );
+  };
+  const cancelTimelineGesture = () => {
+    pointerRef.current = null;
+    suppressClick.current = true;
+    setDrag(null);
+    setDragPreview(null);
+    setLessonDrag(null);
+    setLessonDragPreview(null);
+    setRangeDrag(null);
+    setRangePreview(null);
+    setPendingChange(null);
+    setShowShortcuts(false);
+  };
+  useEffect(() => {
+    const cancel = () => {
+      pointerRef.current = null;
+      setDrag(null);
+      setDragPreview(null);
+      setLessonDrag(null);
+      setLessonDragPreview(null);
+      setRangeDrag(null);
+      setRangePreview(null);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') cancel();
+    };
+    window.addEventListener('blur', cancel);
+    window.addEventListener('keydown', escape);
+    return () => {
+      window.removeEventListener('blur', cancel);
+      window.removeEventListener('keydown', escape);
+    };
+  }, []);
+  const handleTimelineKeys = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (
+      (event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]') ||
+      displayMode !== 'timeline'
+    )
+      return;
+    const key = event.key.toLowerCase();
+    if (key === 'escape') {
+      cancelTimelineGesture();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && key === 'z') {
+      event.preventDefault();
+      void travelHistory(event.shiftKey ? 'redo' : 'undo');
+      return;
+    }
+    if (event.metaKey || event.ctrlKey) return;
+    if (key === 'v') setHandTool(false);
+    else if (key === 'h') setHandTool(true);
+    else if (key === 's') setSnapEnabled((value) => !value);
+    else if (key === '+' || key === '=') zoomTo(slotWidth * 1.25);
+    else if (key === '-') zoomTo(slotWidth / 1.25);
+    else if (key === '0') {
+      zoomTo(viewport.width / visibleMeetings, 0);
+      canvasWrapRef.current?.scrollTo({ left: 0 });
+    } else if (key === 'f') fitSelection();
+    else if (event.code === 'Space') setSpaceHeld(true);
+    else if ((key === 'arrowleft' || key === 'arrowright') && selectedRange && selectedPosition) {
+      if ((event.target as HTMLElement).closest('[role="slider"]')) return;
+      const delta = (key === 'arrowleft' ? -1 : 1) * (event.shiftKey ? 5 : 1);
+      changeSelectedRange(
+        editClipRange(
+          selectedRange,
+          event.altKey ? 'resize' : 'move',
+          delta,
+          selection?.type === 'unit' ? 0 : selectedPosition.start,
+          selection?.type === 'unit'
+            ? visibleMeetings
+            : selectedPosition.start + selectedPosition.span
+        )
+      );
+    } else return;
+    event.preventDefault();
   };
 
   const createQuickLesson = async (unit: Unit) => {
@@ -1670,8 +1903,10 @@ export function CurriculumTimeline({
 
   return (
     <section
-      className={`curriculum-workspace ${displayMode === 'outline' ? 'curriculum-outline-mode' : ''}`}
+      ref={workspaceRef}
+      className={`curriculum-workspace ${displayMode === 'outline' ? 'curriculum-outline-mode' : 'curriculum-editor-mode'}`}
       aria-label={`${course.name} curriculum timeline`}
+      onKeyDown={handleTimelineKeys}
     >
       <div className="curriculum-workspace-topbar">
         <div className="curriculum-add-unit-control">
@@ -1795,45 +2030,6 @@ export function CurriculumTimeline({
             )
           ) : null}
         </div>
-        <div className="curriculum-zoom" aria-label="Timeline zoom">
-          {zoomLabels.map((option) => (
-            <button
-              key={option.id}
-              className={zoom === option.id ? 'active' : ''}
-              type="button"
-              onClick={() => setZoom(option.id)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <span className="curriculum-zoom-hint">Pinch on the timeline to zoom</span>
-        <div className="curriculum-timeline-navigation" aria-label="Timeline navigation">
-          <button
-            className="secondary"
-            type="button"
-            aria-label="Show previous dates"
-            onClick={() => scrollCanvasBy(-1)}
-          >
-            ←
-          </button>
-          <button
-            className="secondary"
-            type="button"
-            disabled={!todayDate || !selectedSection || !rangeMeetings.length}
-            onClick={scrollToToday}
-          >
-            Today
-          </button>
-          <button
-            className="secondary"
-            type="button"
-            aria-label="Show next dates"
-            onClick={() => scrollCanvasBy(1)}
-          >
-            →
-          </button>
-        </div>
         {selectedSection ? (
           <div className="curriculum-scope-control">
             <span>
@@ -1939,106 +2135,122 @@ export function CurriculumTimeline({
             <small>{selection.type === 'unit' ? 'Unit selected' : 'Lesson selected'}</small>
           </div>
           {selection.type === 'unit' && selectedUnit ? (
-            <section className="curriculum-unit-source" aria-label={`Source material for ${selectedUnit.title}`}>
-              <div>
-                <strong>Unit Slides</strong>
-                <small>One shared deck, available in every lesson in this unit.</small>
-              </div>
-              <label>
-                <span>Google Slides link</span>
-                <input
-                  className="input"
-                  type="url"
-                  value={selectedUnitSlidesUrl}
-                  onChange={(event) => setSelectedUnitSlidesUrl(event.target.value)}
-                  placeholder="https://docs.google.com/presentation/d/…"
-                />
-              </label>
-              <label className="curriculum-unit-source-start">
-                <span>Start slide</span>
-                <input
-                  className="input"
-                  type="number"
-                  min="1"
-                  value={selectedUnitStartSlide}
-                  onChange={(event) => setSelectedUnitStartSlide(event.target.value)}
-                />
-              </label>
-              <button
-                type="button"
-                disabled={saving || !isGoogleSlidesUrl(selectedUnitSlidesUrl)}
-                onClick={() => void saveSelectedUnitSlides()}
+            <details className="timeline-source-details">
+              <summary>Unit slides</summary>
+              <section
+                className="curriculum-unit-source"
+                aria-label={`Source material for ${selectedUnit.title}`}
               >
-                {selectedUnit.googleSlidesUrl ? 'Update slides' : 'Add slides'}
-              </button>
-              {selectedUnit.googleSlidesUrl ? (
+                <div>
+                  <strong>Unit Slides</strong>
+                  <small>One shared deck, available in every lesson in this unit.</small>
+                </div>
+                <label>
+                  <span>Google Slides link</span>
+                  <input
+                    className="input"
+                    type="url"
+                    value={selectedUnitSlidesUrl}
+                    onChange={(event) => setSelectedUnitSlidesUrl(event.target.value)}
+                    placeholder="https://docs.google.com/presentation/d/…"
+                  />
+                </label>
+                <label className="curriculum-unit-source-start">
+                  <span>Start slide</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min="1"
+                    value={selectedUnitStartSlide}
+                    onChange={(event) => setSelectedUnitStartSlide(event.target.value)}
+                  />
+                </label>
                 <button
-                  className="button-link danger"
                   type="button"
-                  disabled={saving}
-                  onClick={() => void removeSelectedUnitSlides()}
+                  disabled={saving || !isGoogleSlidesUrl(selectedUnitSlidesUrl)}
+                  onClick={() => void saveSelectedUnitSlides()}
                 >
-                  Remove
+                  {selectedUnit.googleSlidesUrl ? 'Update slides' : 'Add slides'}
                 </button>
-              ) : null}
-              {selectedUnitSlidesUrl && !isGoogleSlidesUrl(selectedUnitSlidesUrl) ? (
-                <p className="curriculum-unit-source-error">Paste a Google Slides presentation link.</p>
-              ) : null}
-            </section>
+                {selectedUnit.googleSlidesUrl ? (
+                  <button
+                    className="button-link danger"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void removeSelectedUnitSlides()}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+                {selectedUnitSlidesUrl && !isGoogleSlidesUrl(selectedUnitSlidesUrl) ? (
+                  <p className="curriculum-unit-source-error">
+                    Paste a Google Slides presentation link.
+                  </p>
+                ) : null}
+              </section>
+            </details>
           ) : null}
           {selection.type === 'lesson' && selectedLesson ? (
-            <section className="curriculum-unit-source" aria-label={`Source material for ${selectedLesson.title}`}>
-              <div>
-                <strong>Lesson Slides</strong>
-                <small>A lesson-specific deck, separate from the unit deck.</small>
-              </div>
-              <label>
-                <span>Google Slides link</span>
-                <input
-                  className="input"
-                  type="url"
-                  value={selectedLessonSlidesUrl}
-                  onChange={(event) => setSelectedLessonSlidesUrl(event.target.value)}
-                  placeholder="https://docs.google.com/presentation/d/…"
-                />
-              </label>
-              <label className="curriculum-unit-source-start">
-                <span>Start slide</span>
-                <input
-                  className="input"
-                  type="number"
-                  min="1"
-                  value={selectedLessonStartSlide}
-                  onChange={(event) => setSelectedLessonStartSlide(event.target.value)}
-                />
-              </label>
-              <button
-                type="button"
-                disabled={saving || !isGoogleSlidesUrl(selectedLessonSlidesUrl)}
-                onClick={() => void saveSelectedLessonSlides()}
+            <details className="timeline-source-details">
+              <summary>Lesson slides</summary>
+              <section
+                className="curriculum-unit-source"
+                aria-label={`Source material for ${selectedLesson.title}`}
               >
-                {selectedLesson.googleSlidesUrl ? 'Update slides' : 'Add slides'}
-              </button>
-              {selectedLesson.googleSlidesUrl ? (
+                <div>
+                  <strong>Lesson Slides</strong>
+                  <small>A lesson-specific deck, separate from the unit deck.</small>
+                </div>
+                <label>
+                  <span>Google Slides link</span>
+                  <input
+                    className="input"
+                    type="url"
+                    value={selectedLessonSlidesUrl}
+                    onChange={(event) => setSelectedLessonSlidesUrl(event.target.value)}
+                    placeholder="https://docs.google.com/presentation/d/…"
+                  />
+                </label>
+                <label className="curriculum-unit-source-start">
+                  <span>Start slide</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min="1"
+                    value={selectedLessonStartSlide}
+                    onChange={(event) => setSelectedLessonStartSlide(event.target.value)}
+                  />
+                </label>
                 <button
-                  className="button-link danger"
                   type="button"
-                  disabled={saving}
-                  onClick={() => void removeSelectedLessonSlides()}
+                  disabled={saving || !isGoogleSlidesUrl(selectedLessonSlidesUrl)}
+                  onClick={() => void saveSelectedLessonSlides()}
                 >
-                  Remove
+                  {selectedLesson.googleSlidesUrl ? 'Update slides' : 'Add slides'}
                 </button>
-              ) : null}
-              {selectedLessonSlidesUrl && !isGoogleSlidesUrl(selectedLessonSlidesUrl) ? (
-                <p className="curriculum-unit-source-error">Paste a Google Slides presentation link.</p>
-              ) : null}
-            </section>
+                {selectedLesson.googleSlidesUrl ? (
+                  <button
+                    className="button-link danger"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void removeSelectedLessonSlides()}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+                {selectedLessonSlidesUrl && !isGoogleSlidesUrl(selectedLessonSlidesUrl) ? (
+                  <p className="curriculum-unit-source-error">
+                    Paste a Google Slides presentation link.
+                  </p>
+                ) : null}
+              </section>
+            </details>
           ) : null}
           <details className="curriculum-selection-menu">
             <summary aria-label={`Actions for selected ${selection.type}`}>•••</summary>
             <div>
               {selection.type === 'lesson' && selectedLesson ? (
-                <button type="button" onClick={() => onOpenLesson?.(selectedLesson.id)}>
+                <button type="button" onClick={() => onOpenLesson ? onOpenLesson(selectedLesson.id) : setOpenLessonPlanId(selectedLesson.id)}>
                   Open lesson
                 </button>
               ) : null}
@@ -2107,7 +2319,7 @@ export function CurriculumTimeline({
         </div>
       ) : null}
 
-      {selectedLesson ? (
+      {selectedLesson && (displayMode === 'outline' || openLessonPlanId === selectedLesson.id) ? (
         <>
           <button
             className="lesson-panel-backdrop"
@@ -2412,6 +2624,285 @@ export function CurriculumTimeline({
         </>
       ) : null}
 
+      {displayMode === 'timeline' ? (
+        <>
+          <div className="timeline-toolbar" aria-label="Timeline tools">
+            <div className="timeline-tool-group">
+              <button
+                type="button"
+                aria-label="Selection tool"
+                title="Select and move (V)"
+                aria-pressed={!handTool}
+                onClick={() => setHandTool(false)}
+              >
+                <TimelineIcon name="select" />
+                <span>Select</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Hand tool"
+                title="Pan (H), or hold Space and drag"
+                aria-pressed={handTool}
+                onClick={() => setHandTool(true)}
+              >
+                <TimelineIcon name="hand" />
+                <span>Hand</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Snap to nearby edges"
+                title="Snap to nearby edges (S). Hold Alt to bypass."
+                aria-pressed={snapEnabled}
+                onClick={() => setSnapEnabled((value) => !value)}
+              >
+                <TimelineIcon name="snap" />
+                <span>Snap</span>
+              </button>
+            </div>
+            <div className="timeline-tool-group">
+              <button
+                type="button"
+                aria-label="Undo timing change"
+                title="Undo timing change (⌘/Ctrl Z)"
+                disabled={saving || !!pendingChange || !undoStack.length || !canEditSharedPlan}
+                onClick={() => void travelHistory('undo')}
+              >
+                <TimelineIcon name="undo" />
+              </button>
+              <button
+                type="button"
+                aria-label="Redo timing change"
+                title="Redo timing change (⌘/Ctrl Shift Z)"
+                disabled={saving || !!pendingChange || !redoStack.length || !canEditSharedPlan}
+                onClick={() => void travelHistory('redo')}
+              >
+                <TimelineIcon name="redo" />
+              </button>
+            </div>
+            <div className="timeline-zoom-control">
+              <button
+                type="button"
+                aria-label="Zoom out"
+                disabled={slotWidth <= minScale || !!drag || !!lessonDrag}
+                onClick={() => zoomTo(slotWidth / 1.25)}
+              >
+                <TimelineIcon name="minus" />
+              </button>
+              <input
+                aria-label="Timeline zoom"
+                title="Timeline zoom"
+                type="range"
+                min="0"
+                max="100"
+                step="0.1"
+                value={(100 * Math.log(slotWidth / minScale)) / Math.log(200 / minScale)}
+                disabled={!!drag || !!lessonDrag}
+                onChange={(event) =>
+                  zoomTo(minScale * Math.pow(200 / minScale, Number(event.target.value) / 100))
+                }
+              />
+              <button
+                type="button"
+                aria-label="Zoom in"
+                disabled={slotWidth >= 200 || !!drag || !!lessonDrag}
+                onClick={() => zoomTo(slotWidth * 1.25)}
+              >
+                <TimelineIcon name="plus" />
+              </button>
+              <output>{Math.round((slotWidth / 72) * 100)}%</output>
+            </div>
+            <div className="timeline-tool-group timeline-zoom-presets">
+              <button
+                type="button"
+                title="Fit the whole year (0)"
+                onClick={() => {
+                  zoomTo(viewport.width / visibleMeetings, 0);
+                  canvasWrapRef.current?.scrollTo({ left: 0 });
+                }}
+              >
+                <TimelineIcon name="fit" />
+                Year
+              </button>
+              <button type="button" onClick={() => zoomTo(viewport.width / 20)}>
+                Month
+              </button>
+              <button type="button" onClick={() => zoomTo(viewport.width / 5)}>
+                Week
+              </button>
+              <button
+                type="button"
+                title="Fit selected item (F)"
+                disabled={!selectedRange}
+                onClick={fitSelection}
+              >
+                Selection
+              </button>
+            </div>
+            <div className="timeline-tool-group timeline-navigation">
+              <button
+                type="button"
+                aria-label="Show previous dates"
+                onClick={() => scrollCanvasBy(-1)}
+              >
+                <TimelineIcon name="left" />
+              </button>
+              <button
+                type="button"
+                disabled={!todayDate || !selectedSection || !rangeMeetings.length}
+                onClick={scrollToToday}
+              >
+                Today
+              </button>
+              <button type="button" aria-label="Show next dates" onClick={() => scrollCanvasBy(1)}>
+                <TimelineIcon name="right" />
+              </button>
+              <button
+                type="button"
+                aria-label="Timeline shortcuts"
+                aria-expanded={showShortcuts}
+                onClick={() => setShowShortcuts((value) => !value)}
+              >
+                <TimelineIcon name="help" />
+              </button>
+            </div>
+          </div>
+          {showShortcuts ? (
+            <div className="timeline-shortcuts">
+              <span>
+                <kbd>V</kbd> Select
+              </span>
+              <span>
+                <kbd>H</kbd> Hand
+              </span>
+              <span>
+                <kbd>Space</kbd> + drag to pan
+              </span>
+              <span>
+                Pinch or <kbd>Alt</kbd> + scroll to zoom
+              </span>
+              <span>
+                <kbd>← →</kbd> Move 1 meeting · <kbd>Shift</kbd> for 5
+              </span>
+              <span>
+                <kbd>Alt ← →</kbd> Resize
+              </span>
+              <span>
+                <kbd>Esc</kbd> Cancel drag
+              </span>
+              <span>Double-click a lesson to open it</span>
+            </div>
+          ) : null}
+          <div className="timeline-inspector">
+            {selectedRange && selectedPosition ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const start = Number(timingStart) - 1,
+                    span = Number(timingSpan);
+                  const min = selection?.type === 'unit' ? 0 : selectedPosition.start;
+                  const max =
+                    selection?.type === 'unit'
+                      ? visibleMeetings
+                      : selectedPosition.start + selectedPosition.span;
+                  if (
+                    !Number.isInteger(start) ||
+                    !Number.isInteger(span) ||
+                    start < min ||
+                    span < 1 ||
+                    start + span > max
+                  ) {
+                    setStatus(`Choose whole meetings between ${min + 1} and ${max}.`);
+                    return;
+                  }
+                  changeSelectedRange({ start, span });
+                }}
+              >
+                <span className="timeline-inspector-title">
+                  {selectedUnit?.title ?? selectedLesson?.title}
+                </span>
+                <label>
+                  Start{' '}
+                  <input
+                    aria-label="Start meeting"
+                    type="number"
+                    min={selection?.type === 'unit' ? 1 : selectedPosition.start + 1}
+                    max={visibleMeetings}
+                    required
+                    value={timingStart}
+                    onChange={(event) => setTimingStart(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Length{' '}
+                  <input
+                    aria-label="Length in meetings"
+                    type="number"
+                    min="1"
+                    max={visibleMeetings}
+                    required
+                    value={timingSpan}
+                    onChange={(event) => setTimingSpan(event.target.value)}
+                  />
+                </label>
+                <span className="timeline-inspector-unit">meetings</span>
+                <button type="submit" disabled={saving || !canEditSharedPlan || !!pendingChange}>
+                  Apply timing
+                </button>
+                {selectedLesson ? <button type="button" onClick={() => onOpenLesson ? onOpenLesson(selectedLesson.id) : setOpenLessonPlanId(selectedLesson.id)}>Open lesson</button> : null}
+                <button
+                  type="button"
+                  aria-label="Move selected item earlier"
+                  disabled={saving || !canEditSharedPlan || !!pendingChange}
+                  onClick={() =>
+                    changeSelectedRange(
+                      editClipRange(
+                        selectedRange,
+                        'move',
+                        -1,
+                        selection?.type === 'unit' ? 0 : selectedPosition.start,
+                        selection?.type === 'unit'
+                          ? visibleMeetings
+                          : selectedPosition.start + selectedPosition.span
+                      )
+                    )
+                  }
+                >
+                  <TimelineIcon name="left" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Move selected item later"
+                  disabled={saving || !canEditSharedPlan || !!pendingChange}
+                  onClick={() =>
+                    changeSelectedRange(
+                      editClipRange(
+                        selectedRange,
+                        'move',
+                        1,
+                        selection?.type === 'unit' ? 0 : selectedPosition.start,
+                        selection?.type === 'unit'
+                          ? visibleMeetings
+                          : selectedPosition.start + selectedPosition.span
+                      )
+                    )
+                  }
+                >
+                  <TimelineIcon name="right" />
+                </button>
+              </form>
+            ) : (
+              <span>
+                Select a unit or lesson to edit its timing. Drag either edge to extend or shorten
+                it.
+              </span>
+            )}
+            <span className="timeline-save-state" role="status">
+              {saving ? 'Saving…' : `${visibleMeetings} meetings`}
+            </span>
+          </div>
+        </>
+      ) : null}
+
       <div className="curriculum-split-view">
         <aside className="curriculum-tree" aria-label="Curriculum hierarchy">
           <div className="curriculum-tree-heading">
@@ -2438,17 +2929,15 @@ export function CurriculumTimeline({
               return (
                 <div
                   key={position.unit.id}
-                  className={
-                    [
-                      'curriculum-tree-unit',
-                      unitSelected ? 'selected' : '',
-                      unitDragging ? 'dragging' : '',
-                      unitDropBefore ? 'drop-before' : '',
-                      unitDropAfter ? 'drop-after' : ''
-                    ]
-                      .filter(Boolean)
-                      .join(' ')
-                  }
+                  className={[
+                    'curriculum-tree-unit',
+                    unitSelected ? 'selected' : '',
+                    unitDragging ? 'dragging' : '',
+                    unitDropBefore ? 'drop-before' : '',
+                    unitDropAfter ? 'drop-after' : ''
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                 >
                   <div
                     className="curriculum-tree-row"
@@ -2464,7 +2953,8 @@ export function CurriculumTimeline({
                       setOutlineUnitDropPosition(null);
                     }}
                     onDragOver={(event) => {
-                      if (!outlineDraggedUnitId || outlineDraggedUnitId === position.unit.id) return;
+                      if (!outlineDraggedUnitId || outlineDraggedUnitId === position.unit.id)
+                        return;
                       event.preventDefault();
                       event.dataTransfer.dropEffect = 'move';
                       const bounds = event.currentTarget.getBoundingClientRect();
@@ -2473,7 +2963,8 @@ export function CurriculumTimeline({
                       );
                     }}
                     onDrop={(event) => {
-                      if (!outlineDraggedUnitId || outlineDraggedUnitId === position.unit.id) return;
+                      if (!outlineDraggedUnitId || outlineDraggedUnitId === position.unit.id)
+                        return;
                       event.preventDefault();
                       event.stopPropagation();
                       const bounds = event.currentTarget.getBoundingClientRect();
@@ -2708,34 +3199,43 @@ export function CurriculumTimeline({
           </div>
         </aside>
 
-        <div className="curriculum-canvas-wrap" ref={canvasWrapRef}>
+        <div
+          className={`curriculum-canvas-wrap${handTool || spaceHeld ? ' is-hand' : ''}${panning ? ' is-panning' : ''}`}
+          ref={canvasWrapRef}
+          tabIndex={0}
+          aria-label="Interactive meeting timeline"
+          {...panHandlers}
+        >
           <div className="curriculum-scale" style={{ minWidth: timelineSlots.length * slotWidth }}>
-            {timelineSlots.map((slot, index) => (
-              <span key={`${slot.startMeeting}-${slot.endMeeting}`} style={{ width: slotWidth }}>
-                {index % (zoom === 'year' ? 5 : 1) === 0 ? slot.label : ''}
-              </span>
-            ))}
+            {timelineSlots
+              .filter((_, index) => index % Math.max(1, Math.ceil(82 / slotWidth)) === 0)
+              .map((slot) => (
+                <span
+                  key={slot.startMeeting}
+                  style={{ width: Math.max(1, Math.ceil(82 / slotWidth)) * slotWidth }}
+                >
+                  <strong>{slot.label}</strong>
+                  <small>
+                    {meetings.length ? `M${slot.startMeeting + 1}` : 'Meeting sequence'}
+                  </small>
+                </span>
+              ))}
           </div>
           <div
             className="curriculum-canvas"
             style={
               {
                 minWidth: timelineSlots.length * slotWidth,
-                '--slot-width': `${slotWidth}px`
+                '--slot-width': `${slotWidth}px`,
+                '--grid-width': `${slotWidth * Math.max(1, Math.ceil(16 / slotWidth))}px`
               } as CSSProperties
             }
           >
             {positions.map((position) => {
               const selected = selection?.type === 'unit' && selection.id === position.unit.id;
               const isDragging = drag?.unit.unit.id === position.unit.id;
-              const start =
-                isDragging && drag?.mode === 'move' && dragPreview !== null
-                  ? dragPreview
-                  : position.start;
-              const span =
-                isDragging && drag?.mode === 'resize' && dragPreview !== null
-                  ? dragPreview
-                  : position.span;
+              const start = isDragging && dragPreview !== null ? dragPreview.start : position.start;
+              const span = isDragging && dragPreview !== null ? dragPreview.span : position.span;
               const hasConflict = positions.some(
                 (other) =>
                   other.unit.id !== position.unit.id &&
@@ -2743,7 +3243,6 @@ export function CurriculumTimeline({
                   other.start < start + span
               );
               const expanded = expandedUnitIds.includes(position.unit.id);
-              const displayRange = displayRangeForMeetings(start, span);
               const orderedLessons = [...position.unit.lessons].sort(
                 (left, right) => left.orderIndex - right.orderIndex
               );
@@ -2775,9 +3274,12 @@ export function CurriculumTimeline({
                         .filter(Boolean)
                         .join(' ')}
                       style={{
-                        gridColumn: `${displayRange.start + 1} / span ${displayRange.span}`
+                        left: start * slotWidth,
+                        width: span * slotWidth
                       }}
-                      aria-label={`Unit ${position.unit.title}, meetings ${start + 1} through ${start + span}`}
+                      data-compact={span * slotWidth < 90 || undefined}
+                      aria-label={`Unit ${position.unit.title}, meetings ${Math.round(start) + 1} through ${Math.round(start + span)}`}
+                      title={`${position.unit.title} · Meetings ${Math.round(start) + 1}–${Math.round(start + span)}. Drag to move; drag either edge to trim.`}
                       onContextMenu={(event) => openContextMenu(event, 'unit', position.unit.id)}
                       onPointerDown={(event) => beginUnitDrag(event, position, 'move')}
                       onPointerMove={updateUnitDrag}
@@ -2788,20 +3290,58 @@ export function CurriculumTimeline({
                         }
                       }}
                       onPointerCancel={() => {
+                        pointerRef.current = null;
                         setDrag(null);
                         setDragPreview(null);
                       }}
                     >
                       <button
+                        className="curriculum-unit-resize timeline-trim-start"
+                        type="button"
+                        role="slider"
+                        aria-label={`Adjust ${position.unit.title} start`}
+                        aria-valuemin={1}
+                        aria-valuemax={Math.round(start + span)}
+                        aria-valuenow={Math.round(start) + 1}
+                        aria-valuetext={`Meeting ${Math.round(start) + 1}`}
+                        aria-orientation="horizontal"
+                        disabled={!canEditSharedPlan || saving}
+                        title="Drag to trim the start; arrow keys adjust one meeting"
+                        onPointerDown={(event) => beginUnitDrag(event, position, 'trim-start')}
+                        onPointerMove={updateUnitDrag}
+                        onPointerUp={(event) => {
+                          event.stopPropagation();
+                          finishUnitDrag();
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const range = editClipRange(
+                            position,
+                            'trim-start',
+                            event.key === 'ArrowLeft' ? -1 : 1,
+                            0,
+                            visibleMeetings
+                          );
+                          requestUnitResize(position, range.span, range.start);
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <TimelineIcon name="trim-start" />
+                      </button>
+                      <button
                         className="curriculum-unit-content"
                         type="button"
                         onClick={() => {
-                          selectUnit(position.unit);
+                          if (!suppressClick.current) selectUnit(position.unit);
+                          suppressClick.current = false;
                         }}
                       >
+                        <TimelineIcon name="grip" />
                         <strong>{position.unit.title}</strong>
                         <span>
-                          {position.unit.lessons.length} lessons · {span} meetings
+                          {position.unit.lessons.length} lessons · {Math.round(span)} meetings
                         </span>
                       </button>
                       <button
@@ -2812,41 +3352,44 @@ export function CurriculumTimeline({
                         aria-orientation="horizontal"
                         aria-valuemin={1}
                         aria-valuemax={Math.max(span, visibleMeetings - start)}
-                        aria-valuenow={span}
+                        aria-valuenow={Math.round(span)}
                         aria-valuetext={`${span} ${span === 1 ? 'meeting' : 'meetings'}`}
-                        disabled={!canEditSharedPlan}
+                        disabled={!canEditSharedPlan || saving}
                         title="Drag to resize, or use the arrow keys"
                         onPointerDown={(event) => beginUnitDrag(event, position, 'resize')}
                         onPointerMove={updateUnitDrag}
-                        onPointerUp={finishUnitDrag}
+                        onPointerUp={(event) => {
+                          event.stopPropagation();
+                          finishUnitDrag();
+                        }}
+                        onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => adjustUnitResize(event, position)}
                         onPointerCancel={() => {
                           setDrag(null);
                           setDragPreview(null);
                         }}
                       >
-                        <span className="curriculum-resize-glyph" aria-hidden="true">
-                          <span />
-                        </span>
+                        <TimelineIcon name="trim-end" />
                       </button>
                     </article>
                   </div>
                   {expanded
                     ? orderedLessons.map((lesson, index) => {
-                        const defaultLessonSpan = Math.max(
-                          1,
-                          Math.floor(span / Math.max(1, orderedLessons.length))
-                        );
-                        const defaultLessonStart =
-                          start + Math.min(span - 1, index * defaultLessonSpan);
+                        const fallback = reflowLessonRanges(
+                          position.start,
+                          position.span,
+                          orderedLessons.length
+                        )[index]!;
+                        const defaultLessonSpan = fallback.span;
+                        const defaultLessonStart = fallback.start;
                         const lessonSpan = Math.min(
-                          span,
+                          position.span,
                           effectiveLessonSpan(lesson, defaultLessonSpan)
                         );
                         const lessonStart = clamp(
                           effectiveLessonStart(lesson, defaultLessonStart),
-                          start,
-                          Math.max(start, start + span - lessonSpan)
+                          position.start,
+                          Math.max(position.start, position.start + position.span - lessonSpan)
                         );
                         const active = currentLessonId === lesson.id;
                         const selectedLesson =
@@ -2860,10 +3403,6 @@ export function CurriculumTimeline({
                           isLessonDragging && lessonDragPreview
                             ? lessonDragPreview.span
                             : lessonSpan;
-                        const lessonDisplayRange = displayRangeForMeetings(
-                          displayStart,
-                          displaySpan
-                        );
                         return (
                           <div
                             key={lesson.id}
@@ -2880,13 +3419,12 @@ export function CurriculumTimeline({
                                 .filter(Boolean)
                                 .join(' ')}
                               style={{
-                                gridColumn: `${lessonDisplayRange.start + 1} / span ${lessonDisplayRange.span}`,
-                                transform:
-                                  isLessonDragging && lessonDrag?.mode === 'move'
-                                    ? `translateX(${lessonDragRemainder}px)`
-                                    : undefined
+                                left: displayStart * slotWidth,
+                                width: displaySpan * slotWidth
                               }}
-                              aria-label={`${lesson.title}, ${displaySpan} ${displaySpan === 1 ? 'meeting' : 'meetings'}`}
+                              data-compact={displaySpan * slotWidth < 70 || undefined}
+                              title={`${lesson.title} · Meetings ${Math.round(displayStart) + 1}–${Math.round(displayStart + displaySpan)}. Double-click to open.`}
+                              aria-label={`${lesson.title}, ${Math.round(displaySpan)} ${Math.round(displaySpan) === 1 ? 'meeting' : 'meetings'}`}
                               onContextMenu={(event) => openContextMenu(event, 'lesson', lesson.id)}
                               onPointerDown={(event) =>
                                 beginLessonDrag(
@@ -2906,18 +3444,73 @@ export function CurriculumTimeline({
                                 });
                               }}
                               onPointerCancel={() => {
+                                pointerRef.current = null;
                                 setLessonDrag(null);
                                 setLessonDragPreview(null);
-                                setLessonDragRemainder(0);
                               }}
                             >
                               <button
+                                className="curriculum-lesson-resize timeline-trim-start"
+                                type="button"
+                                role="slider"
+                                aria-label={`Adjust ${lesson.title} start`}
+                                aria-valuemin={position.start + 1}
+                                aria-valuemax={lessonStart + lessonSpan}
+                                aria-valuenow={Math.round(displayStart) + 1}
+                                aria-valuetext={`Meeting ${Math.round(displayStart) + 1}`}
+                                aria-orientation="horizontal"
+                                disabled={!canEditSharedPlan || saving}
+                                title="Drag to trim the start; arrow keys adjust one meeting"
+                                onPointerDown={(event) =>
+                                  beginLessonDrag(
+                                    event,
+                                    lesson,
+                                    'trim-start',
+                                    lessonStart,
+                                    lessonSpan,
+                                    position.start,
+                                    position.span
+                                  )
+                                }
+                                onPointerMove={updateLessonDrag}
+                                onPointerUp={(event) => {
+                                  event.stopPropagation();
+                                  void finishLessonDrag();
+                                }}
+                                onClick={(event) => event.stopPropagation()}
+                                onKeyDown={(event) => {
+                                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')
+                                    return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  const range = editClipRange(
+                                    { start: lessonStart, span: lessonSpan },
+                                    'trim-start',
+                                    event.key === 'ArrowLeft' ? -1 : 1,
+                                    position.start,
+                                    position.start + position.span
+                                  );
+                                  void persistTiming([
+                                    timingPatch('lesson', lesson, range.start, range.span)
+                                  ]);
+                                }}
+                              >
+                                <TimelineIcon name="trim-start" />
+                              </button>
+                              <button
                                 className="curriculum-lesson-content"
                                 type="button"
-                                onClick={() => selectLesson(lesson)}
+                                onClick={() => {
+                                  if (!suppressClick.current) selectLesson(lesson);
+                                  suppressClick.current = false;
+                                }}
+                                onDoubleClick={() => {
+                                  if (onOpenLesson) onOpenLesson(lesson.id);
+                                  else { selectLesson(lesson); setOpenLessonPlanId(lesson.id); }
+                                }}
                               >
                                 <span>{lesson.title}</span>
-                                <small>{displaySpan} mtg</small>
+                                <small>{Math.round(displaySpan)} mtg</small>
                               </button>
                               <button
                                 className="curriculum-lesson-resize"
@@ -2927,9 +3520,9 @@ export function CurriculumTimeline({
                                 aria-orientation="horizontal"
                                 aria-valuemin={1}
                                 aria-valuemax={Math.max(lessonSpan, start + span - lessonStart)}
-                                aria-valuenow={displaySpan}
+                                aria-valuenow={Math.round(displaySpan)}
                                 aria-valuetext={`${displaySpan} ${displaySpan === 1 ? 'meeting' : 'meetings'}`}
-                                disabled={!canEditSharedPlan}
+                                disabled={!canEditSharedPlan || saving}
                                 title="Drag to resize, or use the arrow keys"
                                 onPointerDown={(event) =>
                                   beginLessonDrag(
@@ -2943,7 +3536,11 @@ export function CurriculumTimeline({
                                   )
                                 }
                                 onPointerMove={updateLessonDrag}
-                                onPointerUp={() => void finishLessonDrag()}
+                                onPointerUp={(event) => {
+                                  event.stopPropagation();
+                                  void finishLessonDrag();
+                                }}
+                                onClick={(event) => event.stopPropagation()}
                                 onKeyDown={(event) =>
                                   void adjustLessonResize(
                                     event,
@@ -2957,12 +3554,9 @@ export function CurriculumTimeline({
                                 onPointerCancel={() => {
                                   setLessonDrag(null);
                                   setLessonDragPreview(null);
-                                  setLessonDragRemainder(0);
                                 }}
                               >
-                                <span className="curriculum-resize-glyph" aria-hidden="true">
-                                  <span />
-                                </span>
+                                <TimelineIcon name="trim-end" />
                               </button>
                             </article>
                           </div>
@@ -2990,7 +3584,7 @@ export function CurriculumTimeline({
                 setRangePreview(null);
               }}
             >
-              <span>Drag across dates to plan</span>
+              <span>Drag across meetings to add a unit</span>
             </div>
             {rangePreview ? (
               <div
@@ -3014,6 +3608,94 @@ export function CurriculumTimeline({
           </div>
         </div>
       </div>
+
+      {displayMode === 'timeline' ? (
+        <div className="timeline-footer">
+          <span className="timeline-overview-label">Year overview</span>
+          <div
+            className="timeline-overview"
+            role="slider"
+            tabIndex={0}
+            aria-label="Timeline position in year"
+            aria-valuemin={1}
+            aria-valuemax={visibleMeetings}
+            aria-valuenow={Math.floor(viewport.left / slotWidth) + 1}
+            aria-valuetext={`Viewing meeting ${Math.floor(viewport.left / slotWidth) + 1} onward`}
+            aria-orientation="horizontal"
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              event.currentTarget.focus();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              const rect = event.currentTarget.getBoundingClientRect();
+              canvasWrapRef.current?.scrollTo({
+                left:
+                  ((event.clientX - rect.left) / rect.width) * visibleMeetings * slotWidth -
+                  viewport.width / 2
+              });
+            }}
+            onPointerMove={(event) => {
+              if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              canvasWrapRef.current?.scrollTo({
+                left:
+                  ((event.clientX - rect.left) / rect.width) * visibleMeetings * slotWidth -
+                  viewport.width / 2
+              });
+            }}
+            onPointerUp={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                event.stopPropagation();
+                event.preventDefault();
+                scrollCanvasBy(event.key === 'ArrowLeft' ? -1 : 1);
+              } else if (event.key === 'Home' || event.key === 'End') {
+                event.stopPropagation();
+                event.preventDefault();
+                canvasWrapRef.current?.scrollTo({
+                  left: event.key === 'Home' ? 0 : visibleMeetings * slotWidth
+                });
+              }
+            }}
+          >
+            {positions.map((position, index) => (
+              <span
+                key={position.unit.id}
+                className="timeline-overview-unit"
+                style={{
+                  left: `${(position.start / visibleMeetings) * 100}%`,
+                  width: `${(position.span / visibleMeetings) * 100}%`,
+                  top: 8 + (index % 3) * 6
+                }}
+              />
+            ))}
+            <span
+              className="timeline-overview-window"
+              style={{
+                left: `${(viewport.left / (visibleMeetings * slotWidth)) * 100}%`,
+                width: `${Math.min(100, (viewport.width / (visibleMeetings * slotWidth)) * 100)}%`
+              }}
+            />
+          </div>
+          <span className="timeline-visible-range">
+            M{Math.floor(viewport.left / slotWidth) + 1}–
+            {Math.min(visibleMeetings, Math.ceil((viewport.left + viewport.width) / slotWidth))}
+          </span>
+        </div>
+      ) : null}
+      {(dragPreview && drag) || (lessonDragPreview && lessonDrag) ? (
+        <div className="timeline-drag-readout" role="status">
+          {(() => {
+            const range = dragPreview ?? lessonDragPreview!;
+            const mode = drag?.mode ?? lessonDrag?.mode;
+            return `${mode === 'move' ? 'Move' : mode === 'trim-start' ? 'Trim start' : 'Trim end'} · M${Math.round(range.start) + 1}–${Math.round(range.start + range.span)} · ${Math.round(range.span)} meetings`;
+          })()}
+          <small>Release to save · Esc to cancel</small>
+        </div>
+      ) : null}
 
       {rangeDraft ? (
         <div
@@ -3117,6 +3799,13 @@ export function CurriculumTimeline({
               ? `Meeting ${pendingChange.start + 1}`
               : `${pendingChange.span} instructional meetings`}
           </span>
+          {pendingConflicts.length ? (
+            <p className="curriculum-change-conflict" role="alert">
+              This change overlaps {pendingConflicts.map((item) => item.unit.title).join(', ')}. A
+              unit may end where the next one begins, but these plans use the same instructional
+              meeting(s).
+            </p>
+          ) : null}
           <div>
             <button
               type="button"
@@ -3131,7 +3820,7 @@ export function CurriculumTimeline({
               disabled={saving}
               onClick={() => void applyPendingChange('only')}
             >
-              Don’t Move Other Lessons
+              Keep Both Plans
             </button>
             <button className="button-link" type="button" onClick={() => setPendingChange(null)}>
               Cancel
