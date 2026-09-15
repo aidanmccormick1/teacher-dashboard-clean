@@ -285,7 +285,9 @@ export function CurriculumTimeline({
   const scrollStorageKey = `teacheros_year_plan_scroll_${course.id}_${selectedSection?.sectionId ?? 'none'}_${displayMode}`;
   const selectedSectionId = selectedSection?.sectionId;
   const knownUnitIds = useRef(course.units.map((unit) => unit.id));
-  const structureKey = course.units.map((unit) => `${unit.id}:${unit.lessons.map((lesson) => lesson.id).join(',')}`).join('|');
+  const structureKey = course.units
+    .map((unit) => `${unit.id}:${unit.lessons.map((lesson) => lesson.id).join(',')}`)
+    .join('|');
 
   useEffect(() => {
     const ids = course.units.map((unit) => unit.id);
@@ -293,7 +295,10 @@ export function CurriculumTimeline({
     setExpandedUnitIds((previous) => [...previous.filter((id) => ids.includes(id)), ...added]);
     knownUnitIds.current = ids;
   }, [course.units]);
-  useEffect(() => { setUndoStack([]); setRedoStack([]); }, [structureKey]);
+  useEffect(() => {
+    setUndoStack([]);
+    setRedoStack([]);
+  }, [structureKey]);
 
   useEffect(() => {
     let active = true;
@@ -425,7 +430,11 @@ export function CurriculumTimeline({
     setSpaceHeld,
     panning,
     panHandlers
-  } = useTimelineViewport(visibleMeetings, scrollStorageKey, Boolean(drag || lessonDrag || rangeDrag));
+  } = useTimelineViewport(
+    visibleMeetings,
+    scrollStorageKey,
+    Boolean(drag || lessonDrag || rangeDrag)
+  );
   const courseMeetingSlots = useMemo(
     () =>
       Array.from(
@@ -1295,7 +1304,7 @@ export function CurriculumTimeline({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [Boolean(drag || lessonDrag), canvasWrapRef]);
+  }, [drag, lessonDrag, canvasWrapRef]);
 
   const selectedPosition = positions.find(
     (item) =>
@@ -1326,10 +1335,12 @@ export function CurriculumTimeline({
       span
     };
   })();
+  const selectedStart = selectedRange?.start;
+  const selectedSpan = selectedRange?.span;
   useEffect(() => {
-    setTimingStart(selectedRange ? String(selectedRange.start + 1) : '');
-    setTimingSpan(selectedRange ? String(selectedRange.span) : '');
-  }, [selection?.id, selectedRange?.start, selectedRange?.span]);
+    setTimingStart(selectedStart === undefined ? '' : String(selectedStart + 1));
+    setTimingSpan(selectedSpan === undefined ? '' : String(selectedSpan));
+  }, [selection?.id, selectedStart, selectedSpan]);
 
   const changeSelectedRange = (range: ClipRange) => {
     if (!selectedPosition || !selectedRange || !canEditSharedPlan || saving || pendingChange)
@@ -2250,7 +2261,14 @@ export function CurriculumTimeline({
             <summary aria-label={`Actions for selected ${selection.type}`}>•••</summary>
             <div>
               {selection.type === 'lesson' && selectedLesson ? (
-                <button type="button" onClick={() => onOpenLesson ? onOpenLesson(selectedLesson.id) : setOpenLessonPlanId(selectedLesson.id)}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onOpenLesson
+                      ? onOpenLesson(selectedLesson.id)
+                      : setOpenLessonPlanId(selectedLesson.id)
+                  }
+                >
                   Open lesson
                 </button>
               ) : null}
@@ -2848,7 +2866,18 @@ export function CurriculumTimeline({
                 <button type="submit" disabled={saving || !canEditSharedPlan || !!pendingChange}>
                   Apply timing
                 </button>
-                {selectedLesson ? <button type="button" onClick={() => onOpenLesson ? onOpenLesson(selectedLesson.id) : setOpenLessonPlanId(selectedLesson.id)}>Open lesson</button> : null}
+                {selectedLesson ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenLesson
+                        ? onOpenLesson(selectedLesson.id)
+                        : setOpenLessonPlanId(selectedLesson.id)
+                    }
+                  >
+                    Open lesson
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   aria-label="Move selected item earlier"
@@ -3506,7 +3535,10 @@ export function CurriculumTimeline({
                                 }}
                                 onDoubleClick={() => {
                                   if (onOpenLesson) onOpenLesson(lesson.id);
-                                  else { selectLesson(lesson); setOpenLessonPlanId(lesson.id); }
+                                  else {
+                                    selectLesson(lesson);
+                                    setOpenLessonPlanId(lesson.id);
+                                  }
                                 }}
                               >
                                 <span>{lesson.title}</span>
