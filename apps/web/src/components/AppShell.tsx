@@ -382,16 +382,6 @@ export function AppShell() {
             >
               <span className="sidebar-nav-label">Profile</span>
             </NavLink>
-            <button
-              className="sidebar-secondary-action secondary"
-              type="button"
-              onClick={() => {
-                closeMobileNavigation();
-                void auth.signOut();
-              }}
-            >
-              <span className="sidebar-nav-label">Sign out</span>
-            </button>
           </nav>
         </div>
         <div

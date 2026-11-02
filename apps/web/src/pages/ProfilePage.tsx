@@ -83,6 +83,7 @@ export function ProfilePage() {
   const [, setSaving] = useState(false);
   const [, setSaved] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [localAdminTestLoading, setLocalAdminTestLoading] = useState(false);
   const [localAdminTestMessage, setLocalAdminTestMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -206,6 +207,21 @@ export function ProfilePage() {
           <p className="eyebrow">Your profile</p>
           <h1>Your school & teaching profile</h1>
         </div>
+        <button
+          className="secondary profile-signout"
+          type="button"
+          disabled={signingOut}
+          onClick={() => {
+            setSigningOut(true);
+            setError(null);
+            void auth.signOut().catch(() => {
+              setError('Could not sign out. Please try again.');
+              setSigningOut(false);
+            });
+          }}
+        >
+          {signingOut ? 'Signing out…' : 'Sign out'}
+        </button>
       </section>
       {error ? <p className="notice warning">{error}</p> : null}
       <section className="profile-grid">

@@ -183,13 +183,6 @@ export function AdminShell() {
             </button>
             <Link to="/today?workspace=teaching">Teaching workspace</Link>
             <Link to="/profile">Profile</Link>
-            <button
-              className="admin-sidebar-signout secondary"
-              type="button"
-              onClick={() => void auth.signOut()}
-            >
-              Sign out
-            </button>
           </div>
         </div>
       </aside>

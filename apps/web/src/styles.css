@@ -3462,6 +3462,24 @@ body.course-editor-open {
 .profile-hero {
   padding: 34px;
   gap: 34px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.profile-signout {
+  min-height: 44px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+  .profile-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+    padding: 22px;
+  }
+
+  .profile-signout {
+    justify-self: start;
+  }
 }
 
 .profile-hero p:not(.eyebrow) {
