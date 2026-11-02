@@ -269,7 +269,7 @@ function createDeliveryStore(logger: {
       const result = await pool.query<Delivery>(`
         UPDATE feedback_notification_deliveries SET delivery_status='processing', locked_until=now()+interval '2 minutes'
         WHERE id=(SELECT id FROM feedback_notification_deliveries
-          WHERE ((delivery_status IN ('pending','configuration_blocked') AND next_attempt_at<=now())
+          WHERE notification_type='new_report' AND ((delivery_status IN ('pending','configuration_blocked') AND next_attempt_at<=now())
             OR (delivery_status='processing' AND locked_until<now()))
           ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED LIMIT 1)
         RETURNING *`);

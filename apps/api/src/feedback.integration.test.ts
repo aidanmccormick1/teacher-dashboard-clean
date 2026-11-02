@@ -83,7 +83,8 @@ describeDatabase('private feedback API against PostgreSQL', () => {
     };
     owner = {
       'x-dev-user-id': `feedback-owner-${marker}`,
-      'x-dev-user-email': `owner-${marker}@example.com`
+      'x-dev-user-email': `owner-${marker}@example.com`,
+      'x-feedback-password': 'Aiden'
     };
     admin = {
       'x-dev-user-id': `feedback-admin-${marker}`,
@@ -170,10 +171,10 @@ describeDatabase('private feedback API against PostgreSQL', () => {
   it('isolates teacher, school admin, and unauthenticated report/attachment access', async () => {
     const report = (await submit()).json();
     for (const headers of [other, admin, {}]) {
-      const expected = Object.keys(headers).length ? 404 : 401;
+      const expected = Object.keys(headers).length ? 403 : 401;
       expect(
         (await app.inject({ method: 'GET', url: `/v1/feedback/${report.id}`, headers })).statusCode
-      ).toBe(expected);
+      ).toBe(Object.keys(headers).length ? 404 : 401);
       expect(
         (
           await app.inject({
@@ -200,6 +201,19 @@ describeDatabase('private feedback API against PostgreSQL', () => {
     expect(
       (await app.inject({ method: 'GET', url: '/v1/feedback/access', headers: admin })).json()
     ).toEqual({ isSupport: false });
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/v1/management/feedback',
+          headers: { ...teacher, 'x-feedback-password': 'incorrect' }
+        })
+      ).statusCode
+    ).toBe(403);
+    expect(
+      (await app.inject({ method: 'GET', url: '/v1/management/feedback', headers: owner }))
+        .statusCode
+    ).toBe(200);
   });
   it('does not elevate a user who changes their onboarding email to the owner email', async () => {
     const forged = {
@@ -214,7 +228,7 @@ describeDatabase('private feedback API against PostgreSQL', () => {
         .statusCode
     ).toBe(403);
   });
-  it('keeps private notes and diagnostics out of teacher responses; queues teacher-facing replies', async () => {
+  it('stores developer notes while teachers cannot access reports or reply', async () => {
     const report = (await submit()).json();
     await app.inject({
       method: 'POST',
@@ -228,18 +242,21 @@ describeDatabase('private feedback API against PostgreSQL', () => {
       headers: owner,
       payload: { message: 'We are investigating.', visibility: 'teacher' }
     });
-    expect(sent.statusCode).toBe(200);
-    const teacherDetail = (
-      await app.inject({ method: 'GET', url: `/v1/feedback/${report.id}`, headers: teacher })
-    ).json();
-    expect(teacherDetail.replies).toHaveLength(1);
-    expect(teacherDetail.report.diagnostics).toBeUndefined();
-    expect(JSON.stringify(teacherDetail)).not.toContain('Private triage note');
+    expect(sent.statusCode).toBe(400);
+    const teacherDetail = await app.inject({
+      method: 'GET',
+      url: `/v1/feedback/${report.id}`,
+      headers: teacher
+    });
+    expect(teacherDetail.statusCode).toBe(404);
+    expect(
+      (await app.inject({ method: 'GET', url: '/v1/feedback/my', headers: teacher })).statusCode
+    ).toBe(404);
     const notice = await db.pool.query(
       "SELECT * FROM feedback_notification_deliveries WHERE report_id=$1 AND notification_type='teacher_reply'",
       [report.id]
     );
-    expect(notice.rows[0].recipient_identifier).toBe(teacher['x-dev-user-email']);
+    expect(notice.rows).toHaveLength(0);
     expect(
       (
         await app.inject({
@@ -249,7 +266,7 @@ describeDatabase('private feedback API against PostgreSQL', () => {
           payload: { message: 'Escalation', visibility: 'internal' }
         })
       ).statusCode
-    ).toBe(403);
+    ).toBe(404);
   });
   it('supports owner filtering, status audit, grouping, and ungrouping', async () => {
     const first = (await submit()).json();

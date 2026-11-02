@@ -324,13 +324,6 @@ export function AppShell() {
               </svg>
               <span className="sidebar-nav-label">Feedback</span>
             </button>
-            <NavLink
-              to="/feedback"
-              className="sidebar-secondary-link"
-              onClick={closeMobileNavigation}
-            >
-              My feedback
-            </NavLink>
             {isFeedbackSupport && (
               <NavLink
                 to="/management/feedback"

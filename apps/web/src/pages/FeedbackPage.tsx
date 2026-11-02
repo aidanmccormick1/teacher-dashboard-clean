@@ -71,11 +71,12 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [detail, setDetail] = useState<FullDetail | null>(null);
   const [isSupport, setIsSupport] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [reply, setReply] = useState('');
-  const [internal, setInternal] = useState(false);
   const [pending, setPending] = useState(false);
   const [groupTitle, setGroupTitle] = useState('');
   const [groupIds, setGroupIds] = useState<string[]>([]);
@@ -87,10 +88,6 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
     setLoading(true);
     setError('');
     try {
-      const access = await api.feedbackRequest<{ isSupport: boolean }>('/v1/feedback/access');
-      setIsSupport(access.isSupport);
-      if (management && !access.isSupport)
-        throw new ApiError('This inbox is private to authorized platform support accounts.', 403);
       if (id) setDetail(await api.feedbackRequest<FullDetail>(`${endpoint}/${id}`));
       else {
         const result = await api.feedbackRequest<Inbox>(
@@ -98,7 +95,16 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
         );
         setInbox(result);
       }
+      setLocked(false);
+      setIsSupport(true);
+      setPassword('');
     } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        setLocked(true);
+        setIsSupport(false);
+        setInbox(null);
+        setDetail(null);
+      }
       setError(err instanceof Error ? err.message : 'Could not load feedback.');
     } finally {
       setLoading(false);
@@ -166,12 +172,49 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
         <Link to="/today?workspace=teaching">Teaching workspace</Link>
         {id && <Link to={base}>Back to feedback</Link>}
         {isSupport && !management && <Link to="/management/feedback">Owner Feedback Inbox</Link>}
-        {management && <Link to="/feedback">My feedback</Link>}
+        {management && isSupport && (
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              window.sessionStorage.removeItem('teacheros_feedback_inbox_password');
+              setPassword('');
+              setDetail(null);
+              setInbox(null);
+              setIsSupport(false);
+              setLocked(true);
+            }}
+          >
+            Lock inbox
+          </button>
+        )}
         <button type="button" className="secondary" disabled={loading} onClick={() => void load()}>
           Refresh
         </button>
       </div>
       {loading && <p role="status">Loading feedback…</p>}
+      {!loading && locked && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            window.sessionStorage.setItem('teacheros_feedback_inbox_password', password);
+            void load();
+          }}
+        >
+          <label>
+            Inbox password
+            <input
+              autoFocus
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </label>
+          <button type="submit">Unlock inbox</button>
+        </form>
+      )}
       {error && (
         <p className="notice error" role="alert">
           {error}
@@ -617,7 +660,7 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
             </>
           )}
           <section>
-            <h2>Conversation{management ? ' and internal notes' : ''}</h2>
+            <h2>Developer notes</h2>
             {detail.replies.length ? (
               detail.replies.map((message) => (
                 <div className="feedback-reply" key={message.id}>
@@ -629,7 +672,7 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
                 </div>
               ))
             ) : (
-              <p>No replies yet.</p>
+              <p>No notes yet.</p>
             )}
             <form
               onSubmit={(event) => {
@@ -642,16 +685,12 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
                       method: 'POST',
                       body: JSON.stringify({
                         message: reply,
-                        visibility: management && internal ? 'internal' : 'teacher'
+                        visibility: 'internal'
                       })
                     })
                     .then(() => {
                       setReply('');
-                      setNotice(
-                        internal
-                          ? 'Private note saved.'
-                          : 'Reply saved. Email notification is queued when applicable.'
-                      );
+                      setNotice('Private note saved.');
                       return load();
                     })
                     .catch((err) =>
@@ -662,7 +701,7 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
               }}
             >
               <label>
-                {management && internal ? 'Private note' : 'Reply'}
+                Private note
                 <textarea
                   required
                   maxLength={10000}
@@ -671,18 +710,8 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
                   onChange={(event) => setReply(event.target.value)}
                 />
               </label>
-              {management && (
-                <label className="feedback-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={internal}
-                    onChange={(event) => setInternal(event.target.checked)}
-                  />
-                  Private internal note
-                </label>
-              )}
               <button type="submit" disabled={pending || !reply.trim()}>
-                {pending ? 'Saving…' : internal ? 'Save private note' : 'Send reply'}
+                {pending ? 'Saving…' : 'Save private note'}
               </button>
             </form>
           </section>

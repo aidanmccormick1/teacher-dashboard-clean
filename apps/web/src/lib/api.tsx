@@ -163,6 +163,13 @@ async function request<TResponse>(
     recordFeedbackEvent('api_action_started', { method, endpoint: path });
   const token = await auth.getToken();
   const headers = new Headers(init.headers);
+  if (
+    path.startsWith('/v1/management/feedback') ||
+    /^\/v1\/feedback\/[^/]+\/attachments\//.test(path)
+  ) {
+    const password = window.sessionStorage.getItem('teacheros_feedback_inbox_password');
+    if (password) headers.set('x-feedback-password', password);
+  }
   const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (browserTimeZone && !headers.has('x-teacher-timezone')) {
     headers.set('x-teacher-timezone', browserTimeZone);

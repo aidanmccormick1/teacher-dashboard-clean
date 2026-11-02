@@ -126,8 +126,6 @@ export default function App() {
       <Route element={<RequireAuth />}>
         <Route path="/management/feedback" element={<FeedbackPage management />} />
         <Route path="/management/feedback/:id" element={<FeedbackPage management />} />
-        <Route path="/feedback" element={<FeedbackPage />} />
-        <Route path="/feedback/:id" element={<FeedbackPage />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route element={<RequireOnboarding />}>
           <Route path="/admin/request-access" element={<AdminClaimRequestPage />} />

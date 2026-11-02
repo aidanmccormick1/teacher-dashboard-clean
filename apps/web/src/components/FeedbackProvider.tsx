@@ -8,7 +8,7 @@ import {
   type PropsWithChildren
 } from 'react';
 import { toCanvas } from 'html-to-image';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
 import { feedbackCategories, type FeedbackCategory } from '../lib/feedbackTypes.js';
@@ -53,6 +53,7 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
 
   useLayoutEffect(() => {
     clearFeedbackDiagnostics();
+    window.sessionStorage.removeItem('teacheros_feedback_inbox_password');
   }, [auth.userId]);
 
   useEffect(() => {
@@ -301,9 +302,6 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
             </p>
             {attachmentWarning && <p role="alert">{attachmentWarning}</p>}
             <div className="feedback-actions">
-              <Link to="/feedback" onClick={close}>
-                View my feedback
-              </Link>
               <button
                 className="secondary"
                 type="button"
@@ -470,9 +468,6 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
               <button type="submit" disabled={busy || !category || !description.trim()}>
                 {busy ? 'Sending feedback…' : 'Send Feedback'}
               </button>
-              <Link to="/feedback" onClick={close}>
-                My feedback
-              </Link>
             </div>
           </form>
         )}

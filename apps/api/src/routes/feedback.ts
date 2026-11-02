@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { pool } from '@teacheros/db';
@@ -49,8 +49,19 @@ export async function isFeedbackSupport(userId: string): Promise<boolean> {
 }
 async function requireSupport(request: FastifyRequest) {
   const user = await currentUser(request);
-  if (!(await isFeedbackSupport(user.id))) fail(403, 'Platform support access is required.');
+  const candidate = request.headers['x-feedback-password'];
+  if (!matchesFeedbackInboxPassword(candidate, request.server.config.FEEDBACK_INBOX_PASSWORD))
+    fail(403, 'Enter the developer inbox password.');
   return user;
+}
+export function matchesFeedbackInboxPassword(candidate: unknown, configured?: string): boolean {
+  const provided = createHash('sha256')
+    .update(typeof candidate === 'string' ? candidate : '')
+    .digest();
+  const expected = createHash('sha256')
+    .update(configured ?? 'Aiden')
+    .digest();
+  return timingSafeEqual(provided, expected);
 }
 async function authorizedReport(id: string, userId: string, support: boolean) {
   const result = await pool.query(
@@ -240,15 +251,6 @@ export async function feedbackRoutes(app: FastifyInstance) {
     }
   );
 
-  app.get('/v1/feedback/my', async (request) => {
-    const user = await currentUser(request);
-    const reports = await pool.query(
-      'SELECT id,reference_number,category,description,page_name,status,priority,created_at,updated_at FROM feedback_reports WHERE reporter_user_id=$1 ORDER BY created_at DESC LIMIT 100',
-      [user.id]
-    );
-    return { reports: camelFeedbackRow(reports.rows) };
-  });
-
   app.get('/v1/management/feedback', async (request) => {
     await requireSupport(request);
     const q = parse(
@@ -380,12 +382,11 @@ export async function feedbackRoutes(app: FastifyInstance) {
       groups: camelFeedbackRow(groups.rows)
     };
   }
-  app.get('/v1/feedback/:id', (request) => detail(request, false));
   app.get('/v1/management/feedback/:id', (request) => detail(request, true));
 
   app.get('/v1/feedback/:id/attachments/:attachmentId', async (request, reply) => {
-    const user = await currentUser(request);
-    const support = await isFeedbackSupport(user.id);
+    const user = await requireSupport(request);
+    const support = true;
     const { id, attachmentId } = parse(
       params.extend({ attachmentId: z.string().uuid() }),
       request.params
@@ -485,12 +486,12 @@ export async function feedbackRoutes(app: FastifyInstance) {
     const user = management ? await requireSupport(request) : await currentUser(request);
     const support = management || (await isFeedbackSupport(user.id));
     const { id } = parse(params, request.params);
-    const report = await authorizedReport(id, user.id, support);
+    await authorizedReport(id, user.id, support);
     const body = parse(
       z
         .object({
           message: z.string().trim().min(1).max(10000),
-          visibility: z.enum(['teacher', 'internal']).default('teacher')
+          visibility: z.literal('internal').default('internal')
         })
         .strict(),
       request.body
@@ -504,15 +505,6 @@ export async function feedbackRoutes(app: FastifyInstance) {
         'INSERT INTO feedback_replies(report_id,author_user_id,message,visibility) VALUES($1,$2,$3,$4) RETURNING *',
         [id, user.id, body.message, body.visibility]
       );
-      if (support && body.visibility === 'teacher') {
-        const reporter = await client.query('SELECT email FROM users WHERE id=$1', [
-          report.reporter_user_id
-        ]);
-        await client.query(
-          "INSERT INTO feedback_notification_deliveries(report_id,notification_type,recipient_identifier,reply_id) VALUES($1,'teacher_reply',$2,$3)",
-          [id, reporter.rows[0].email, result.rows[0].id]
-        );
-      }
       await client.query('UPDATE feedback_reports SET updated_at=now() WHERE id=$1', [id]);
       await client.query('COMMIT');
       return { reply: camelFeedbackRow(result.rows[0]) };
@@ -523,11 +515,6 @@ export async function feedbackRoutes(app: FastifyInstance) {
       client.release();
     }
   }
-  app.post(
-    '/v1/feedback/:id/replies',
-    { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
-    (request) => replyToReport(request, false)
-  );
   app.post(
     '/v1/management/feedback/:id/replies',
     { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },

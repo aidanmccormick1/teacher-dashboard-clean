@@ -2,8 +2,9 @@
 
 The API and existing PostgreSQL database are the system of record. The teacher
 opens Feedback without leaving their page; the owner uses `/management/feedback`.
-Teacher replies are available at `/feedback/:id`. Saving a report and creating its
-notification outbox entry happen in one database transaction. Email availability
+Teachers cannot view submitted reports. The developer can add private notes and
+update status from the inbox. Saving a report and creating its notification outbox
+entry happen in one database transaction. Email availability
 does not determine whether feedback saves successfully.
 
 ## Implementation map
@@ -19,9 +20,11 @@ does not determine whether feedback saves successfully.
 | Durable email outbox, retries and retention                                      | `apps/api/src/services/feedback-delivery.ts`                            |
 | Database schema and forward migration                                            | `packages/db/src/schema.ts`, `packages/db/migrations/0026_feedback.sql` |
 
-The frontend uses the existing API client and Clerk provider. The trusted Fastify
-backend enforces report ownership and explicit platform support grants. School
-administrator membership does not grant access to the platform inbox.
+The frontend uses the existing API client and Clerk provider. A signed-in user must
+enter the developer inbox password, which the Fastify backend checks on every inbox
+and attachment request. Reports are not exposed through teacher history endpoints.
+The password is stored only for the current browser tab and can be overridden using
+the server-only `FEEDBACK_INBOX_PASSWORD` environment variable.
 
 ## Environment and email setup
 
@@ -37,6 +40,7 @@ and S3 settings continue to apply.
 | `APP_PUBLIC_URL`              | Frontend origin used for authenticated report links. Set the actual HTTPS production URL.                            |
 | `FEEDBACK_NOTIFICATION_EMAIL` | Owner notification recipient; defaults to `am@aidanmccormick.com`. This does not grant dashboard access.             |
 | `FEEDBACK_EMAIL_ENABLED`      | Defaults to `true`. Set exactly `false` to pause delivery while feedback and the inbox continue working.             |
+| `FEEDBACK_INBOX_PASSWORD`     | Optional server-only override for the temporary developer inbox password.                                            |
 | `FEEDBACK_S3_BUCKET`          | Dedicated private attachment bucket. Required for screenshots; text feedback works without it.                       |
 | `FEEDBACK_RETENTION_DAYS`     | Integer from 1 to 3650, default 90; applies to diagnostic details, screenshots, and completed notification metadata. |
 
@@ -52,7 +56,7 @@ is restored and the API is restarted, the worker resumes eligible entries.
 Owner recipient overrides affect new outbox records; already queued records keep
 their recorded recipient. Never use an email recipient setting as authorization.
 
-## Migration and owner authorization
+## Migration and inbox access
 
 Apply the normal forward migration path after taking the usual database backup:
 
@@ -67,23 +71,12 @@ sequence, indexes, and `platform_support_users` grants. It does not reset data.
 Review and apply to a disposable database before production. No production
 migration or deployment is performed by implementing this feature.
 
-Support access is a database grant tied to an existing `users.id`, whose
-`clerk_user_id` is the authenticated Clerk subject. School admin membership and
-mutable profile email addresses confer no support access. Identify the intended
-owner by verifying their account in Clerk and match its subject to the database
-record; then an authorized database operator runs parameterized SQL:
-
-```sql
-INSERT INTO platform_support_users(user_id)
-SELECT id FROM users WHERE clerk_user_id = $1
-ON CONFLICT DO NOTHING;
-```
-
-Bind `$1` to the verified owner's Clerk subject through the database client.
-Verify one intended row was granted. Revoke with
-`DELETE FROM platform_support_users WHERE user_id = $1`, binding the user UUID.
-Grant each additional support user individually. Do not grant based solely on
-`am@aidanmccormick.com` or a teacher-entered onboarding email.
+Open `/management/feedback` while signed in and enter the temporary inbox
+password. Set `FEEDBACK_INBOX_PASSWORD` on the API to replace the built-in
+temporary password. Anyone with an application account and that password can
+open the inbox, so share it only with people who should see all reports.
+The legacy support-grant table is retained for compatibility and is not required
+to unlock the inbox.
 
 ## Private attachment storage
 
@@ -147,13 +140,11 @@ sender, and a controlled destination in `FEEDBACK_NOTIFICATION_EMAIL`. Submit a
 clearly labeled test report through the normal UI with synthetic content and no
 student data. Confirm the saved reference appears in the owner inbox, wait for
 the outbox status to change, check the configured destination and authenticated
-report link, and reply from the inbox using a test teacher account whose mailbox
-you control. A teacher-facing reply notification must contain the response and
-status, without internal notes or diagnostics. Do not send ordinary automated
-tests to real recipients.
+report link, and add a developer-only note. Confirm no teacher-facing reply
+notification is generated. Do not send ordinary automated tests to real recipients.
 
-Before release, verify teacher A cannot read teacher B's report or attachments,
-school admins cannot access management endpoints without a support grant, and an
+Before release, verify a teacher cannot read reports or attachments without the
+inbox password, school administrators cannot access management without it, and an
 unauthenticated request is rejected. Test the actual production private-bucket
 policy by confirming anonymous reads fail. Submit a synthetic report after
 deployment, inspect delivery state in the inbox, verify an authorized attachment

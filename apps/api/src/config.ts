@@ -50,6 +50,7 @@ const ConfigSchema = z.object({
   S3_SECRET_ACCESS_KEY: optionalStringFromEnv,
   RESEND_API_KEY: optionalStringFromEnv,
   FEEDBACK_EMAIL_ENABLED: booleanFromEnv.default(true),
+  FEEDBACK_INBOX_PASSWORD: optionalStringFromEnv,
   FEEDBACK_NOTIFICATION_EMAIL: z.string().email().default('am@aidanmccormick.com'),
   FEEDBACK_EMAIL_FROM: optionalStringFromEnv,
   FEEDBACK_S3_BUCKET: optionalStringFromEnv,
