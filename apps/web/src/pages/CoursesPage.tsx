@@ -332,7 +332,6 @@ function ScheduleImportPanel({
         </p>
         <HobieHint>
           <strong>Hobie can walk you through it.</strong>
-          <span>Review each detected detail before you apply the schedule.</span>
         </HobieHint>
       </div>
       <dl className="schedule-import-terms">

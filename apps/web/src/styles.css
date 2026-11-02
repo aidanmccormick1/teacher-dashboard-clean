@@ -11251,6 +11251,11 @@ button,
   text-underline-offset: 2px;
 }
 
+.hobie-feedback-action {
+  justify-self: start;
+  min-height: 44px;
+}
+
 .hobie-inline-note {
   display: flex;
   min-width: 0;

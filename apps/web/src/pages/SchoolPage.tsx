@@ -668,7 +668,6 @@ export function SchoolPage() {
                 </p>
                 <HobieHint>
                   <strong>Hobie can help with this import.</strong>
-                  <span>Review the dates before they become part of the school calendar.</span>
                 </HobieHint>
               </div>
             </div>

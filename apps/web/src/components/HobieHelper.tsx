@@ -1,29 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { useOpenFeedback } from './FeedbackProvider.js';
 
 export type HobieContext = 'default' | 'import' | 'calendar' | 'unit' | 'lesson';
 
-const helperCopy: Record<HobieContext, { title: string; body: string }> = {
-  default: {
-    title: 'Hobie is here to help.',
-    body: 'If you are finding your way around, start with the setup guide.'
-  },
-  import: {
-    title: 'Hobie can walk you through the import.',
-    body: 'Paste the schedule or choose a clear file. You can review every detail before you save it.'
-  },
-  calendar: {
-    title: 'Hobie can help with the calendar.',
-    body: 'Add a file or paste calendar text, then review the dates before they become part of your school year.'
-  },
-  unit: {
-    title: 'Hobie can sketch a unit plan.',
-    body: 'Give Hobie a learning goal and meeting details. Review the draft before adding it to your timeline.'
-  },
-  lesson: {
-    title: 'Hobie can help shape the lesson.',
-    body: 'Open the step drafter for a starting point, then keep only the steps that fit your class.'
-  }
+const helperCopy: Record<HobieContext, string> = {
+  default: 'Hobie is here to help.',
+  import: 'Hobie can walk you through the import.',
+  calendar: 'Hobie can help with the calendar.',
+  unit: 'Hobie can sketch a unit plan.',
+  lesson: 'Hobie can help shape the lesson.'
 };
 
 export function HobieHint({
@@ -42,6 +28,7 @@ export function HobieHint({
 }
 
 export function HobieHelper({ context = 'default' }: { context?: HobieContext }) {
+  const openFeedback = useOpenFeedback();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -73,7 +60,6 @@ export function HobieHelper({ context = 'default' }: { context?: HobieContext })
               <img src="/teacherdesk-favicon.png" alt="" aria-hidden="true" />
               <div>
                 <strong>Hobie</strong>
-                <span>Helpful assistant</span>
               </div>
             </div>
             <button
@@ -90,13 +76,23 @@ export function HobieHelper({ context = 'default' }: { context?: HobieContext })
             </button>
           </header>
           <div className="hobie-helper-copy">
-            <strong>{copy.title}</strong>
-            <p>{copy.body}</p>
+            <strong>{copy}</strong>
             {context === 'default' ? (
               <Link to="/guide" onClick={() => setOpen(false)}>
                 Open setup guide
               </Link>
             ) : null}
+            <button
+              className="secondary hobie-feedback-action"
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                triggerRef.current?.focus();
+                openFeedback();
+              }}
+            >
+              Send feedback
+            </button>
           </div>
         </section>
       ) : null}

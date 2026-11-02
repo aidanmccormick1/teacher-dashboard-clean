@@ -1988,7 +1988,6 @@ export function CurriculumTimeline({
                 </div>
                 <HobieHint className="curriculum-hobie-hint">
                   <strong>Review before adding.</strong>
-                  <span>Hobie’s draft stays out of the timeline until you approve it.</span>
                 </HobieHint>
                 <div className="curriculum-unit-composer">
                   <label className="curriculum-generator-prompt">

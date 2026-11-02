@@ -131,7 +131,6 @@ export function SetupGuidePage() {
           </p>
           <HobieHint>
             <strong>Hobie is here if you need a hand.</strong>
-            <span>Open an import, review what it finds, then decide what to save.</span>
           </HobieHint>
         </div>
         <div className="setup-guide-visual" aria-hidden="true">
