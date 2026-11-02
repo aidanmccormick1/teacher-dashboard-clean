@@ -1,3 +1,4 @@
+import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type {
@@ -72,6 +73,7 @@ export function TodayPage() {
   const [manualSectionId, setManualSectionId] = useState('');
   const [manualUnitId, setManualUnitId] = useState('');
   const [manualLessonId, setManualLessonId] = useState('');
+  useFeedbackContext({ courseId: manualCourseId || null, sectionId: manualSectionId || null, unitId: manualUnitId || null, lessonId: manualLessonId || null });
 
   useEffect(() => {
     let cancelled = false;

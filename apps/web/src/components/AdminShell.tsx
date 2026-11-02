@@ -4,6 +4,7 @@ import type { AdminOverviewResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
+import { useOpenFeedback } from './FeedbackProvider.js';
 
 const adminNavigation = [
   { label: 'Overview', href: '/admin', end: true },
@@ -113,6 +114,7 @@ export function AdminAccessGate() {
 }
 
 export function AdminShell() {
+  const openFeedback = useOpenFeedback();
   const auth = useAppAuth();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -176,6 +178,9 @@ export function AdminShell() {
             ))}
           </nav>
           <div className="admin-sidebar-secondary">
+            <button className="secondary" type="button" onClick={() => openFeedback()}>
+              Feedback
+            </button>
             <Link to="/today?workspace=teaching">Teaching workspace</Link>
             <Link to="/profile">Profile</Link>
             <button

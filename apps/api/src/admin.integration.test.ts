@@ -49,7 +49,8 @@ const migrationFiles = [
   '0022_admin_claim_safety.sql',
   '0023_school_invitations.sql',
   '0024_one_course_owner.sql',
-  '0025_school_invitation_expiry.sql'
+  '0025_school_invitation_expiry.sql',
+  '0026_feedback.sql'
 ];
 
 const truncateSql = `
@@ -137,6 +138,9 @@ function testConfig(): AppConfig {
     OPENAI_MODEL_PARSE_SCHEDULE: 'gpt-4o-mini',
     OPENAI_REASONING_EFFORT_PARSE_SCHEDULE: 'high',
     RUN_EMBEDDED_AI_WORKER: false,
+    FEEDBACK_EMAIL_ENABLED: false,
+    FEEDBACK_NOTIFICATION_EMAIL: 'am@aidanmccormick.com',
+    FEEDBACK_RETENTION_DAYS: 90,
     REDIS_URL: undefined,
     OPENAI_API_KEY: undefined,
     CLERK_SECRET_KEY: undefined,
@@ -165,7 +169,12 @@ async function runMigrations() {
             AND column_name = 'expires_at'
         ) AS ready
   `);
-  if (result.rows[0]?.ready) return;
+  if (result.rows[0]?.ready) {
+    const feedback = await pool.query("SELECT to_regclass('public.feedback_reports') AS ready");
+    if (!feedback.rows[0]?.ready)
+      await pool.query(await readFile(path.join(migrationsDir, '0026_feedback.sql'), 'utf8'));
+    return;
+  }
 
   for (const fileName of migrationFiles) {
     const sql = await readFile(path.join(migrationsDir, fileName), 'utf8');

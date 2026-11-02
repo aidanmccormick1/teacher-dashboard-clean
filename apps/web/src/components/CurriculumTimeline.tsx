@@ -1,3 +1,4 @@
+import { recordFeedbackEvent } from '../lib/feedbackDiagnostics.js';
 import {
   useCallback,
   useEffect,
@@ -37,6 +38,7 @@ import {
 } from '../lib/timeline-editing.js';
 import { TimelineIcon } from './TimelineIcon.js';
 import { useTimelineViewport } from './useTimelineViewport.js';
+import { HobieHint } from './HobieHelper.js';
 import './CurriculumTimeline.css';
 import './TimelineEditor.css';
 
@@ -1190,6 +1192,7 @@ export function CurriculumTimeline({
     event.currentTarget.setPointerCapture(event.pointerId);
     suppressClick.current = false;
     pointerRef.current = { clientX: event.clientX, altKey: event.altKey };
+    recordFeedbackEvent('lesson_drag_started', { lessonId: lesson.id, mode, component: 'curriculum_timeline' });
     setLessonDrag({
       lesson,
       mode,
@@ -1215,6 +1218,7 @@ export function CurriculumTimeline({
     const start = Math.round(lessonDragPreview.start);
     const span = Math.round(lessonDragPreview.span);
     const changed = start !== lessonDrag.start || span !== lessonDrag.span;
+    recordFeedbackEvent('lesson_drag_ended', { lessonId: lessonDrag.lesson.id, changed, component: 'curriculum_timeline' });
     suppressClick.current = changed;
     pointerRef.current = null;
     setLessonDrag(null);
@@ -1569,7 +1573,7 @@ export function CurriculumTimeline({
         })
       });
     } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not generate lesson ideas');
+      setStatus(err instanceof ApiError ? err.message : 'Could not create a lesson draft');
     } finally {
       setIsGeneratingUnit(false);
     }
@@ -1614,9 +1618,9 @@ export function CurriculumTimeline({
       setGeneratedLessonDraft(null);
       setLessonGeneratorUnitId(null);
       setLessonGeneratorPrompt('');
-      setStatus('Generated lessons added to the unit');
+      setStatus('Lesson drafts added to the unit');
     } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not add generated lessons');
+      setStatus(err instanceof ApiError ? err.message : 'Could not add the lesson drafts');
     } finally {
       setSaving(false);
     }
@@ -1947,7 +1951,7 @@ export function CurriculumTimeline({
               >
                 {showUnitComposer && unitComposerMode === 'generate'
                   ? 'Close auto generator'
-                  : '✦ Auto generator'}
+                  : 'Auto-generate'}
               </button>
             ) : null}
           </div>
@@ -1979,9 +1983,13 @@ export function CurriculumTimeline({
                 aria-label="Auto-generate a full unit plan"
               >
                 <div>
-                  <strong>Auto-generate a full unit plan</strong>
+                  <strong>Hobie can sketch a full unit plan</strong>
                   <span>Drafts a unit, lesson sequence, and lesson steps for your review.</span>
                 </div>
+                <HobieHint className="curriculum-hobie-hint">
+                  <strong>Review before adding.</strong>
+                  <span>Hobie’s draft stays out of the timeline until you approve it.</span>
+                </HobieHint>
                 <div className="curriculum-unit-composer">
                   <label className="curriculum-generator-prompt">
                     <span>Learning goal</span>
@@ -2033,7 +2041,7 @@ export function CurriculumTimeline({
                     disabled={saving || isGeneratingUnit}
                     onClick={() => void createDraft()}
                   >
-                    {isGeneratingUnit ? 'Generating plan…' : 'Generate plan'}
+                    {isGeneratingUnit ? 'Hobie is drafting…' : 'Draft unit plan'}
                   </button>
                 </div>
                 <small>Tell us how often the class meets and how long each meeting lasts.</small>
@@ -3161,7 +3169,7 @@ export function CurriculumTimeline({
                             setGeneratedLessonDraft(null);
                           }}
                         >
-                          ✦ Auto-generate lessons
+                          Hobie can draft lessons
                         </button>
                       </div>
                       {lessonGeneratorUnitId === position.unit.id ? (
@@ -3186,7 +3194,7 @@ export function CurriculumTimeline({
                           </label>
                           {generatedLessonDraft?.unitId === position.unit.id ? (
                             <div className="curriculum-generated-lessons">
-                              <span>Auto-generated draft · not added yet</span>
+                              <span>Hobie’s draft · not added yet</span>
                               <ol>
                                 {generatedLessonDraft.draft.unit.lessons.map((lesson) => (
                                   <li key={lesson.title}>{lesson.title}</li>
@@ -3198,7 +3206,7 @@ export function CurriculumTimeline({
                                   disabled={saving}
                                   onClick={() => void acceptGeneratedLessons(position.unit)}
                                 >
-                                  Add generated lessons
+                                  Add drafted lessons
                                 </button>
                                 <button
                                   className="secondary"
@@ -3215,7 +3223,7 @@ export function CurriculumTimeline({
                               disabled={isGeneratingUnit || lessonGeneratorPrompt.trim().length < 8}
                               onClick={() => void createGeneratedLessonDraft(position.unit)}
                             >
-                              {isGeneratingUnit ? 'Generating…' : 'Generate lesson draft'}
+                              {isGeneratingUnit ? 'Hobie is drafting…' : 'Draft lesson plan'}
                             </button>
                           )}
                         </div>
@@ -3439,6 +3447,7 @@ export function CurriculumTimeline({
                             data-selected={selectedLesson ? 'true' : undefined}
                           >
                             <article
+                              data-feedback-component="curriculum-lesson"
                               className={[
                                 'curriculum-lesson-bar',
                                 active ? 'current' : '',

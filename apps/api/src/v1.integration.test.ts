@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { aiJobs, auditEvents, db, pool, schoolHolidays, users } from '@teacheros/db';
+import { aiJobs, db, pool, schoolHolidays, users } from '@teacheros/db';
 
 import { createApp } from './app.js';
 import type { AppConfig } from './config.js';
@@ -52,7 +52,12 @@ async function runMigrations() {
             AND column_name = 'expires_at'
         ) AS ready
   `);
-  if (result.rows[0]?.ready) return;
+  if (result.rows[0]?.ready) {
+    const feedback = await pool.query("SELECT to_regclass('public.feedback_reports') AS ready");
+    if (!feedback.rows[0]?.ready)
+      await pool.query(await readFile(path.join(migrationsDir, '0026_feedback.sql'), 'utf8'));
+    return;
+  }
 
   const migrationFiles = [
     '0000_initial.sql',
@@ -80,7 +85,8 @@ async function runMigrations() {
     '0022_admin_claim_safety.sql',
     '0023_school_invitations.sql',
     '0024_one_course_owner.sql',
-    '0025_school_invitation_expiry.sql'
+    '0025_school_invitation_expiry.sql',
+    '0026_feedback.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -142,6 +148,9 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       OPENAI_MODEL_PARSE_SCHEDULE: 'gpt-4o-mini',
       OPENAI_REASONING_EFFORT_PARSE_SCHEDULE: 'high',
       RUN_EMBEDDED_AI_WORKER: false,
+      FEEDBACK_EMAIL_ENABLED: false,
+      FEEDBACK_NOTIFICATION_EMAIL: 'am@aidanmccormick.com',
+      FEEDBACK_RETENTION_DAYS: 90,
       REDIS_URL: undefined,
       OPENAI_API_KEY: undefined,
       CLERK_SECRET_KEY: undefined,
@@ -2436,7 +2445,7 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
   });
 
   describe('v1 feedback', () => {
-    it('persists teacher feedback as an audit event', async () => {
+    it('persists teacher feedback and its notification independently of email availability', async () => {
       const onboarding = await app.inject({
         method: 'POST',
         url: '/v1/onboarding',
@@ -2444,43 +2453,32 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         payload: onboardingBody
       });
       expect(onboarding.statusCode).toBe(200);
-
       const response = await app.inject({
         method: 'POST',
         url: '/v1/feedback',
         headers: teacherHeaders,
         payload: {
-          type: 'Confusing',
-          page: '/management',
-          message: 'The schedule import review needs clearer labels.',
-          userAgent: 'vitest'
+          clientReportId: '070ea3b0-3e54-4091-9dc9-c3560b110f7e',
+          category: 'usability',
+          pagePath: '/management',
+          description: 'The schedule import review needs clearer labels.'
         }
       });
-
       expect(response.statusCode).toBe(200);
-      const payload = response.json<{ feedbackId: string; saved: true }>();
-      expect(payload.saved).toBe(true);
-      expect(payload.feedbackId).toMatch(/[0-9a-f-]{36}/);
-
-      const [event] = await db
-        .select({
-          eventType: auditEvents.eventType,
-          entityType: auditEvents.entityType,
-          metadata: auditEvents.metadata
-        })
-        .from(auditEvents)
-        .where(eq(auditEvents.id, payload.feedbackId))
-        .limit(1);
-
-      expect(event?.eventType).toBe('teacher_feedback_submitted');
-      expect(event?.entityType).toBe('feedback');
-      expect(event?.metadata).toMatchObject({
-        type: 'Confusing',
-        page: '/management',
-        message: 'The schedule import review needs clearer labels.',
-        userAgent: 'vitest',
-        email: teacherHeaders['x-dev-user-email']
+      const payload = response.json<{ id: string; referenceNumber: string }>();
+      expect(payload.referenceNumber).toMatch(/^FB-\d+$/);
+      const saved = await pool.query('SELECT * FROM feedback_reports WHERE id=$1', [payload.id]);
+      expect(saved.rows[0]).toMatchObject({
+        category: 'usability',
+        page_path: '/management',
+        description: 'The schedule import review needs clearer labels.'
       });
+      const delivery = await pool.query(
+        'SELECT * FROM feedback_notification_deliveries WHERE report_id=$1',
+        [payload.id]
+      );
+      expect(delivery.rows).toHaveLength(1);
+      expect(delivery.rows[0].delivery_status).toBe('pending');
     });
   });
 });

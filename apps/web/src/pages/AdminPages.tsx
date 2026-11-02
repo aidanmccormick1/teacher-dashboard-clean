@@ -220,7 +220,8 @@ export function AdminOverviewPage() {
         <p className="eyebrow">Visibility boundary</p>
         <p>
           Administrator views include school-level setup and shared curriculum only. Teacher notes,
-          private planning, classroom history, and private AI data remain outside this workspace.
+          private planning, classroom history, and private generated planning data remain outside
+          this workspace.
         </p>
       </section>
     </div>

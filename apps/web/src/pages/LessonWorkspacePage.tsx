@@ -1,3 +1,5 @@
+import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
+import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type { LessonCommentsResponse, LessonWorkspaceResponse } from '@teacheros/contracts';
@@ -185,6 +187,7 @@ export function LessonWorkspacePage() {
   const { lessonId = '' } = useParams();
   const [params] = useSearchParams();
   const [data, setData] = useState<Workspace | null>(null);
+  useFeedbackContext({ lessonId, sectionId: params.get('section'), unitId: data?.unit.id ?? null, courseId: data?.course.id ?? null });
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const pending = useRef(0);
@@ -320,7 +323,7 @@ export function LessonWorkspacePage() {
       setCommentSaving(false);
     }
   };
-  if (error) return <p className="notice warning">{error}</p>;
+  if (error) return <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div>;
   if (!data) return <p className="muted">Loading lesson…</p>;
   const returnTo = params.get('returnTo');
   const yearPlanReturn = returnTo?.startsWith('/year-plan')
@@ -876,7 +879,7 @@ export function LessonWorkspacePage() {
                 type="button"
                 onClick={() => setGenerationOpen((open) => !open)}
               >
-                Generate draft
+                Auto-generate steps
               </button>
               <button className="add-step" type="button" onClick={() => void addStep()}>
                 + Add step
@@ -885,8 +888,8 @@ export function LessonWorkspacePage() {
           </div>
           {generationOpen ? (
             <aside className="lesson-generation-draft">
-              <strong>Review-first lesson draft</strong>
-              <p>Nothing changes until you explicitly add the proposed steps.</p>
+              <strong>Hobie’s lesson-step draft</strong>
+              <p>Hobie can sketch a starting point. Nothing changes until you add the steps.</p>
               {!generatedSteps ? (
                 <button
                   type="button"
@@ -894,7 +897,7 @@ export function LessonWorkspacePage() {
                   aria-busy={isGeneratingSteps}
                   onClick={() => void generateStepDraft()}
                 >
-                  {isGeneratingSteps ? 'Generating…' : 'Generate steps'}
+                  {isGeneratingSteps ? 'Hobie is drafting…' : 'Draft lesson steps'}
                 </button>
               ) : (
                 <>
@@ -922,7 +925,7 @@ export function LessonWorkspacePage() {
               )}
               {isGeneratingSteps ? (
                 <p className="lesson-generation-status" role="status">
-                  Generating a lesson-step draft…
+                  Hobie is drafting a lesson-step draft…
                 </p>
               ) : null}
               {generationError ? <p className="notice warning">{generationError}</p> : null}
@@ -1054,7 +1057,7 @@ export function LessonWorkspacePage() {
           </div>
           {!data.lesson.segments.length ? (
             <p className="lesson-empty-state">
-              No steps yet. Add one or generate a draft to begin.
+              No steps yet. Add one or auto-generate a draft to begin.
             </p>
           ) : null}
         </section>

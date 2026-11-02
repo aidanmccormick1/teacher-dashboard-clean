@@ -1,3 +1,5 @@
+import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
+import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CSSProperties } from 'react';
@@ -114,6 +116,7 @@ export function YearPlanPage() {
     );
   };
   const selectedLessonId = params.get('lesson');
+  useFeedbackContext({ courseId: context.courseId, sectionId: context.sectionId, lessonId: selectedLessonId, view: context.view });
   const yearPlanReturnTo = (lessonId: string | null) => {
     const search = new URLSearchParams(yearPlanSearch(context));
     if (lessonId) search.set('lesson', lessonId);
@@ -121,7 +124,7 @@ export function YearPlanPage() {
   };
 
   if (loading) return <p className="muted">Loading Year Plan…</p>;
-  if (error) return <p className="notice warning">{error}</p>;
+  if (error) return <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div>;
   if (!selectedCourse)
     return (
       <main className="year-plan-selection-state">

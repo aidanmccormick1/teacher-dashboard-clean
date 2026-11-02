@@ -144,9 +144,6 @@ export function SharedLessonPage() {
         <div className="shared-overview-grid">
           {lesson.objective ? (
             <article className="shared-info-card shared-info-card-objective">
-              <div className="shared-info-card-icon" aria-hidden="true">
-                ✦
-              </div>
               <div>
                 <p className="shared-card-label">Objective</p>
                 <div dangerouslySetInnerHTML={{ __html: safeHtml(lesson.objective) }} />

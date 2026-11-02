@@ -8,6 +8,7 @@ import type {
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { HobieHint } from '../components/HobieHelper.js';
 
 type GuideData = {
   profile: ProfileResponse;
@@ -128,6 +129,10 @@ export function SetupGuidePage() {
               ? 'Your recurring schedule and school calendar are in place. Head to Today whenever you are ready.'
               : 'We’ll use two imports to make Today and Year Plan match the way your school actually runs.'}
           </p>
+          <HobieHint>
+            <strong>Hobie is here if you need a hand.</strong>
+            <span>Open an import, review what it finds, then decide what to save.</span>
+          </HobieHint>
         </div>
         <div className="setup-guide-visual" aria-hidden="true">
           <span className="setup-guide-visual-sun" />

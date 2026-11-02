@@ -1,5 +1,11 @@
 import { Component, type ErrorInfo, type PropsWithChildren, type ReactNode } from 'react';
 
+import {
+  openFeedbackForError,
+  recordFeedbackError,
+  snapshotFeedbackDiagnostics
+} from '../lib/feedbackDiagnostics.js';
+
 type ErrorBoundaryState = {
   error: Error | null;
   errorInfo: ErrorInfo | null;
@@ -18,17 +24,12 @@ export class ErrorBoundary extends Component<PropsWithChildren, ErrorBoundarySta
   }
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    recordFeedbackError('react_error_boundary', error);
     this.setState({ error, errorInfo });
   }
 
   private copyReport = async () => {
-    const report = [
-      'TeacherDesk frontend error',
-      `Page: ${window.location.pathname}`,
-      `Message: ${this.state.error?.message ?? 'Unknown error'}`,
-      '',
-      this.state.errorInfo?.componentStack ?? ''
-    ].join('\n');
+    const report = JSON.stringify(snapshotFeedbackDiagnostics(), null, 2);
 
     await navigator.clipboard?.writeText(report).catch(() => undefined);
     this.setState({ copied: true });
@@ -46,7 +47,7 @@ export class ErrorBoundary extends Component<PropsWithChildren, ErrorBoundarySta
             Your work should still be saved if it already reached the server. Try reloading, or copy
             the report so we can fix the exact screen.
           </p>
-          <pre>{this.state.error.message}</pre>
+          <p>Please report this issue so we can investigate the affected page.</p>
           <div className="profile-actions">
             <button type="button" onClick={() => window.location.reload()}>
               Reload app
@@ -57,6 +58,13 @@ export class ErrorBoundary extends Component<PropsWithChildren, ErrorBoundarySta
               onClick={() => window.location.assign('/today')}
             >
               Go to Today
+            </button>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => openFeedbackForError('The app stopped unexpectedly on this page.')}
+            >
+              Report issue
             </button>
             <button className="secondary" type="button" onClick={() => void this.copyReport()}>
               Copy report

@@ -110,6 +110,11 @@ import type {
 } from '@teacheros/contracts';
 
 import { useAppAuth } from './auth.js';
+import {
+  getFeedbackDiagnosticsGeneration,
+  recordFeedbackEvent,
+  recordFeedbackNetworkFailure
+} from './feedbackDiagnostics.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
 const API_REQUEST_TIMEOUT_MS = 25_000;
@@ -151,6 +156,11 @@ async function request<TResponse>(
   auth: ReturnType<typeof useAppAuth>,
   timeoutMs = API_REQUEST_TIMEOUT_MS
 ): Promise<TResponse> {
+  const diagnosticGeneration = getFeedbackDiagnosticsGeneration();
+  const started = performance.now();
+  const method = init.method ?? 'GET';
+  if (method !== 'GET' && !path.includes('/feedback'))
+    recordFeedbackEvent('api_action_started', { method, endpoint: path });
   const token = await auth.getToken();
   const headers = new Headers(init.headers);
   const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -182,10 +192,17 @@ async function request<TResponse>(
       signal: controller.signal
     });
   } catch (err) {
+    if (diagnosticGeneration === getFeedbackDiagnosticsGeneration())
+      recordFeedbackNetworkFailure({
+        method,
+        endpoint: path,
+        status: err instanceof DOMException && err.name === 'AbortError' ? 408 : 0,
+        duration: performance.now() - started
+      });
     if (err instanceof DOMException && err.name === 'AbortError') {
       const message =
         timeoutMs === AI_QUEUE_REQUEST_TIMEOUT_MS
-          ? 'TeacherDesk is starting its schedule reader. The service took longer than expected to wake, so your schedule was not sent. Please choose “Review schedule” once more.'
+          ? 'TeacherDesk is preparing your schedule. The service took longer than expected to wake, so your schedule was not sent. Please choose “Review schedule” once more.'
           : 'The backend is taking too long to respond. It may be waking up; try again in a moment.';
       throw new ApiError(message, 408);
     }
@@ -199,6 +216,16 @@ async function request<TResponse>(
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (diagnosticGeneration === getFeedbackDiagnosticsGeneration())
+      recordFeedbackNetworkFailure({
+        method,
+        endpoint: path,
+        status: response.status,
+        duration: performance.now() - started,
+        requestId:
+          response.headers.get('x-request-id') ??
+          (typeof payload?.requestId === 'string' ? payload.requestId : undefined)
+      });
     const fallback =
       response.status === 413
         ? 'That schedule file is too large to send. Please use a file smaller than 10 MB.'
@@ -212,6 +239,14 @@ async function request<TResponse>(
     );
   }
 
+  if (
+    diagnosticGeneration === getFeedbackDiagnosticsGeneration() &&
+    method !== 'GET' &&
+    !path.includes('/feedback')
+  )
+    recordFeedbackEvent('api_action_completed', { method, endpoint: path, success: true });
+  if (response.headers.get('content-type')?.startsWith('image/'))
+    return (await response.blob()) as TResponse;
   return (await response.json()) as TResponse;
 }
 
@@ -220,6 +255,14 @@ export function useApiClient() {
 
   return useMemo(
     () => ({
+      feedbackRequest: <TResponse,>(path: string, init: RequestInit = {}) =>
+        request<TResponse>(path, init, auth),
+      feedbackAttachment: (reportId: string, attachmentId: string) =>
+        request<Blob>(
+          `/v1/feedback/${encodeURIComponent(reportId)}/attachments/${encodeURIComponent(attachmentId)}`,
+          { method: 'GET' },
+          auth
+        ),
       onboarding: (body: OnboardingRequest) =>
         request<OnboardingResponse>(
           '/v1/onboarding',

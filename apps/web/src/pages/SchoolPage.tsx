@@ -1,3 +1,5 @@
+import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
+import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type {
@@ -8,6 +10,7 @@ import type {
 } from '@teacheros/contracts';
 import { CalendarImportResponseSchema } from '@teacheros/contracts';
 import { ApiError, useApiClient } from '../lib/api.js';
+import { HobieHint } from '../components/HobieHelper.js';
 
 type ManualDayOff = { title: string; startDate: string; endDate: string };
 type SavedEventGroup = {
@@ -88,6 +91,7 @@ function initials(value: string) {
 }
 
 export function SchoolPage() {
+  useFeedbackContext({ component: 'school' });
   const api = useApiClient();
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -207,11 +211,11 @@ export function SchoolPage() {
           }
           setImportProgress(status.progressPercent);
           if (status.status === 'succeeded') {
-            if (!status.output) throw new Error('The calendar reader finished without a result.');
+            if (!status.output) throw new Error('The calendar could not be read.');
             result = CalendarImportResponseSchema.parse(status.output);
             complete = true;
           } else if (status.status === 'failed' || status.status === 'cancelled') {
-            throw new Error(status.error ?? 'The calendar reader could not finish this import.');
+            throw new Error(status.error ?? 'The calendar could not be read.');
           } else {
             await new Promise<void>((resolve) => window.setTimeout(resolve, 1_500));
           }
@@ -219,10 +223,10 @@ export function SchoolPage() {
 
         if (!complete) {
           await api.cancelAiJob(queuedJobId).catch(() => undefined);
-          throw new Error('The calendar reader took too long. Try a clearer file or pasted text.');
+          throw new Error('This import took too long. Try a clearer file or pasted text.');
         }
       }
-      if (!result) throw new Error('The calendar reader finished without a result.');
+      if (!result) throw new Error('The calendar could not be read.');
       setPreview(result);
       setStartDate(result.schoolYear.startDate);
       setEndDate(result.schoolYear.endDate);
@@ -488,7 +492,7 @@ export function SchoolPage() {
           </Link>
         </div>
       </section>
-      {error ? <p className="notice warning">{error}</p> : null}
+      {error ? <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div> : null}
       {saved ? <p className="notice success">{saved}</p> : null}
       {overview ? (
         <section className="school-community-grid" aria-label="School community">
@@ -662,6 +666,10 @@ export function SchoolPage() {
                   Upload a file or image, or paste calendar text. We’ll identify the instructional
                   year first.
                 </p>
+                <HobieHint>
+                  <strong>Hobie can help with this import.</strong>
+                  <span>Review the dates before they become part of the school calendar.</span>
+                </HobieHint>
               </div>
             </div>
             <textarea
@@ -685,11 +693,11 @@ export function SchoolPage() {
                 {busy ? (
                   <>
                     <span className="calendar-reader-dot" />
-                    Reading your calendar
+                    Hobie is reading your calendar
                     {importProgress === null ? '…' : `, ${importProgress}%`}
                   </>
                 ) : (
-                  'Read Calendar'
+                  'Review calendar'
                 )}
               </button>
             </div>

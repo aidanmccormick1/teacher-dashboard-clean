@@ -6871,6 +6871,10 @@ button,
     transform 180ms ease;
 }
 
+.shared-info-card-objective {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .shared-info-card:nth-child(2) {
   animation-delay: 260ms;
 }
@@ -11077,6 +11081,217 @@ button,
   justify-content: space-between;
   gap: 16px;
   padding: 14px 16px;
+}
+
+.hobie-helper {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 25;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.hobie-helper-trigger {
+  position: relative;
+  display: grid;
+  width: 54px;
+  height: 54px;
+  min-height: 54px;
+  place-items: center;
+  padding: 4px;
+  border: 1px solid rgba(71, 108, 88, 0.34);
+  border-radius: 50%;
+  background: #fffdf7;
+  color: var(--navy);
+  box-shadow: 0 6px 18px rgba(31, 42, 52, 0.14);
+}
+
+.hobie-helper-trigger img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  transition: transform 150ms ease;
+}
+
+.hobie-helper-trigger:hover img,
+.hobie-helper-trigger:focus-visible img {
+  transform: rotate(-4deg) translateY(-1px);
+}
+
+.hobie-helper-question {
+  position: absolute;
+  top: -5px;
+  right: -4px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 2px solid #fffdf7;
+  border-radius: 50%;
+  background: var(--green);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.hobie-helper-popover {
+  width: min(calc(100vw - 32px), 318px);
+  overflow: hidden;
+  border: 1px solid #cdd9d0;
+  border-radius: var(--radius-md);
+  background: #fffdf7;
+  box-shadow: 0 12px 28px rgba(31, 42, 52, 0.16);
+  animation: hobie-helper-in 180ms ease-out both;
+}
+
+.hobie-helper-popover > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border-bottom: 1px solid #e2e7e3;
+  background: #f7faf8;
+}
+
+.hobie-helper-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.hobie-helper-identity img {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  object-fit: contain;
+}
+
+.hobie-helper-identity div {
+  display: grid;
+  gap: 1px;
+}
+
+.hobie-helper-identity strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.hobie-helper-identity span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.hobie-helper-close {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.hobie-helper-close:hover {
+  border-color: var(--line);
+  background: #fff;
+  color: var(--ink);
+}
+
+.hobie-helper-copy {
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+}
+
+.hobie-helper-copy strong {
+  color: var(--navy);
+  font-size: 0.88rem;
+}
+
+.hobie-helper-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.hobie-helper-copy a {
+  justify-self: start;
+  color: var(--green);
+  font-size: 0.8rem;
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.hobie-inline-note {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 1px solid #d9e1db;
+  border-radius: var(--radius-sm);
+  background: #fffdf7;
+}
+
+.hobie-inline-note > img {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  object-fit: contain;
+}
+
+.hobie-inline-note-content {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.hobie-inline-note-content strong {
+  color: var(--navy);
+  font-size: 0.8rem;
+}
+
+.hobie-inline-note-content span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+@keyframes hobie-helper-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hobie-helper-popover,
+  .hobie-helper-trigger img {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .hobie-helper {
+    right: 14px;
+    bottom: 14px;
+  }
 }
 
 .timezone-card h2 {

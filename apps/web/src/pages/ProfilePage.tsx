@@ -403,8 +403,8 @@ export function ProfilePage() {
               <p className="eyebrow">Danger zone</p>
               <h2>Start over</h2>
               <p>
-                Permanently erase your classes, curriculum, schedule, school calendar, notes, AI
-                history, and settings. Your sign-in account stays active.
+                Permanently erase your classes, curriculum, schedule, school calendar, notes,
+                generated planning history, and settings. Your sign-in account stays active.
               </p>
             </div>
             <button type="button" disabled={resetting} onClick={() => void resetAccount()}>

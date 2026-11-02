@@ -48,6 +48,13 @@ const ConfigSchema = z.object({
   S3_BUCKET: optionalStringFromEnv,
   S3_ACCESS_KEY_ID: optionalStringFromEnv,
   S3_SECRET_ACCESS_KEY: optionalStringFromEnv,
+  RESEND_API_KEY: optionalStringFromEnv,
+  FEEDBACK_EMAIL_ENABLED: booleanFromEnv.default(true),
+  FEEDBACK_NOTIFICATION_EMAIL: z.string().email().default('am@aidanmccormick.com'),
+  FEEDBACK_EMAIL_FROM: optionalStringFromEnv,
+  FEEDBACK_S3_BUCKET: optionalStringFromEnv,
+  APP_PUBLIC_URL: optionalUrlFromEnv,
+  FEEDBACK_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
   SENTRY_DSN: optionalStringFromEnv
 });
 

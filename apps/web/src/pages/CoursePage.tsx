@@ -1,3 +1,5 @@
+import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
+import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
@@ -33,6 +35,7 @@ export function CoursePage() {
   const api = useApiClient();
   const navigate = useNavigate();
   const params = useParams<{ id: string }>();
+  useFeedbackContext({ courseId: params.id ?? null });
   const courseId = params.id ?? '';
   const [course, setCourse] = useState<CourseDetailResponse['course'] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -214,7 +217,7 @@ export function CoursePage() {
           </details>
         </div>
       </div>
-      {error ? <p className="notice warning">{error}</p> : null}
+      {error ? <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div> : null}
       {loading && !course ? <p className="muted">Loading course...</p> : null}
 
       {course ? (

@@ -20,6 +20,8 @@ import { authPlugin } from './plugins/auth.js';
 import { requestContextPlugin } from './plugins/request-context.js';
 import { healthRoutes } from './routes/health.js';
 import { adminRoutes } from './routes/admin.js';
+import { feedbackRoutes } from './routes/feedback.js';
+import { startFeedbackDeliveryWorker } from './services/feedback-delivery.js';
 import { testAuthRoutes } from './routes/test-auth.js';
 import { v1Routes } from './routes/v1.js';
 
@@ -99,6 +101,7 @@ export async function createApp(config: AppConfig) {
       .map((value) => value.trim())
       .filter(Boolean),
     credentials: false,
+    exposedHeaders: [config.REQUEST_ID_HEADER],
     // Course and class-group editing uses PATCH and permanent deletion uses
     // DELETE. Include them in preflight responses so browser requests reach
     // the API instead of failing as a generic network error.
@@ -139,6 +142,7 @@ export async function createApp(config: AppConfig) {
   await app.register(healthRoutes);
 
   await app.register(adminRoutes);
+  await app.register(feedbackRoutes);
   await app.register(v1Routes);
 
   app.setErrorHandler((error, request, reply) => {
@@ -166,7 +170,11 @@ export async function createApp(config: AppConfig) {
     });
   });
 
+  const feedbackWorker =
+    config.NODE_ENV === 'test' ? null : startFeedbackDeliveryWorker(config, app.log);
+
   app.addHook('onClose', async () => {
+    await feedbackWorker?.stop();
     if (embeddedAiWorker) {
       await embeddedAiWorker.close();
     }

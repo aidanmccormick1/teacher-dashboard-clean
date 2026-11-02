@@ -12,6 +12,7 @@ import {
   time,
   timestamp,
   unique,
+  uniqueIndex,
   uuid
 } from 'drizzle-orm/pg-core';
 
@@ -912,3 +913,176 @@ export const teacherCoursesRelations = relations(teacherCourses, ({ one }) => ({
     relationName: 'teacherCourseSourceCurriculum'
   })
 }));
+
+export const platformSupportUsers = pgTable('platform_support_users', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+});
+export const feedbackIssueGroups = pgTable('feedback_issue_groups', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  title: text('title').notNull(),
+  signature: text('signature'),
+  status: text('status').default('new').notNull(),
+  priority: text('priority').default('normal').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+export const feedbackReports = pgTable(
+  'feedback_reports',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    referenceNumber: text('reference_number')
+      .default(sql`'FB-' || nextval('feedback_reference_seq')`)
+      .notNull()
+      .unique(),
+    reporterUserId: uuid('reporter_user_id')
+      .notNull()
+      .references(() => users.id),
+    schoolId: uuid('school_id').references(() => schools.id, { onDelete: 'set null' }),
+    attachmentStatus: text('attachment_status').default('none').notNull(),
+    attachmentStartedAt: timestamp('attachment_started_at', { withTimezone: true }),
+    category: text('category').notNull(),
+    description: text('description').notNull(),
+    expectedBehavior: text('expected_behavior'),
+    reproductionSteps: text('reproduction_steps'),
+    pagePath: text('page_path').notNull(),
+    pageName: text('page_name'),
+    sanitizedUrl: text('sanitized_url'),
+    context: jsonb('context').default({}).notNull(),
+    diagnostics: jsonb('diagnostics').default({}).notNull(),
+    clientSessionId: uuid('client_session_id'),
+    clientReportId: uuid('client_report_id').notNull(),
+    errorFingerprint: text('error_fingerprint'),
+    appVersion: text('app_version'),
+    commitSha: text('commit_sha'),
+    environment: text('environment'),
+    status: text('status').default('new').notNull(),
+    priority: text('priority').default('normal').notNull(),
+    assignedTo: uuid('assigned_to').references(() => platformSupportUsers.userId, {
+      onDelete: 'set null'
+    }),
+    issueGroupId: uuid('issue_group_id').references(() => feedbackIssueGroups.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true })
+  },
+  (table) => ({
+    idempotency: unique().on(table.reporterUserId, table.clientReportId),
+    createdIdx: index('feedback_created_idx').on(table.createdAt),
+    reporterIdx: index('feedback_reporter_idx').on(table.reporterUserId),
+    statusIdx: index('feedback_status_idx').on(table.status),
+    categoryIdx: index('feedback_category_idx').on(table.category),
+    schoolIdx: index('feedback_school_idx').on(table.schoolId),
+    priorityIdx: index('feedback_priority_idx').on(table.priority),
+    fingerprintIdx: index('feedback_fingerprint_idx').on(table.errorFingerprint),
+    groupIdx: index('feedback_group_idx').on(table.issueGroupId)
+  })
+);
+export const feedbackAttachments = pgTable(
+  'feedback_attachments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => feedbackReports.id, { onDelete: 'cascade' }),
+    storageObjectPath: text('storage_object_path').notNull().unique(),
+    mimeType: text('mime_type').notNull(),
+    fileSize: integer('file_size').notNull(),
+    width: integer('width').notNull(),
+    height: integer('height').notNull(),
+    attachmentType: text('attachment_type').default('screenshot').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    reportIdx: index('feedback_attachments_report_idx').on(table.reportId),
+    oneScreenshot: unique().on(table.reportId)
+  })
+);
+export const feedbackEvents = pgTable(
+  'feedback_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => feedbackReports.id, { onDelete: 'cascade' }),
+    eventTimestamp: timestamp('event_timestamp', { withTimezone: true }).notNull(),
+    eventType: text('event_type').notNull(),
+    metadata: jsonb('metadata').default({}).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({ reportIdx: index('feedback_events_report_idx').on(table.reportId) })
+);
+export const feedbackReplies = pgTable(
+  'feedback_replies',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => feedbackReports.id, { onDelete: 'cascade' }),
+    authorUserId: uuid('author_user_id')
+      .notNull()
+      .references(() => users.id),
+    message: text('message').notNull(),
+    visibility: text('visibility').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    reportIdx: index('feedback_replies_report_idx').on(table.reportId, table.createdAt)
+  })
+);
+export const feedbackHistory = pgTable(
+  'feedback_history',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => feedbackReports.id, { onDelete: 'cascade' }),
+    authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+    changes: jsonb('changes').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    reportIdx: index('feedback_history_report_idx').on(table.reportId, table.createdAt)
+  })
+);
+export const feedbackNotificationDeliveries = pgTable(
+  'feedback_notification_deliveries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => feedbackReports.id, { onDelete: 'cascade' }),
+    notificationType: text('notification_type').notNull(),
+    recipientIdentifier: text('recipient_identifier').notNull(),
+    replyId: uuid('reply_id').references(() => feedbackReplies.id, { onDelete: 'cascade' }),
+    deliveryStatus: text('delivery_status').default('pending').notNull(),
+    providerMessageId: text('provider_message_id'),
+    attemptCount: integer('attempt_count').default(0).notNull(),
+    firstAttemptedAt: timestamp('first_attempted_at', { withTimezone: true }),
+    lastAttemptedAt: timestamp('last_attempted_at', { withTimezone: true }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    errorCode: text('error_code'),
+    payload: jsonb('payload'),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).defaultNow().notNull(),
+    lockedUntil: timestamp('locked_until', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => ({
+    reportIdx: index('feedback_deliveries_report_idx').on(table.reportId),
+    once: unique().on(
+      table.reportId,
+      table.notificationType,
+      table.recipientIdentifier,
+      table.replyId
+    ),
+    newOnce: uniqueIndex('feedback_new_notification_once')
+      .on(table.reportId)
+      .where(sql`${table.notificationType}='new_report'`),
+    pendingIdx: index('feedback_delivery_pending_idx').on(table.deliveryStatus, table.nextAttemptAt)
+  })
+);

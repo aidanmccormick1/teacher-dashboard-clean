@@ -1,3 +1,5 @@
+import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
+import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ParseScheduleResponseSchema } from '@teacheros/contracts';
@@ -11,6 +13,7 @@ import type {
 import { ApiError, useApiClient } from '../lib/api.js';
 import { groupImportedSchedule, normalizeImportedCourseVariants } from '../lib/scheduleImport.js';
 import { timeRange } from '../lib/today.js';
+import { HobieHint } from '../components/HobieHelper.js';
 
 type Course = CourseDetailResponse['course'];
 
@@ -230,11 +233,11 @@ function ScheduleImportPanel({
           }
           setImportProgress(status.progressPercent);
           if (status.status === 'succeeded') {
-            if (!status.output) throw new Error('The schedule reader finished without a result.');
+            if (!status.output) throw new Error('The schedule could not be read.');
             parsedSchedule = ParseScheduleResponseSchema.parse(status.output);
             complete = true;
           } else if (status.status === 'failed' || status.status === 'cancelled') {
-            throw new Error(status.error ?? 'The schedule reader could not finish this import.');
+            throw new Error(status.error ?? 'The schedule could not be read.');
           } else {
             await waitForScheduleJob(1_500);
           }
@@ -242,10 +245,10 @@ function ScheduleImportPanel({
 
         if (!complete) {
           await api.cancelAiJob(queuedJobId).catch(() => undefined);
-          throw new Error('The schedule reader took too long. Try a clearer image or pasted text.');
+          throw new Error('This import took too long. Try a clearer image or pasted text.');
         }
       }
-      if (!parsedSchedule) throw new Error('The schedule reader finished without a result.');
+      if (!parsedSchedule) throw new Error('The schedule could not be read.');
       setDraft(normalizeImportedCourseVariants(parsedSchedule));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not read this schedule.');
@@ -327,6 +330,10 @@ function ScheduleImportPanel({
           A course holds one shared plan. Each class group sits inside that course and keeps its own
           meeting times.
         </p>
+        <HobieHint>
+          <strong>Hobie can walk you through it.</strong>
+          <span>Review each detected detail before you apply the schedule.</span>
+        </HobieHint>
       </div>
       <dl className="schedule-import-terms">
         <div>
@@ -581,7 +588,7 @@ function ScheduleImportPanel({
           )}
           <div className="courses-import-correction">
             <label>
-              <span>Tell the schedule reader what to correct</span>
+              <span>Tell Hobie what to correct</span>
               <input
                 className="input"
                 value={correction}
@@ -624,6 +631,7 @@ function ScheduleImportPanel({
 }
 
 export function CoursesPage() {
+  useFeedbackContext({ component: 'courses' });
   const api = useApiClient();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -1006,7 +1014,7 @@ export function CoursesPage() {
           </button>
         </div>
       </header>
-      {error ? <p className="notice warning">{error}</p> : null}
+      {error ? <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div> : null}
       {importOpen ? (
         <ScheduleImportPanel
           existingSections={schedule?.sections ?? []}

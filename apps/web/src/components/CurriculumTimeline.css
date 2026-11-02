@@ -100,6 +100,16 @@
   font-size: 0.82rem;
 }
 
+.curriculum-unit-generator .hobie-inline-note-content strong {
+  color: var(--navy);
+  font-size: 0.82rem;
+}
+
+.curriculum-unit-generator .hobie-inline-note-content span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .curriculum-meeting-count {
   display: grid;
   flex: 0 0 118px;

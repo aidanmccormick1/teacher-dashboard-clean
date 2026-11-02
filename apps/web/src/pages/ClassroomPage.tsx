@@ -1,3 +1,5 @@
+import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
+import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type {
@@ -128,6 +130,7 @@ export function ClassroomPage() {
   const contextMeetingTime = context?.meetingTime ?? null;
   const dashboardDate = dashboard?.date;
   const lessonId = lesson?.id;
+  useFeedbackContext({ courseId: selected?.courseId ?? null, sectionId: context?.sectionId ?? null, unitId: selectedUnit?.id ?? null, lessonId: lessonId ?? null, selectedDate: dashboard?.date ?? null, activeTab: slideDeckTab });
   useEffect(() => {
     void Promise.all([api.dashboardToday(), api.getSchedule()])
       .then(([today, sections]) => {
@@ -566,7 +569,7 @@ export function ClassroomPage() {
           ) : null}
         </div>
       </header>
-      {error ? <p className="notice warning">{error}</p> : null}
+      {error ? <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div> : null}
       {context && course ? (
         <section className="classroom-curriculum-picker" aria-label="Curriculum position">
           <div className="classroom-curriculum-context">
