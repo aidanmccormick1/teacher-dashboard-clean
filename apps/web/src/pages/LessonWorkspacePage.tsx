@@ -1,6 +1,7 @@
 import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
 import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useHobieDrafting } from '../lib/hobieDrafting.js';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type { LessonCommentsResponse, LessonWorkspaceResponse } from '@teacheros/contracts';
 import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
@@ -198,6 +199,7 @@ export function LessonWorkspacePage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [generationOpen, setGenerationOpen] = useState(false);
   const [isGeneratingSteps, setIsGeneratingSteps] = useState(false);
+  useHobieDrafting(isGeneratingSteps);
   const [generatedSteps, setGeneratedSteps] = useState<Array<{
     title: string;
     description: string;

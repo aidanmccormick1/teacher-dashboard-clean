@@ -39,6 +39,7 @@ import {
 import { TimelineIcon } from './TimelineIcon.js';
 import { useTimelineViewport } from './useTimelineViewport.js';
 import { HobieHint } from './HobieHelper.js';
+import { useHobieDrafting } from '../lib/hobieDrafting.js';
 import './CurriculumTimeline.css';
 import './TimelineEditor.css';
 
@@ -224,6 +225,7 @@ export function CurriculumTimeline({
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [isGeneratingUnit, setIsGeneratingUnit] = useState(false);
+  useHobieDrafting(isGeneratingUnit);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dragPreview, setDragPreview] = useState<ClipRange | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
