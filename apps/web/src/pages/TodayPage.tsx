@@ -11,6 +11,7 @@ import type {
 } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import { projectMeetingsForSection } from '../lib/year-plan-projection.js';
 import {
   classroomPath,
   lessonDisplay,
@@ -73,7 +74,12 @@ export function TodayPage() {
   const [manualSectionId, setManualSectionId] = useState('');
   const [manualUnitId, setManualUnitId] = useState('');
   const [manualLessonId, setManualLessonId] = useState('');
-  useFeedbackContext({ courseId: manualCourseId || null, sectionId: manualSectionId || null, unitId: manualUnitId || null, lessonId: manualLessonId || null });
+  useFeedbackContext({
+    courseId: manualCourseId || null,
+    sectionId: manualSectionId || null,
+    unitId: manualUnitId || null,
+    lessonId: manualLessonId || null
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -94,9 +100,7 @@ export function TodayPage() {
         const resumes = Object.fromEntries(resumeResults);
         const planningEntries = await Promise.all(
           today.todaySchedule.map(async (meeting) => {
-            const meetingsForSection = instances.meetings.filter(
-              (item) => item.sectionId === meeting.sectionId
-            );
+            const meetingsForSection = projectMeetingsForSection(instances, meeting.sectionId);
             const index = meetingsForSection.findIndex(
               (item) => item.date === today.date && item.startTime === meeting.meetingTime
             );
@@ -334,7 +338,15 @@ export function TodayPage() {
               {focus.status === 'now' ? 'Open Classroom' : 'Prepare class'}
             </Link>
           </div>
-          {focusLesson.actual ? (
+          {focusLesson.preferredPlan &&
+          focusLesson.preferredPlan.lessonId !== focusLesson.actual?.id ? (
+            <div className="today-lesson-focus">
+              <div>
+                <p className="eyebrow">Planned lesson</p>
+                <h3>{focusLesson.preferredPlan.title}</h3>
+              </div>
+            </div>
+          ) : focusLesson.actual ? (
             <div className="today-lesson-focus">
               <div>
                 <p className="eyebrow">{focusLesson.isContinuation ? 'Continue' : 'Lesson'}</p>
@@ -388,7 +400,10 @@ export function TodayPage() {
                   <span>{meeting.sectionName}</span>
                 </div>
                 <div className="today-row-lesson">
-                  {display.actual ? (
+                  {display.preferredPlan &&
+                  display.preferredPlan.lessonId !== display.actual?.id ? (
+                    <strong>{display.preferredPlan.title}</strong>
+                  ) : display.actual ? (
                     <>
                       <strong>
                         {display.isContinuation ? 'Continue ' : ''}

@@ -1,0 +1,131 @@
+.unit-planning-dialog {
+  width: min(1100px, calc(100% - 32px));
+  height: min(900px, calc(100dvh - 32px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid #dce3e5;
+  border-radius: 12px;
+  color: inherit;
+  background: #fff;
+}
+.unit-planning-dialog[open] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.unit-planning-dialog::backdrop {
+  background: rgb(18 34 42 / 48%);
+}
+.unit-planning-header,
+.unit-planning-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+}
+.unit-planning-header {
+  border-bottom: 1px solid #dce3e5;
+}
+.unit-planning-footer {
+  border-top: 1px solid #dce3e5;
+}
+.unit-planning-dialog :is(h1, h2, p) {
+  margin: 0;
+}
+.unit-planning-header p {
+  margin-bottom: 4px;
+}
+.unit-planning-body {
+  overflow: auto;
+  padding: 24px;
+}
+.unit-planning-body > .notice {
+  margin-bottom: 16px;
+}
+.unit-planning-fields {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  min-width: 0;
+}
+.unit-planning-fields label {
+  display: grid;
+  gap: 5px;
+}
+.unit-planning-fields .input {
+  width: 100%;
+  min-width: 0;
+}
+.unit-planning-fields textarea {
+  resize: vertical;
+}
+.unit-planning-fields .unit-planning-number {
+  max-width: 9rem;
+}
+.unit-planning-setup {
+  max-width: 42rem;
+  margin-inline: auto;
+}
+.unit-planning-numbers,
+.unit-planning-review {
+  display: grid;
+  gap: 20px;
+}
+.unit-planning-numbers {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 24rem;
+}
+.unit-planning-review {
+  grid-template-columns: minmax(230px, 1fr) minmax(0, 2fr);
+}
+.unit-planning-lesson,
+.unit-planning-step {
+  border: 1px solid #dce3e5;
+  border-radius: 8px;
+}
+.unit-planning-dialog summary {
+  cursor: pointer;
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+.unit-planning-lesson > summary span {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.875rem;
+}
+.unit-planning-lesson-body {
+  padding: 12px;
+  border-top: 1px solid #dce3e5;
+}
+.unit-planning-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.unit-planning-footer button {
+  flex-shrink: 0;
+}
+.unit-planning-added {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+@media (max-width: 680px) {
+  .unit-planning-dialog {
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+  }
+  .unit-planning-header,
+  .unit-planning-footer,
+  .unit-planning-body {
+    padding: 12px 16px;
+  }
+  .unit-planning-review {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .unit-planning-footer {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

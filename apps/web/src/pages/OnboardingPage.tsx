@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import type { SchoolSearchResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
+import { onboardingSharingReturn } from '../lib/loginReturnPath.js';
 import { schoolDirectory } from '../lib/schoolDirectory.js';
 
 type OnboardingForm = {
@@ -84,6 +85,7 @@ export function OnboardingPage() {
   const auth = useAppAuth();
   const api = useApiClient();
   const navigate = useNavigate();
+  const { state } = useLocation();
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const [step, setStep] = useState<OnboardingStep>(loadOnboardingStep);
   const [saving, setSaving] = useState(false);
@@ -220,7 +222,10 @@ export function OnboardingPage() {
         .catch(() => undefined);
       window.localStorage.removeItem(ONBOARDING_DRAFT_KEY);
       window.localStorage.removeItem(ONBOARDING_STEP_KEY);
-      navigate(form.role === 'admin' ? '/admin/request-access' : '/guide', { replace: true });
+      const destination =
+        onboardingSharingReturn(state?.sharingReturn) ??
+        (form.role === 'admin' ? '/admin/request-access' : '/guide');
+      navigate(destination, { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not save your profile. Try again.');
     } finally {

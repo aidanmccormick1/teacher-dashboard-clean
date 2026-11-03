@@ -510,6 +510,26 @@ export function useApiClient() {
           },
           auth
         ),
+      setSectionLessonTiming: (
+        sectionId: string,
+        lessonId: string,
+        plannedStartMeeting: number,
+        plannedMeetingCount: number,
+        expectedLastOperationId?: string | null
+      ) =>
+        request<SectionLessonPlanResponse>(
+          `/v1/sections/${sectionId}/lesson-plans/shift`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              lessonId,
+              plannedStartMeeting,
+              plannedMeetingCount,
+              expectedLastOperationId
+            })
+          },
+          auth
+        ),
       undoSectionLessonPlanShift: (sectionId: string, operationId: string) =>
         request<SectionLessonPlanResponse>(
           `/v1/sections/${sectionId}/lesson-plans/${operationId}/undo`,
@@ -581,9 +601,24 @@ export function useApiClient() {
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
-      removeCourseCollaborator: (courseId: string, userId: string) =>
+      importSharedLesson: (
+        token: string,
+        body: { courseId: string; requestId: string } & ({ unitId: string } | { unitTitle: string })
+      ) =>
+        request<{ lessonId: string; sourceCourseName: string }>(
+          `/v1/public/lessons/${token}/import`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      resendCourseInvitation: (courseId: string, userId: string) =>
+        request<{ sent: boolean }>(
+          `/v1/courses/${courseId}/collaborators/${userId}/resend`,
+          { method: 'POST' },
+          auth
+        ),
+      removeCourseCollaborator: (courseId: string, userId: string, pendingOnly = false) =>
         request<DeleteEntityResponse>(
-          `/v1/courses/${courseId}/collaborators/${userId}`,
+          `/v1/courses/${courseId}/collaborators/${userId}${pendingOnly ? '?pendingOnly=true' : ''}`,
           { method: 'DELETE' },
           auth
         ),
@@ -705,6 +740,15 @@ export function useApiClient() {
         request<CourseDetailResponse>(
           `/v1/units/${unitId}/lessons`,
           { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      reorderUnitLessons: (
+        unitId: string,
+        items: Array<{ id: string; orderIndex: number; expectedRevision: number }>
+      ) =>
+        request<{ revisions: Record<string, number> }>(
+          `/v1/units/${unitId}/lesson-order`,
+          { method: 'PATCH', body: JSON.stringify({ items }) },
           auth
         ),
       updateLesson: (lessonId: string, body: LessonUpdateRequest) =>

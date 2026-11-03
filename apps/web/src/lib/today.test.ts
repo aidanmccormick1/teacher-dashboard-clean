@@ -40,6 +40,11 @@ const today = {
 } satisfies DashboardTodayResponse;
 
 describe('Today helpers', () => {
+  it('prefers the selected Class Group plan when no lesson needs resuming', () => {
+    const plan = { lessonId: 'local-lesson', title: 'Local plan' };
+    expect(lessonDisplay(undefined, plan).preferredPlan).toEqual(plan);
+  });
+
   it('formats meeting times with AM/PM instead of 24-hour time', () => {
     expect(formatTime('08:00')).toBe('8 AM');
     expect(formatTime('20:00')).toBe('8 PM');
@@ -63,9 +68,11 @@ describe('Today helpers', () => {
   it('keeps a section unfinished lesson ahead of a different planned lesson', () => {
     const resume = {
       lesson: { id: 'lesson-8', title: 'Lesson 8', segments: [] },
+      progress: [],
       state: { status: 'stopped_at_segment', completedSegmentIds: [], stoppedAtSegmentId: null }
     } as unknown as ClassroomResumeResponse;
     expect(lessonDisplay(resume, { lessonId: 'lesson-9', title: 'Lesson 9' })).toMatchObject({
+      preferredPlan: null,
       isContinuation: true,
       differsFromPlan: true
     });

@@ -1,3 +1,4 @@
+import { projectMeetingsForSection } from '../lib/year-plan-projection.js';
 import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
 import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useEffect, useRef, useState } from 'react';
@@ -10,7 +11,7 @@ import type {
 } from '@teacheros/contracts';
 import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
 import { ApiError, useApiClient } from '../lib/api.js';
-import { nextClassroomLesson, timeRange } from '../lib/today.js';
+import { lessonDisplay, nextClassroomLesson, timeRange } from '../lib/today.js';
 
 function safeHtml(value: string | null) {
   const doc = new DOMParser().parseFromString(value ?? '', 'text/html');
@@ -48,7 +49,11 @@ export function ClassroomPage() {
   const [params, setParams] = useSearchParams();
   const [dashboard, setDashboard] = useState<DashboardTodayResponse | null>(null);
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
-  const [resume, setResume] = useState<ClassroomResumeResponse | null>(null);
+  const [loadedResume, setResume] = useState<ClassroomResumeResponse | null>(null);
+  const [plannedOccurrence, setPlannedOccurrence] = useState<{
+    key: string;
+    lessonId: string | null;
+  } | null>(null);
   const [course, setCourse] = useState<CourseDetailResponse['course'] | null>(null);
   const [checks, setChecks] = useState<string[]>([]);
   const [historicalChecks, setHistoricalChecks] = useState<string[]>([]);
@@ -84,6 +89,7 @@ export function ClassroomPage() {
   const detected = dashboard?.currentClass ?? dashboard?.nextClass ?? null;
   const sectionId = requested ?? detected?.sectionId ?? '';
   const selected = schedule?.sections.find((item) => item.sectionId === sectionId);
+  const resume = loadedResume?.section.sectionId === sectionId ? loadedResume : null;
   const sectionTodayMeetings =
     dashboard?.todaySchedule.filter((item) => item.sectionId === sectionId) ?? [];
   const requestedTodayMeeting = requestedMeetingTime
@@ -109,11 +115,32 @@ export function ClassroomPage() {
           meetingTime: manual ? null : (selectedTodayMeeting?.meetingTime ?? null),
           endTime: manual ? null : (selectedTodayMeeting?.endTime ?? null)
         }
-      : detected;
-  const requestedLesson = course?.units
-    .flatMap((unit) => unit.lessons)
-    .find((item) => item.id === requestedLessonId);
-  const lesson = requestedLesson ?? resume?.lesson;
+      : requiresMeetingChoice
+        ? null
+        : detected;
+  const occurrenceTime = manual ? null : (selectedTodayMeeting?.meetingTime ?? null);
+  const occurrenceKey = `${sectionId}:${dashboard?.date ?? ''}:${occurrenceTime ?? ''}`;
+  const curriculum =
+    course?.id === selected?.courseId ? course?.units.flatMap((unit) => unit.lessons) : undefined;
+  const requestedLesson = curriculum?.find((item) => item.id === requestedLessonId);
+  const plannedLesson =
+    plannedOccurrence?.key === occurrenceKey
+      ? curriculum?.find((item) => item.id === plannedOccurrence.lessonId)
+      : undefined;
+  const preferredPlan = lessonDisplay(
+    resume ?? undefined,
+    plannedLesson ? { lessonId: plannedLesson.id, title: plannedLesson.title } : null
+  ).preferredPlan;
+  const resolvingPlan = Boolean(
+    occurrenceTime && !requestedLessonId && plannedOccurrence?.key !== occurrenceKey
+  );
+  const lesson =
+    resolvingPlan ||
+    !resume ||
+    requiresMeetingChoice ||
+    ((requestedLessonId || plannedOccurrence?.lessonId) && !curriculum)
+      ? null
+      : (requestedLesson ?? (preferredPlan ? plannedLesson : null) ?? resume.lesson);
   const selectedUnit = course?.units.find((unit) =>
     unit.lessons.some((item) => item.id === lesson?.id)
   );
@@ -130,7 +157,14 @@ export function ClassroomPage() {
   const contextMeetingTime = context?.meetingTime ?? null;
   const dashboardDate = dashboard?.date;
   const lessonId = lesson?.id;
-  useFeedbackContext({ courseId: selected?.courseId ?? null, sectionId: context?.sectionId ?? null, unitId: selectedUnit?.id ?? null, lessonId: lessonId ?? null, selectedDate: dashboard?.date ?? null, activeTab: slideDeckTab });
+  useFeedbackContext({
+    courseId: selected?.courseId ?? null,
+    sectionId: context?.sectionId ?? null,
+    unitId: selectedUnit?.id ?? null,
+    lessonId: lessonId ?? null,
+    selectedDate: dashboard?.date ?? null,
+    activeTab: slideDeckTab
+  });
   useEffect(() => {
     void Promise.all([api.dashboardToday(), api.getSchedule()])
       .then(([today, sections]) => {
@@ -146,19 +180,50 @@ export function ClassroomPage() {
       setResume(null);
       return;
     }
+    let active = true;
     void api
       .getClassroomResume(sectionId)
       .then((value) => {
+        if (!active) return;
         setResume(value);
         setChecks([]);
         setHistoricalChecks([]);
         meetingRevision.current = null;
         setNote(value.lastNote?.content ?? value.state?.carryOverNote ?? '');
       })
-      .catch((err) =>
-        setError(err instanceof ApiError ? err.message : 'Could not load lesson progress.')
-      );
+      .catch((err) => {
+        if (active)
+          setError(err instanceof ApiError ? err.message : 'Could not load lesson progress.');
+      });
+    return () => {
+      active = false;
+    };
   }, [api, sectionId]);
+  useEffect(() => {
+    if (!sectionId || !dashboardDate || !occurrenceTime || manual || requestedLessonId) return;
+    let active = true;
+    void api
+      .getMeetingInstances()
+      .then(async (instances) => {
+        const index = projectMeetingsForSection(instances, sectionId).findIndex(
+          (meeting) => meeting.date === dashboardDate && meeting.startTime === occurrenceTime
+        );
+        return index < 0 ? null : api.getSectionPlanningContext(sectionId, index);
+      })
+      .then((planning) => {
+        if (active)
+          setPlannedOccurrence({
+            key: occurrenceKey,
+            lessonId: planning?.planned?.lessonId ?? null
+          });
+      })
+      .catch(() => {
+        if (active) setPlannedOccurrence({ key: occurrenceKey, lessonId: null });
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, dashboardDate, manual, occurrenceKey, occurrenceTime, requestedLessonId, sectionId]);
   useEffect(() => {
     if (!selected?.courseId) {
       setCourse(null);
@@ -218,13 +283,7 @@ export function ClassroomPage() {
       .catch(() => {
         if (version === lessonSlideVersion.current) setLessonSlideSaveStatus('error');
       });
-  }, [
-    api,
-    contextSectionId,
-    lesson?.googleSlidesStartSlide,
-    lesson?.googleSlidesUrl,
-    lesson?.id
-  ]);
+  }, [api, contextSectionId, lesson?.googleSlidesStartSlide, lesson?.googleSlidesUrl, lesson?.id]);
   useEffect(() => {
     setSlideDeckTab(lesson?.googleSlidesUrl ? 'lesson' : 'unit');
   }, [lesson?.googleSlidesUrl, lesson?.id]);
@@ -248,7 +307,9 @@ export function ClassroomPage() {
         const nextNote =
           value.meeting?.rawNote !== null && value.meeting?.rawNote !== undefined
             ? value.meeting.rawNote
-            : (resume?.lastNote?.content ?? resume?.state?.carryOverNote ?? '');
+            : resume?.lesson?.id === lessonId
+              ? (resume.lastNote?.content ?? resume.state?.carryOverNote ?? '')
+              : '';
         setNote(nextNote);
         const localDraft = draftStorageKey ? window.localStorage.getItem(draftStorageKey) : null;
         const restored = localDraft
@@ -317,7 +378,9 @@ export function ClassroomPage() {
         if (isLatestSnapshot) setState('saved');
         if (endClass) {
           setResume((previous) =>
-            previous?.state
+            previous?.state &&
+            previous.section.sectionId === context.sectionId &&
+            previous.lesson?.id === lesson.id
               ? {
                   ...previous,
                   state: {
@@ -569,7 +632,12 @@ export function ClassroomPage() {
           ) : null}
         </div>
       </header>
-      {error ? <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div> : null}
+      {error ? (
+        <div className="notice warning" role="alert">
+          <p>{error}</p>
+          <FeedbackErrorAction />
+        </div>
+      ) : null}
       {context && course ? (
         <section className="classroom-curriculum-picker" aria-label="Curriculum position">
           <div className="classroom-curriculum-context">
@@ -785,7 +853,9 @@ export function ClassroomPage() {
                       />
                     </section>
                   ) : null}
-                  {selectedUnit?.googleSlidesUrl || lesson.googleSlidesUrl || lesson.lessonPlan.links.length ? (
+                  {selectedUnit?.googleSlidesUrl ||
+                  lesson.googleSlidesUrl ||
+                  lesson.lessonPlan.links.length ? (
                     <section className="lesson-rail-card lesson-rail-resources">
                       <p className="eyebrow">Resources</p>
                       {selectedUnit?.googleSlidesUrl ? (

@@ -1,3 +1,4 @@
+import { loginReturnPath } from '../lib/loginReturnPath.js';
 import { SignIn, SignUp } from '@clerk/clerk-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -18,9 +19,7 @@ export function LoginPage() {
   const auth = useAppAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const requestedPath = searchParams.get('next');
-  const returnTo =
-    requestedPath?.startsWith('/') && !requestedPath.startsWith('//') ? requestedPath : '/today';
+  const returnTo = loginReturnPath(searchParams.get('next'));
   const [loginMode, setLoginMode] = useState<LoginMode>('signin');
   const [devUserId, setDevUserId] = useState('teacher-dev-1');
   const [devEmail, setDevEmail] = useState('teacher@example.com');

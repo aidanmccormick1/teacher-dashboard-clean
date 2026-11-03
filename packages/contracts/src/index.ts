@@ -596,14 +596,23 @@ export const ClassMeetingLookupResponseSchema = z.object({
   historicalCompletedStepIds: z.array(UuidSchema)
 });
 
-export const SectionLessonPlanShiftRequestSchema = z.object({
-  lessonId: UuidSchema,
-  meetingDelta: z
-    .number()
-    .int()
-    .refine((value) => value !== 0, 'meetingDelta cannot be zero')
-});
+export const SectionLessonPlanShiftRequestSchema = z.union([
+  z.object({
+    lessonId: UuidSchema,
+    meetingDelta: z
+      .number()
+      .int()
+      .refine((value) => value !== 0, 'meetingDelta cannot be zero')
+  }),
+  z.object({
+    lessonId: UuidSchema,
+    plannedStartMeeting: z.number().int().nonnegative().max(10000),
+    plannedMeetingCount: z.number().int().positive().max(10000),
+    expectedLastOperationId: UuidSchema.nullable().optional()
+  })
+]);
 export const SectionLessonPlanResponseSchema = z.object({
+  previousOperationId: UuidSchema.nullable().optional(),
   operationId: UuidSchema.nullable(),
   plans: z.array(
     z.object({
@@ -796,13 +805,15 @@ export const CourseCollaboratorSchema = z.object({
   email: z.string().email(),
   fullName: z.string().nullable(),
   role: z.enum(['owner', 'editor']),
-  status: z.enum(['invited', 'accepted']),
+  status: z.enum(['invited', 'accepted', 'copied', 'declined', 'canceled']),
+  invitationMode: z.enum(['join_or_copy', 'copy_only']).optional(),
   invitedByUserId: UuidSchema.nullable(),
   joinedAt: z.string().nullable()
 });
 
 export const CourseCollaboratorInviteRequestSchema = z.object({
-  email: z.string().email()
+  email: z.string().email(),
+  invitationMode: z.enum(['join_or_copy', 'copy_only']).optional()
 });
 
 export const CourseOwnershipTransferRequestSchema = z.object({
@@ -814,6 +825,7 @@ export const CourseCollaboratorsResponseSchema = z.object({
 });
 
 export const CourseInvitationSchema = z.object({
+  invitationMode: z.enum(['join_or_copy', 'copy_only']).optional(),
   course: CourseSummarySchema,
   invitedBy: z.object({
     userId: UuidSchema,
@@ -1301,6 +1313,7 @@ export const UnitSlidesSchema = z.object({
 export const LessonSlidesSchema = UnitSlidesSchema;
 
 export const LessonSchema = z.object({
+  editRevision: z.number().int().nonnegative().optional(),
   id: UuidSchema,
   title: z.string(),
   description: z.string().nullable(),
@@ -1327,6 +1340,7 @@ export const UnitSchema = z.object({
 });
 
 export const CourseDetailResponseSchema = z.object({
+  savedLessonRevision: z.number().int().nonnegative().optional(),
   course: CourseSummarySchema.extend({
     units: z.array(UnitSchema)
   })
@@ -1365,6 +1379,19 @@ export const LessonCreateRequestSchema = z.object({
 });
 
 export const LessonUpdateRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative().optional(),
+  steps: z
+    .array(
+      z.object({
+        id: UuidSchema,
+        title: z.string().min(1),
+        description: z.string().nullable(),
+        durationMinutes: z.number().int().positive().nullable(),
+        stepType: z.string().nullable().optional()
+      })
+    )
+    .max(500)
+    .optional(),
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
   lessonPlan: LessonPlanSchema.optional(),
@@ -1427,6 +1454,7 @@ export const LessonShareResponseSchema = z.object({
   token: z.string().uuid().nullable()
 });
 export const LessonWorkspaceResponseSchema = z.object({
+  importedFromCourseName: z.string().optional(),
   course: z.object({ id: UuidSchema, name: z.string() }),
   unit: z.object({
     id: UuidSchema,
@@ -1722,3 +1750,5 @@ export type SectionLessonPlanResponse = z.infer<typeof SectionLessonPlanResponse
 export type SectionPlanningContextQuery = z.infer<typeof SectionPlanningContextQuerySchema>;
 export type SectionPlanningContextResponse = z.infer<typeof SectionPlanningContextResponseSchema>;
 export type DeleteEntityResponse = z.infer<typeof DeleteEntityResponseSchema>;
+
+export { positionCurriculumUnits, reflowLessonRanges } from './curriculum-pacing.js';

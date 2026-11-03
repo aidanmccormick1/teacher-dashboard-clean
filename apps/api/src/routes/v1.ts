@@ -1,3 +1,4 @@
+import { positionCurriculumUnits, reflowLessonRanges } from '@teacheros/contracts';
 import { randomUUID } from 'node:crypto';
 
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm';
@@ -789,6 +790,8 @@ async function buildLessonWorkspace(userId: string, lessonId: string) {
       googleSlidesUrl: units.googleSlidesUrl,
       googleSlidesStartSlide: units.googleSlidesStartSlide,
       lessonId: lessons.id,
+      editRevision: lessons.editRevision,
+      importedFrom: lessons.importedFrom,
       title: lessons.title,
       description: lessons.description,
       lessonPlan: lessons.lessonPlan,
@@ -860,9 +863,15 @@ async function buildLessonWorkspace(userId: string, lessonId: string) {
     },
     lesson: {
       id: row.lessonId,
+      editRevision: row.editRevision,
       title: row.title,
       description: row.description,
-      lessonPlan: row.lessonPlan,
+      lessonPlan: {
+        ...row.lessonPlan,
+        teacherNotes: (await findCourseOwnedBy(userId, row.courseId))
+          ? row.lessonPlan.teacherNotes
+          : null
+      },
       googleSlidesUrl: row.lessonGoogleSlidesUrl,
       googleSlidesStartSlide: row.lessonGoogleSlidesStartSlide,
       orderIndex: row.orderIndex,
@@ -871,6 +880,7 @@ async function buildLessonWorkspace(userId: string, lessonId: string) {
       plannedMeetingCount: row.plannedMeetingCount,
       segments: segmentRows
     },
+    importedFromCourseName: row.importedFrom?.courseName,
     sections: sectionRows,
     share: { enabled: row.shareEnabled ?? false, token: row.shareToken ?? null }
   });
@@ -1025,6 +1035,7 @@ async function buildCourseDetail(userId: string, courseId: string) {
             unitId: lessons.unitId,
             title: lessons.title,
             description: lessons.description,
+            editRevision: lessons.editRevision,
             lessonPlan: lessons.lessonPlan,
             googleSlidesUrl: lessons.googleSlidesUrl,
             googleSlidesStartSlide: lessons.googleSlidesStartSlide,
@@ -1111,9 +1122,13 @@ async function buildCourseDetail(userId: string, courseId: string) {
         googleSlidesStartSlide: unit.googleSlidesStartSlide,
         lessons: (lessonsByUnitId.get(unit.id) ?? []).map((lesson) => ({
           id: lesson.id,
+          editRevision: lesson.editRevision,
           title: lesson.title,
           description: lesson.description,
-          lessonPlan: lesson.lessonPlan,
+          lessonPlan: {
+            ...lesson.lessonPlan,
+            teacherNotes: course.accessRole === 'owner' ? lesson.lessonPlan.teacherNotes : null
+          },
           googleSlidesUrl: lesson.googleSlidesUrl,
           googleSlidesStartSlide: lesson.googleSlidesStartSlide,
           orderIndex: lesson.orderIndex,
@@ -1235,6 +1250,7 @@ async function buildCourseCollaborators(courseId: string) {
       fullName: users.fullName,
       role: courseCollaborators.role,
       status: courseCollaborators.status,
+      invitationMode: courseCollaborators.invitationMode,
       invitedByUserId: courseCollaborators.invitedByUserId,
       joinedAt: courseCollaborators.joinedAt
     })
@@ -1570,64 +1586,85 @@ async function copyCourseCurriculum(
 ) {
   const source = await buildCourseDetail(userId, sourceCourseId);
   if (!source) return false;
-  await db.transaction(async (tx) => {
-    for (const unit of source.course.units) {
-      const [createdUnit] = await tx
-        .insert(units)
-        .values({
-          courseId: targetCourseId,
-          title: unit.title,
-          description: unit.description,
-          orderIndex: unit.orderIndex,
-          plannedStartMeeting: unit.plannedStartMeeting,
-          plannedMeetingCount: unit.plannedMeetingCount,
-          googleSlidesUrl: unit.googleSlidesUrl,
-          googleSlidesStartSlide: unit.googleSlidesStartSlide
-        })
-        .returning({ id: units.id });
-      if (!createdUnit) throw new Error('Failed to copy unit');
-      for (const lesson of unit.lessons) {
-        const [createdLesson] = await tx
-          .insert(lessons)
-          .values({
-            unitId: createdUnit.id,
-            title: lesson.title,
-            description: lesson.description,
-            lessonPlan:
-              visibility === 'public'
-                ? {
-                    objective: lesson.lessonPlan.objective,
-                    teacherNotes: null,
-                    studentDirections: lesson.lessonPlan.studentDirections,
-                    materials: lesson.lessonPlan.materials,
-                    links: []
-                  }
-                : lesson.lessonPlan,
-            googleSlidesUrl: lesson.googleSlidesUrl,
-            googleSlidesStartSlide: lesson.googleSlidesStartSlide,
-            orderIndex: lesson.orderIndex,
-            estimatedDurationMinutes: lesson.estimatedDurationMinutes,
-            plannedStartMeeting: lesson.plannedStartMeeting,
-            plannedMeetingCount: lesson.plannedMeetingCount
-          })
-          .returning({ id: lessons.id });
-        if (!createdLesson) throw new Error('Failed to copy lesson');
-        if (lesson.segments.length) {
-          await tx.insert(lessonSegments).values(
-            lesson.segments.map((step) => ({
-              lessonId: createdLesson.id,
-              title: step.title,
-              description: step.description,
-              durationMinutes: step.durationMinutes,
-              stepType: step.stepType,
-              orderIndex: step.orderIndex
-            }))
-          );
-        }
-      }
-    }
-  });
+  await db.transaction((tx) => insertCurriculumCopy(tx, source, targetCourseId, visibility));
   return true;
+}
+
+async function insertCurriculumCopy(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  source: NonNullable<Awaited<ReturnType<typeof buildCourseDetail>>>,
+  targetCourseId: string,
+  visibility: 'private' | 'public' | 'invitation'
+) {
+  for (const unit of source.course.units) {
+    const [createdUnit] = await tx
+      .insert(units)
+      .values({
+        courseId: targetCourseId,
+        title: unit.title,
+        description: unit.description,
+        orderIndex: unit.orderIndex,
+        plannedStartMeeting: unit.plannedStartMeeting,
+        plannedMeetingCount: unit.plannedMeetingCount,
+        googleSlidesUrl: unit.googleSlidesUrl,
+        googleSlidesStartSlide: unit.googleSlidesStartSlide
+      })
+      .returning({ id: units.id });
+    if (!createdUnit) throw new Error('Failed to copy unit');
+    for (const lesson of unit.lessons) {
+      const [createdLesson] = await tx
+        .insert(lessons)
+        .values({
+          unitId: createdUnit.id,
+          title: lesson.title,
+          description: lesson.description,
+          lessonPlan:
+            visibility === 'public'
+              ? {
+                  objective: lesson.lessonPlan.objective,
+                  teacherNotes: null,
+                  studentDirections: lesson.lessonPlan.studentDirections,
+                  materials: lesson.lessonPlan.materials,
+                  links: []
+                }
+              : visibility === 'invitation'
+                ? { ...lesson.lessonPlan, teacherNotes: null }
+                : lesson.lessonPlan,
+          googleSlidesUrl: lesson.googleSlidesUrl,
+          googleSlidesStartSlide: lesson.googleSlidesStartSlide,
+          orderIndex: lesson.orderIndex,
+          estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+          plannedStartMeeting: lesson.plannedStartMeeting,
+          plannedMeetingCount: lesson.plannedMeetingCount
+        })
+        .returning({ id: lessons.id });
+      if (!createdLesson) throw new Error('Failed to copy lesson');
+      await copyLessonSteps(tx, createdLesson.id, lesson.segments);
+    }
+  }
+}
+
+async function copyLessonSteps(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  lessonId: string,
+  steps: Array<
+    Pick<
+      typeof lessonSegments.$inferInsert,
+      'title' | 'description' | 'durationMinutes' | 'stepType' | 'orderIndex'
+    >
+  >
+) {
+  if (steps.length)
+    await tx.insert(lessonSegments).values(
+      steps.map((step) => ({
+        lessonId,
+        title: step.title,
+        description: step.description,
+        durationMinutes: step.durationMinutes,
+        stepType: step.stepType,
+        orderIndex: step.orderIndex
+      }))
+    );
 }
 
 async function buildSchoolOverview(userId: string, request?: FastifyRequest) {
@@ -3393,6 +3430,32 @@ export async function v1Routes(app: FastifyInstance) {
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtext(${`section-plan:${params.sectionId}`}))`
         );
+        const [section] = await tx
+          .select({ id: sections.id })
+          .from(sections)
+          .where(
+            and(
+              eq(sections.id, params.sectionId),
+              eq(sections.teacherId, user.id),
+              eq(sections.courseId, ownedSection.courseId)
+            )
+          )
+          .for('update');
+        if (!section) return null;
+        if ('expectedLastOperationId' in body && body.expectedLastOperationId !== undefined) {
+          const [last] = await tx
+            .select({ id: sectionPlanOperations.id })
+            .from(sectionPlanOperations)
+            .where(
+              and(
+                eq(sectionPlanOperations.sectionId, params.sectionId),
+                eq(sectionPlanOperations.courseId, ownedSection.courseId)
+              )
+            )
+            .orderBy(desc(sectionPlanOperations.createdAt), desc(sectionPlanOperations.id))
+            .limit(1);
+          if ((last?.id ?? null) !== body.expectedLastOperationId) return null;
+        }
         const curriculum = await tx
           .select({
             lessonId: lessons.id,
@@ -3416,13 +3479,16 @@ export async function v1Routes(app: FastifyInstance) {
           .orderBy(asc(units.orderIndex), asc(lessons.orderIndex), asc(lessons.createdAt));
         const target = curriculum.find((lesson) => lesson.lessonId === body.lessonId);
         const targetStart = target?.overrideStart ?? target?.courseStart ?? null;
-        if (!target || targetStart === null) {
-          throw new Error('This lesson needs a planned meeting before it can be shifted.');
+        if (!target || ('meetingDelta' in body && targetStart === null)) {
+          return null;
         }
-        const affected = curriculum.filter((lesson) => {
-          const start = lesson.overrideStart ?? lesson.courseStart;
-          return start !== null && start >= targetStart;
-        });
+        const affected =
+          'meetingDelta' in body
+            ? curriculum.filter((lesson) => {
+                const start = lesson.overrideStart ?? lesson.courseStart;
+                return start !== null && targetStart !== null && start >= targetStart;
+              })
+            : [target];
         const previousOverrides = affected.map((lesson) => ({
           lessonId: lesson.lessonId,
           existed: Boolean(lesson.overrideId),
@@ -3431,21 +3497,27 @@ export async function v1Routes(app: FastifyInstance) {
         }));
         for (const lesson of affected) {
           const effectiveStart = lesson.overrideStart ?? lesson.courseStart;
-          const effectiveCount = lesson.overrideCount ?? lesson.courseCount;
-          if (effectiveStart === null) continue;
+          const plannedStartMeeting =
+            'meetingDelta' in body
+              ? Math.max(0, (effectiveStart ?? 0) + body.meetingDelta)
+              : body.plannedStartMeeting;
+          const plannedMeetingCount =
+            'meetingDelta' in body
+              ? (lesson.overrideCount ?? lesson.courseCount)
+              : body.plannedMeetingCount;
           await tx
             .insert(sectionLessonPlans)
             .values({
               sectionId: params.sectionId,
               lessonId: lesson.lessonId,
-              plannedStartMeeting: Math.max(0, effectiveStart + body.meetingDelta),
-              plannedMeetingCount: effectiveCount
+              plannedStartMeeting,
+              plannedMeetingCount
             })
             .onConflictDoUpdate({
               target: [sectionLessonPlans.sectionId, sectionLessonPlans.lessonId],
               set: {
-                plannedStartMeeting: Math.max(0, effectiveStart + body.meetingDelta),
-                plannedMeetingCount: effectiveCount,
+                plannedStartMeeting,
+                plannedMeetingCount,
                 revision: sql`${sectionLessonPlans.revision} + 1`,
                 updatedAt: new Date()
               }
@@ -3456,7 +3528,7 @@ export async function v1Routes(app: FastifyInstance) {
           .values({
             sectionId: params.sectionId,
             courseId: ownedSection.courseId,
-            kind: 'shift_forward',
+            kind: 'meetingDelta' in body ? 'shift_forward' : 'set_lesson_timing',
             previousOverrides
           })
           .returning({ id: sectionPlanOperations.id });
@@ -3471,6 +3543,11 @@ export async function v1Routes(app: FastifyInstance) {
           .where(eq(sectionLessonPlans.sectionId, params.sectionId));
         return { operationId: operation?.id ?? null, plans };
       });
+      if (!result)
+        return (reply as any).code(409).send({
+          error: 'This lesson cannot be moved in the current class plan.',
+          requestId: request.id
+        });
       return SectionLessonPlanResponseSchema.parse(result);
     }
   );
@@ -3597,6 +3674,17 @@ export async function v1Routes(app: FastifyInstance) {
               });
           }
           await tx.delete(sectionPlanOperations).where(eq(sectionPlanOperations.id, operation.id));
+          const [previousOperation] = await tx
+            .select({ id: sectionPlanOperations.id })
+            .from(sectionPlanOperations)
+            .where(
+              and(
+                eq(sectionPlanOperations.sectionId, params.sectionId),
+                eq(sectionPlanOperations.courseId, ownedSection.courseId)
+              )
+            )
+            .orderBy(desc(sectionPlanOperations.createdAt), desc(sectionPlanOperations.id))
+            .limit(1);
           const plans = await tx
             .select({
               lessonId: sectionLessonPlans.lessonId,
@@ -3606,7 +3694,7 @@ export async function v1Routes(app: FastifyInstance) {
             })
             .from(sectionLessonPlans)
             .where(eq(sectionLessonPlans.sectionId, params.sectionId));
-          return { operationId: null, plans };
+          return { operationId: null, previousOperationId: previousOperation?.id ?? null, plans };
         });
         return SectionLessonPlanResponseSchema.parse(result);
       } catch (error) {
@@ -3642,6 +3730,8 @@ export async function v1Routes(app: FastifyInstance) {
       const curriculum = await db
         .select({
           lessonId: lessons.id,
+          unitId: lessons.unitId,
+          estimatedDurationMinutes: lessons.estimatedDurationMinutes,
           title: lessons.title,
           courseStart: lessons.plannedStartMeeting,
           courseCount: lessons.plannedMeetingCount,
@@ -3660,16 +3750,46 @@ export async function v1Routes(app: FastifyInstance) {
         )
         .where(eq(units.courseId, ownedSection.courseId))
         .orderBy(asc(units.orderIndex), asc(lessons.orderIndex), asc(lessons.createdAt));
-      const planned = curriculum.find((lesson) => {
-        const start = lesson.sectionStart ?? lesson.courseStart;
-        const count = lesson.sectionCount ?? lesson.courseCount;
-        return (
-          start !== null &&
-          count !== null &&
-          query.meetingIndex >= start &&
-          query.meetingIndex < start + count
-        );
+      const courseUnits = await db
+        .select({
+          id: units.id,
+          orderIndex: units.orderIndex,
+          plannedStartMeeting: units.plannedStartMeeting,
+          plannedMeetingCount: units.plannedMeetingCount
+        })
+        .from(units)
+        .where(eq(units.courseId, ownedSection.courseId))
+        .orderBy(asc(units.orderIndex), asc(units.createdAt));
+      const lessonsByUnit = new Map<string, typeof curriculum>();
+      for (const lesson of curriculum) {
+        const siblings = lessonsByUnit.get(lesson.unitId) ?? [];
+        siblings.push(lesson);
+        lessonsByUnit.set(lesson.unitId, siblings);
+      }
+      const projected = positionCurriculumUnits(
+        courseUnits.map((unit) => ({
+          ...unit,
+          lessons: lessonsByUnit.get(unit.id) ?? []
+        }))
+      ).flatMap(({ unit, start, span }) => {
+        const ranges = reflowLessonRanges(start, span, unit.lessons.length);
+        return unit.lessons.map((lesson, index) => ({
+          lessonId: lesson.lessonId,
+          title: lesson.title,
+          plannedStartMeeting: lesson.sectionStart ?? lesson.courseStart ?? ranges[index]!.start,
+          plannedMeetingCount: lesson.sectionCount ?? lesson.courseCount ?? ranges[index]!.span,
+          hasSharedStart: lesson.courseStart !== null,
+          source: lesson.sectionPlanId ? ('section' as const) : ('course' as const)
+        }));
       });
+      const coversMeeting = (lesson: (typeof projected)[number]) =>
+        query.meetingIndex >= lesson.plannedStartMeeting &&
+        query.meetingIndex < lesson.plannedStartMeeting + lesson.plannedMeetingCount;
+      const planned =
+        projected.find((lesson) => lesson.source === 'section' && coversMeeting(lesson)) ??
+        projected.find((lesson) => lesson.hasSharedStart && coversMeeting(lesson)) ??
+        projected.find(coversMeeting) ??
+        null;
       const [actual] = await db
         .select({
           lessonId: sectionLessonState.lessonId,
@@ -3695,15 +3815,7 @@ export async function v1Routes(app: FastifyInstance) {
         .orderBy(desc(sectionLessonState.updatedAt))
         .limit(1);
       return SectionPlanningContextResponseSchema.parse({
-        planned: planned
-          ? {
-              lessonId: planned.lessonId,
-              title: planned.title,
-              plannedStartMeeting: planned.sectionStart ?? planned.courseStart,
-              plannedMeetingCount: planned.sectionCount ?? planned.courseCount,
-              source: planned.sectionPlanId ? 'section' : 'course'
-            }
-          : null,
+        planned,
         actual: actual ?? null
       });
     }
@@ -3848,7 +3960,12 @@ export async function v1Routes(app: FastifyInstance) {
               id: lesson.id,
               title: lesson.title,
               description: lesson.description,
-              lessonPlan: lesson.lessonPlan,
+              lessonPlan: {
+                ...lesson.lessonPlan,
+                teacherNotes: (await findCourseOwnedBy(user.id, ownedSection.courseId))
+                  ? lesson.lessonPlan.teacherNotes
+                  : null
+              },
               googleSlidesUrl: lesson.googleSlidesUrl,
               googleSlidesStartSlide: lesson.googleSlidesStartSlide,
               orderIndex: lesson.orderIndex,
@@ -4240,6 +4357,7 @@ export async function v1Routes(app: FastifyInstance) {
           sortIndex: courses.sortIndex,
           createdAt: courses.createdAt,
           updatedAt: courses.updatedAt,
+          invitationMode: courseCollaborators.invitationMode,
           invitedByUserId: courseCollaborators.invitedByUserId
         })
         .from(courseCollaborators)
@@ -4288,6 +4406,7 @@ export async function v1Routes(app: FastifyInstance) {
                 lifecycle: 'unlinked',
                 linkedClassGroupCount: 0
               },
+              invitationMode: row.invitationMode,
               invitedBy: { userId: inviter.id, fullName: inviter.fullName, email: inviter.email }
             }
           ];
@@ -4305,6 +4424,7 @@ export async function v1Routes(app: FastifyInstance) {
     const [sourceCourse] = await db
       .select({
         id: courses.id,
+        ownerId: courses.teacherId,
         schoolId: courses.schoolId,
         name: courses.name,
         subject: courses.subject,
@@ -4326,35 +4446,57 @@ export async function v1Routes(app: FastifyInstance) {
       (reply as any).code(404);
       return { error: 'Course invitation not found', requestId: request.id };
     }
-    const [accepted] = await db
-      .update(courseCollaborators)
-      .set({ status: 'accepted', joinedAt: new Date(), archivedAt: null, updatedAt: new Date() })
-      .where(
-        and(
-          eq(courseCollaborators.courseId, courseId),
-          eq(courseCollaborators.userId, user.id),
-          eq(courseCollaborators.status, 'invited')
+    const source =
+      body.mode === 'copy' ? await buildCourseDetail(sourceCourse.ownerId, courseId) : null;
+    const teacherCourseCurriculumId = await db.transaction(async (tx) => {
+      const [membership] = await tx
+        .select({ userId: schoolMemberships.userId })
+        .from(schoolMemberships)
+        .where(
+          and(
+            eq(schoolMemberships.userId, user.id),
+            eq(schoolMemberships.schoolId, sourceCourse.schoolId),
+            eq(schoolMemberships.status, 'active')
+          )
         )
-      )
-      .returning({ courseId: courseCollaborators.courseId });
-    if (!accepted) {
-      (reply as any).code(404);
-      return { error: 'Course invitation not found', requestId: request.id };
-    }
-    await db
-      .update(notifications)
-      .set({ readAt: new Date() })
-      .where(
-        and(
-          eq(notifications.recipientUserId, user.id),
-          eq(notifications.courseId, courseId),
-          eq(notifications.type, 'course_invitation'),
-          isNull(notifications.readAt)
-        )
+        .for('share');
+      if (!membership) return null;
+      const pending = and(
+        eq(courseCollaborators.courseId, courseId),
+        eq(courseCollaborators.userId, user.id),
+        eq(courseCollaborators.status, 'invited')
       );
-    let teacherCourseCurriculumId = courseId;
-    if (body.mode === 'copy') {
-      const [created] = await db.transaction(async (tx) => {
+      const claimed =
+        body.mode === 'copy'
+          ? await tx
+              .update(courseCollaborators)
+              .set({ status: 'copied', updatedAt: new Date() })
+              .where(pending)
+              .returning()
+          : await tx
+              .update(courseCollaborators)
+              .set({
+                status: 'accepted',
+                joinedAt: new Date(),
+                archivedAt: null,
+                updatedAt: new Date()
+              })
+              .where(and(pending, eq(courseCollaborators.invitationMode, 'join_or_copy')))
+              .returning();
+      if (!claimed.length) return null;
+      await tx
+        .update(notifications)
+        .set({ readAt: new Date() })
+        .where(
+          and(
+            eq(notifications.recipientUserId, user.id),
+            eq(notifications.courseId, courseId),
+            eq(notifications.type, 'course_invitation'),
+            isNull(notifications.readAt)
+          )
+        );
+      if (body.mode === 'copy') {
+        if (!source) throw new Error('Could not load invitation curriculum');
         const [curriculum] = await tx
           .insert(courses)
           .values({
@@ -4385,20 +4527,10 @@ export async function v1Routes(app: FastifyInstance) {
           relationshipType: 'independent',
           sortIndex: sourceCourse.sortIndex
         });
-        return [curriculum];
-      });
-      if (!created) throw new Error('Failed to create an independent curriculum copy');
-      await copyCourseCurriculum(user.id, courseId, created.id);
-      // The copy is now self-contained. Remove the temporary source membership
-      // so later shared edits cannot appear in this teacher's workspace.
-      await db
-        .delete(courseCollaborators)
-        .where(
-          and(eq(courseCollaborators.courseId, courseId), eq(courseCollaborators.userId, user.id))
-        );
-      teacherCourseCurriculumId = created.id;
-    } else {
-      await db
+        await insertCurriculumCopy(tx, source, curriculum.id, 'invitation');
+        return curriculum.id;
+      }
+      await tx
         .insert(teacherCourses)
         .values({
           teacherId: user.id,
@@ -4418,15 +4550,21 @@ export async function v1Routes(app: FastifyInstance) {
             updatedAt: new Date()
           }
         });
+      return courseId;
+    });
+    if (!teacherCourseCurriculumId) {
+      reply.code(404);
+      return { error: 'This invitation is no longer pending.', requestId: request.id };
     }
-    await recordCourseActivity(
-      courseId,
-      user.id,
-      'collaboration_joined',
-      'course',
-      courseId,
-      'joined the course'
-    );
+    if (body.mode === 'collaborate')
+      await recordCourseActivity(
+        courseId,
+        user.id,
+        'collaboration_joined',
+        'course',
+        courseId,
+        'joined the course'
+      );
     const detail = await buildCourseDetail(user.id, teacherCourseCurriculumId);
     if (!detail) throw new Error('Could not load accepted course');
     return detail;
@@ -4437,31 +4575,36 @@ export async function v1Routes(app: FastifyInstance) {
     if (!principal) return;
     const user = await ensureUserFromPrincipal(principal);
     const { courseId } = CourseParamsSchema.parse(request.params);
-    const [declined] = await db
-      .delete(courseCollaborators)
-      .where(
-        and(
-          eq(courseCollaborators.courseId, courseId),
-          eq(courseCollaborators.userId, user.id),
-          eq(courseCollaborators.status, 'invited')
+    const declined = await db.transaction(async (tx) => {
+      const [entry] = await tx
+        .update(courseCollaborators)
+        .set({ status: 'declined', updatedAt: new Date() })
+        .where(
+          and(
+            eq(courseCollaborators.courseId, courseId),
+            eq(courseCollaborators.userId, user.id),
+            eq(courseCollaborators.status, 'invited')
+          )
         )
-      )
-      .returning({ courseId: courseCollaborators.courseId });
+        .returning({ courseId: courseCollaborators.courseId });
+      if (entry)
+        await tx
+          .update(notifications)
+          .set({ readAt: new Date() })
+          .where(
+            and(
+              eq(notifications.recipientUserId, user.id),
+              eq(notifications.courseId, courseId),
+              eq(notifications.type, 'course_invitation'),
+              isNull(notifications.readAt)
+            )
+          );
+      return entry;
+    });
     if (!declined) {
       (reply as any).code(404);
       return { error: 'Course invitation not found', requestId: request.id };
     }
-    await db
-      .update(notifications)
-      .set({ readAt: new Date() })
-      .where(
-        and(
-          eq(notifications.recipientUserId, user.id),
-          eq(notifications.courseId, courseId),
-          eq(notifications.type, 'course_invitation'),
-          isNull(notifications.readAt)
-        )
-      );
     return { deleted: true };
   });
 
@@ -4489,7 +4632,10 @@ export async function v1Routes(app: FastifyInstance) {
       schema: {
         params: CourseParamsSchema,
         body: CourseCollaboratorInviteRequestSchema,
-        response: { 200: CourseCollaboratorsResponseSchema }
+        response: {
+          200: CourseCollaboratorsResponseSchema,
+          409: z.object({ error: z.string(), requestId: z.string() })
+        }
       }
     },
     async (request, reply) => {
@@ -4545,7 +4691,7 @@ export async function v1Routes(app: FastifyInstance) {
           )
         )
         .limit(1);
-      if (existingMembership) {
+      if (existingMembership?.status === 'accepted' || existingMembership?.status === 'invited') {
         (reply as any).code(409);
         return {
           error:
@@ -4555,13 +4701,50 @@ export async function v1Routes(app: FastifyInstance) {
           requestId: request.id
         };
       }
-      await db.insert(courseCollaborators).values({
-        courseId,
-        userId: recipient.id,
-        role: 'editor',
-        status: 'invited',
-        invitedByUserId: user.id
+      const invitation = await db.transaction(async (tx) => {
+        const [entry] = await tx
+          .insert(courseCollaborators)
+          .values({
+            courseId,
+            userId: recipient.id,
+            role: 'editor',
+            status: 'invited',
+            invitationMode: body.invitationMode ?? 'join_or_copy',
+            invitedByUserId: user.id
+          })
+          .onConflictDoUpdate({
+            target: [courseCollaborators.courseId, courseCollaborators.userId],
+            set: {
+              status: 'invited',
+              invitationMode: body.invitationMode ?? 'join_or_copy',
+              invitedByUserId: user.id,
+              updatedAt: new Date()
+            },
+            setWhere: inArray(courseCollaborators.status, ['copied', 'declined', 'canceled'])
+          })
+          .returning();
+        if (entry)
+          await tx.insert(notifications).values({
+            recipientUserId: recipient.id,
+            actorUserId: user.id,
+            courseId,
+            type: 'course_invitation',
+            title: ownedCourse.name,
+            message:
+              body.invitationMode === 'copy_only'
+                ? 'sent you a curriculum copy'
+                : 'invited you to collaborate',
+            actionUrl: `/sharing?invitation=${courseId}`
+          });
+        return entry;
       });
+      if (!invitation) {
+        reply.code(409);
+        return {
+          error: 'This teacher already has access or a pending invitation.',
+          requestId: request.id
+        };
+      }
       await recordCourseActivity(
         courseId,
         user.id,
@@ -4571,24 +4754,69 @@ export async function v1Routes(app: FastifyInstance) {
         `invited ${body.email} to collaborate`,
         { dedupe: false }
       );
-      await createNotification({
-        recipientUserId: recipient.id,
-        actorUserId: user.id,
-        courseId,
-        type: 'course_invitation',
-        title: ownedCourse.name,
-        message: 'invited you to collaborate',
-        actionUrl: '/sharing'
-      });
       return buildCourseCollaborators(courseId);
     }
   );
+
+  app.post('/v1/courses/:courseId/collaborators/:userId/resend', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const { courseId, userId } = CourseParamsSchema.extend({ userId: UuidSchema }).parse(
+      request.params
+    );
+    const course = await findCourseOwnedBy(user.id, courseId);
+    if (!course) return reply.code(404).send({ error: 'Course not found' });
+    const sent = await db.transaction(async (tx) => {
+      const [pending] = await tx
+        .update(courseCollaborators)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(
+            eq(courseCollaborators.courseId, courseId),
+            eq(courseCollaborators.userId, userId),
+            eq(courseCollaborators.status, 'invited'),
+            eq(courseCollaborators.invitedByUserId, user.id)
+          )
+        )
+        .returning();
+      if (!pending) return false;
+      await tx
+        .delete(notifications)
+        .where(
+          and(
+            eq(notifications.courseId, courseId),
+            eq(notifications.recipientUserId, userId),
+            eq(notifications.type, 'course_invitation')
+          )
+        );
+      await tx.insert(notifications).values({
+        recipientUserId: userId,
+        actorUserId: user.id,
+        courseId,
+        type: 'course_invitation',
+        title: course.name,
+        message:
+          pending.invitationMode === 'copy_only'
+            ? 'sent you a curriculum copy'
+            : 'invited you to collaborate',
+        actionUrl: `/sharing?invitation=${courseId}`
+      });
+      return true;
+    });
+    if (!sent)
+      return reply.code(409).send({ error: 'Only your pending invitations can be resent.' });
+    return { sent: true };
+  });
 
   app.delete('/v1/courses/:courseId/collaborators/:userId', async (request, reply) => {
     const principal = requirePrincipal(request, reply);
     if (!principal) return;
     const user = await ensureUserFromPrincipal(principal);
     const { courseId } = CourseParamsSchema.parse(request.params);
+    const pendingOnly = z
+      .object({ pendingOnly: z.literal('true').optional() })
+      .parse(request.query).pendingOnly;
     const collaboratorId = z.object({ userId: UuidSchema }).parse(request.params).userId;
     if (!(await findCourseOwnedBy(user.id, courseId))) {
       (reply as any).code(404);
@@ -4606,16 +4834,37 @@ export async function v1Routes(app: FastifyInstance) {
         requestId: request.id
       };
     }
-    const [removed] = await db
-      .delete(courseCollaborators)
-      .where(
-        and(
-          eq(courseCollaborators.courseId, courseId),
-          eq(courseCollaborators.userId, collaboratorId),
-          eq(courseCollaborators.role, 'editor')
-        )
-      )
-      .returning({ userId: courseCollaborators.userId });
+    const removed = await db.transaction(async (tx) => {
+      const target = and(
+        eq(courseCollaborators.courseId, courseId),
+        eq(courseCollaborators.userId, collaboratorId),
+        eq(courseCollaborators.role, 'editor')
+      );
+      const [pending] = await tx
+        .update(courseCollaborators)
+        .set({ status: 'canceled', updatedAt: new Date() })
+        .where(and(target, eq(courseCollaborators.status, 'invited')))
+        .returning();
+      const [active] =
+        pending || pendingOnly
+          ? []
+          : await tx
+              .delete(courseCollaborators)
+              .where(and(target, eq(courseCollaborators.status, 'accepted')))
+              .returning();
+      const entry = pending ?? active;
+      if (entry?.status === 'canceled')
+        await tx
+          .delete(notifications)
+          .where(
+            and(
+              eq(notifications.recipientUserId, collaboratorId),
+              eq(notifications.courseId, courseId),
+              eq(notifications.type, 'course_invitation')
+            )
+          );
+      return entry;
+    });
     if (!removed) {
       (reply as any).code(404);
       return { error: 'Collaborator not found', requestId: request.id };
@@ -4623,10 +4872,10 @@ export async function v1Routes(app: FastifyInstance) {
     await recordCourseActivity(
       courseId,
       user.id,
-      'collaborator_removed',
+      removed.status === 'canceled' ? 'invitation_canceled' : 'collaborator_removed',
       'course',
       courseId,
-      'removed a collaborator',
+      removed.status === 'canceled' ? 'canceled an invitation' : 'removed a collaborator',
       { dedupe: false }
     );
     return { deleted: true };
@@ -5553,13 +5802,20 @@ export async function v1Routes(app: FastifyInstance) {
         unitId: params.unitId,
         title: body.title,
         description: body.description,
-        lessonPlan: body.lessonPlan ?? {
-          objective: null,
-          teacherNotes: null,
-          studentDirections: null,
-          materials: null,
-          links: []
-        },
+        lessonPlan: body.lessonPlan
+          ? {
+              ...body.lessonPlan,
+              teacherNotes: (await findCourseOwnedBy(user.id, courseId))
+                ? body.lessonPlan.teacherNotes
+                : null
+            }
+          : {
+              objective: null,
+              teacherNotes: null,
+              studentDirections: null,
+              materials: null,
+              links: []
+            },
         googleSlidesUrl: body.googleSlidesUrl ?? null,
         googleSlidesStartSlide: body.googleSlidesStartSlide ?? 1,
         estimatedDurationMinutes: body.estimatedDurationMinutes,
@@ -5583,6 +5839,68 @@ export async function v1Routes(app: FastifyInstance) {
       return detail;
     }
   );
+
+  app.patch('/v1/units/:unitId/lesson-order', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const { unitId } = UnitParamsSchema.parse(request.params);
+    const { items } = z
+      .object({
+        items: z
+          .array(
+            z.object({
+              id: UuidSchema,
+              orderIndex: z.number().int().nonnegative(),
+              expectedRevision: z.number().int().nonnegative()
+            })
+          )
+          .min(1)
+          .max(500)
+      })
+      .parse(request.body);
+    const courseId = await findOwnedCourseIdForUnit(user.id, unitId);
+    if (!courseId) return reply.code(404).send({ error: 'Unit not found' });
+    const revisions = await db.transaction(async (tx) => {
+      const current = await tx
+        .select({ id: lessons.id, revision: lessons.editRevision })
+        .from(lessons)
+        .where(eq(lessons.unitId, unitId))
+        .orderBy(asc(lessons.id))
+        .for('update');
+      const byId = new Map(current.map((lesson) => [lesson.id, lesson.revision]));
+      if (
+        byId.size !== items.length ||
+        new Set(items.map((item) => item.id)).size !== items.length ||
+        new Set(items.map((item) => item.orderIndex)).size !== items.length ||
+        items.some((item) => byId.get(item.id) !== item.expectedRevision)
+      )
+        return null;
+      const updated: Record<string, number> = {};
+      for (const item of items) {
+        const [row] = await tx
+          .update(lessons)
+          .set({ orderIndex: item.orderIndex, updatedAt: new Date() })
+          .where(eq(lessons.id, item.id))
+          .returning({ revision: lessons.editRevision });
+        updated[item.id] = row!.revision;
+      }
+      return updated;
+    });
+    if (!revisions)
+      return reply
+        .code(409)
+        .send({ error: 'Shared lessons changed. Reload the plan before reordering.' });
+    await recordCourseActivity(
+      courseId,
+      user.id,
+      'lessons_reordered',
+      'unit',
+      unitId,
+      'reordered shared lessons'
+    );
+    return { revisions };
+  });
 
   app.patch(
     '/v1/lessons/:lessonId',
@@ -5613,7 +5931,11 @@ export async function v1Routes(app: FastifyInstance) {
       };
       if (body.title !== undefined) updates.title = body.title;
       if (body.description !== undefined) updates.description = body.description;
-      if (body.lessonPlan !== undefined) updates.lessonPlan = body.lessonPlan;
+      if (body.lessonPlan !== undefined) {
+        updates.lessonPlan = (await findCourseOwnedBy(user.id, ownedCourseId))
+          ? body.lessonPlan
+          : (sql`jsonb_set(${JSON.stringify(body.lessonPlan)}::jsonb, '{teacherNotes}', coalesce(${lessons.lessonPlan}->'teacherNotes', 'null'::jsonb))` as unknown as typeof updates.lessonPlan);
+      }
       if (body.googleSlidesUrl !== undefined) updates.googleSlidesUrl = body.googleSlidesUrl;
       if (body.googleSlidesStartSlide !== undefined)
         updates.googleSlidesStartSlide = body.googleSlidesStartSlide;
@@ -5634,7 +5956,38 @@ export async function v1Routes(app: FastifyInstance) {
         updates.unitId = body.unitId;
       }
 
-      await db.transaction(async (tx) => {
+      const saved = await db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({ revision: lessons.editRevision })
+          .from(lessons)
+          .where(eq(lessons.id, params.lessonId))
+          .for('update');
+        if (
+          !current ||
+          (body.expectedRevision !== undefined && current.revision !== body.expectedRevision)
+        )
+          return null;
+        if (body.steps) {
+          if (body.expectedRevision === undefined) return null;
+          const existing = await tx
+            .select({ id: lessonSegments.id })
+            .from(lessonSegments)
+            .where(eq(lessonSegments.lessonId, params.lessonId));
+          const ids = new Set(body.steps.map((step) => step.id));
+          if (
+            ids.size !== body.steps.length ||
+            existing.length !== ids.size ||
+            existing.some((step) => !ids.has(step.id))
+          )
+            return null;
+          for (const [orderIndex, step] of body.steps.entries()) {
+            const { id, ...fields } = step;
+            await tx
+              .update(lessonSegments)
+              .set({ ...fields, orderIndex })
+              .where(and(eq(lessonSegments.id, id), eq(lessonSegments.lessonId, params.lessonId)));
+          }
+        }
         if (body.googleSlidesUrl !== undefined) {
           const [existing] = await tx
             .select({ googleSlidesUrl: lessons.googleSlidesUrl })
@@ -5647,8 +6000,18 @@ export async function v1Routes(app: FastifyInstance) {
               .where(eq(sectionLessonSlideState.lessonId, params.lessonId));
           }
         }
-        await tx.update(lessons).set(updates).where(eq(lessons.id, params.lessonId));
+        const [updated] = await tx
+          .update(lessons)
+          .set(updates)
+          .where(eq(lessons.id, params.lessonId))
+          .returning({ revision: lessons.editRevision });
+        return updated ?? null;
       });
+      if (!saved)
+        return (reply as any).code(409).send({
+          error: 'This lesson was updated by another teacher or tab.',
+          requestId: request.id
+        });
 
       await recordCourseActivity(
         ownedCourseId,
@@ -5665,7 +6028,7 @@ export async function v1Routes(app: FastifyInstance) {
 
       const detail = await buildCourseDetail(user.id, ownedCourseId);
       if (!detail) throw new Error('Failed to load course detail');
-      return detail;
+      return { ...detail, savedLessonRevision: saved.revision };
     }
   );
 
@@ -6137,6 +6500,157 @@ export async function v1Routes(app: FastifyInstance) {
       });
     }
   );
+
+  app.post('/v1/public/lessons/:token/import', async (request, reply) => {
+    const principal = requirePrincipal(request, reply);
+    if (!principal) return;
+    const user = await ensureUserFromPrincipal(principal);
+    const { token } = z.object({ token: UuidSchema }).parse(request.params);
+    const body = z
+      .object({ courseId: UuidSchema, requestId: UuidSchema })
+      .and(
+        z.union([
+          z.object({ unitId: UuidSchema }),
+          z.object({ unitTitle: z.string().trim().min(1).max(200) })
+        ])
+      )
+      .parse(request.body);
+
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${user.id + ':' + body.requestId}, 0))`
+      );
+      const [source] = await tx
+        .select({ lesson: lessons, course: courses, unit: units })
+        .from(lessonShares)
+        .innerJoin(lessons, eq(lessons.id, lessonShares.lessonId))
+        .innerJoin(units, eq(units.id, lessons.unitId))
+        .innerJoin(courses, eq(courses.id, units.courseId))
+        .where(and(eq(lessonShares.publicToken, token), eq(lessonShares.enabled, true)))
+        .for('share', { of: lessonShares });
+      if (!source) return null;
+
+      const [destination] = await tx
+        .select({ id: courses.id })
+        .from(courses)
+        .innerJoin(
+          courseCollaborators,
+          and(
+            eq(courseCollaborators.courseId, courses.id),
+            eq(courseCollaborators.userId, user.id),
+            eq(courseCollaborators.status, 'accepted'),
+            isNull(courseCollaborators.archivedAt)
+          )
+        )
+        .innerJoin(
+          schoolMemberships,
+          and(
+            eq(schoolMemberships.schoolId, courses.schoolId),
+            eq(schoolMemberships.userId, user.id),
+            eq(schoolMemberships.status, 'active')
+          )
+        )
+        .where(eq(courses.id, body.courseId))
+        .for('update', { of: [courses, courseCollaborators, schoolMemberships] });
+      if (!destination) return null;
+
+      const [existing] = await tx
+        .select({
+          id: lessons.id,
+          unitId: lessons.unitId,
+          source: lessons.importedFrom,
+          courseId: units.courseId
+        })
+        .from(lessons)
+        .innerJoin(units, eq(units.id, lessons.unitId))
+        .where(and(eq(lessons.importedBy, user.id), eq(lessons.importRequestId, body.requestId)));
+      if (existing)
+        return existing.source?.lessonId === source.lesson.id &&
+          existing.courseId === body.courseId &&
+          (!('unitId' in body) || existing.unitId === body.unitId)
+          ? { lessonId: existing.id, sourceCourseName: source.course.name }
+          : null;
+
+      let unitId: string;
+      if ('unitId' in body) {
+        const [unit] = await tx
+          .select({ id: units.id })
+          .from(units)
+          .where(and(eq(units.id, body.unitId), eq(units.courseId, destination.id)))
+          .for('update');
+        if (!unit) return null;
+        unitId = unit.id;
+      } else {
+        const [last] = await tx
+          .select({ orderIndex: units.orderIndex })
+          .from(units)
+          .where(eq(units.courseId, destination.id))
+          .orderBy(desc(units.orderIndex))
+          .limit(1);
+        const [unit] = await tx
+          .insert(units)
+          .values({
+            courseId: destination.id,
+            title: body.unitTitle,
+            orderIndex: (last?.orderIndex ?? -1) + 1
+          })
+          .returning({ id: units.id });
+        if (!unit) throw new Error('Could not create destination unit');
+        unitId = unit.id;
+      }
+      const [last] = await tx
+        .select({ orderIndex: lessons.orderIndex })
+        .from(lessons)
+        .where(eq(lessons.unitId, unitId))
+        .orderBy(desc(lessons.orderIndex))
+        .limit(1);
+      const lesson = source.lesson;
+      const [copy] = await tx
+        .insert(lessons)
+        .values({
+          unitId,
+          title: lesson.title,
+          description: lesson.description,
+          lessonPlan: { ...lesson.lessonPlan, teacherNotes: null },
+          googleSlidesUrl: lesson.googleSlidesUrl ?? source.unit.googleSlidesUrl,
+          googleSlidesStartSlide: lesson.googleSlidesUrl
+            ? lesson.googleSlidesStartSlide
+            : source.unit.googleSlidesStartSlide,
+          estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+          plannedMeetingCount: lesson.plannedMeetingCount,
+          orderIndex: (last?.orderIndex ?? -1) + 1,
+          importedBy: user.id,
+          importRequestId: body.requestId,
+          importedFrom: {
+            lessonId: lesson.id,
+            courseId: source.course.id,
+            courseName: source.course.name,
+            authorId: source.course.teacherId,
+            importedAt: new Date().toISOString()
+          }
+        })
+        .returning({ id: lessons.id });
+      if (!copy) throw new Error('Could not import lesson');
+      const steps = await tx
+        .select()
+        .from(lessonSegments)
+        .where(eq(lessonSegments.lessonId, lesson.id))
+        .orderBy(
+          asc(lessonSegments.orderIndex),
+          asc(lessonSegments.createdAt),
+          asc(lessonSegments.id)
+        );
+      await copyLessonSteps(
+        tx,
+        copy.id,
+        steps.map((step, orderIndex) => ({ ...step, orderIndex }))
+      );
+      return { lessonId: copy.id, sourceCourseName: source.course.name };
+    });
+    if (!result)
+      return reply.code(404).send({ error: 'The shared lesson or destination is unavailable.' });
+    return result;
+  });
 
   app.delete(
     '/v1/lessons/:lessonId',

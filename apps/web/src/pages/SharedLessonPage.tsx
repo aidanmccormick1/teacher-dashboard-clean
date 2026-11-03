@@ -1,8 +1,194 @@
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import type { PublicLessonResponse } from '@teacheros/contracts';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import type {
+  CourseDetailResponse,
+  CourseListResponse,
+  PublicLessonResponse
+} from '@teacheros/contracts';
 import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
-import { getPublicLesson } from '../lib/api.js';
+import { ApiError, getPublicLesson, useApiClient } from '../lib/api.js';
+
+import { useAppAuth } from '../lib/auth.js';
+
+function SharedLessonImport({ token }: { token: string }) {
+  const auth = useAppAuth();
+  const navigate = useNavigate();
+  const api = useApiClient();
+  const [open, setOpen] = useState(window.location.hash === '#add-to-course');
+  const [courses, setCourses] = useState<CourseListResponse['courses'] | null>(null);
+  const [units, setUnits] = useState<CourseDetailResponse['course']['units'] | null>(null);
+  const [courseId, setCourseId] = useState('');
+  const [unitId, setUnitId] = useState('');
+  const [unitTitle, setUnitTitle] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<{ lessonId: string; sourceCourseName: string }>();
+  const attempt = useRef<{ destination: string; requestId: string }>();
+  const submitting = useRef(false);
+
+  useEffect(() => {
+    if (!open || !auth.isSignedIn) return;
+    let current = true;
+    void api
+      .getProfile()
+      .then(async ({ profile, school }) => {
+        if (!current) return null;
+        if (!profile?.onboarded || !school) {
+          navigate('/onboarding', {
+            state: { sharingReturn: `/shared/lessons/${token}#add-to-course` }
+          });
+          return null;
+        }
+        return api.listCourses();
+      })
+      .then((response) => {
+        if (current && response)
+          setCourses(response.courses.filter((course) => !course.archivedAt));
+      })
+      .catch(() => {
+        if (current) setError('Could not load your courses.');
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, auth.isSignedIn, navigate, open, token]);
+
+  useEffect(() => {
+    if (!courseId) return;
+    let current = true;
+    void api
+      .getCourseDetail(courseId)
+      .then(({ course }) => {
+        if (current) setUnits(course.units);
+      })
+      .catch(() => {
+        if (current) setError('Could not load units for this course.');
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, courseId]);
+
+  if (!auth.isLoaded) return null;
+  if (!auth.isSignedIn)
+    return (
+      <Link
+        className="button-link"
+        to={`/login?next=${encodeURIComponent(`/shared/lessons/${token}#add-to-course`)}`}
+      >
+        Add to my course
+      </Link>
+    );
+  if (result)
+    return (
+      <section id="add-to-course" className="card stack">
+        <p role="status">Lesson added. Copied from {result.sourceCourseName}.</p>
+        <Link to={`/lessons/${result.lessonId}`}>Open imported lesson</Link>
+      </section>
+    );
+  if (!open)
+    return (
+      <button type="button" onClick={() => setOpen(true)}>
+        Add to my course
+      </button>
+    );
+
+  return (
+    <form
+      id="add-to-course"
+      className="card stack"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (submitting.current || !courseId || !unitId || (unitId === 'new' && !unitTitle.trim()))
+          return;
+        submitting.current = true;
+        setSaving(true);
+        setError('');
+        const target = unitId === 'new' ? { unitTitle: unitTitle.trim() } : { unitId };
+        const destination = JSON.stringify({ courseId, ...target });
+        if (attempt.current?.destination !== destination)
+          attempt.current = { destination, requestId: crypto.randomUUID() };
+        try {
+          setResult(
+            await api.importSharedLesson(token, {
+              courseId,
+              ...target,
+              requestId: attempt.current.requestId
+            })
+          );
+        } catch (error) {
+          setError(
+            error instanceof ApiError ? error.message : 'Could not import the lesson. Try again.'
+          );
+        } finally {
+          submitting.current = false;
+          setSaving(false);
+        }
+      }}
+    >
+      <h2>Add to my course</h2>
+      <p>This creates an editable copy in the unit you select.</p>
+      <label>
+        Course
+        <select
+          className="input"
+          required
+          disabled={saving || !courses}
+          value={courseId}
+          onChange={(event) => {
+            setCourseId(event.target.value);
+            setUnitId('');
+            setUnits(null);
+            setError('');
+          }}
+        >
+          <option value="">{courses ? 'Select a course' : 'Loading courses…'}</option>
+          {courses?.map((course) => (
+            <option key={course.id} value={course.id}>
+              {course.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {courses?.length === 0 ? <p>You need an editable course before importing a lesson.</p> : null}
+      <label>
+        Unit
+        <select
+          className="input"
+          required
+          disabled={saving || !units}
+          value={unitId}
+          onChange={(event) => setUnitId(event.target.value)}
+        >
+          <option value="">Select a unit</option>
+          {units?.map((unit) => (
+            <option key={unit.id} value={unit.id}>
+              {unit.title}
+            </option>
+          ))}
+          <option value="new">Create a new unit</option>
+        </select>
+      </label>
+      {unitId === 'new' ? (
+        <label>
+          New unit name
+          <input
+            className="input"
+            required
+            maxLength={200}
+            disabled={saving}
+            value={unitTitle}
+            onChange={(event) => setUnitTitle(event.target.value)}
+          />
+        </label>
+      ) : null}
+      {error ? <p role="alert">{error}</p> : null}
+      <button disabled={saving || !courseId || !unitId}>
+        {saving ? 'Importing…' : 'Confirm import'}
+      </button>
+    </form>
+  );
+}
 
 function safeHtml(value: string | null) {
   const doc = new DOMParser().parseFromString(value ?? '', 'text/html');
@@ -139,6 +325,7 @@ export function SharedLessonPage() {
           </div>
         </div>
       </section>
+      <SharedLessonImport key={token} token={token} />
 
       <section className="shared-overview" id="overview">
         <div className="shared-overview-grid">

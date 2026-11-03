@@ -56,6 +56,12 @@ async function runMigrations() {
     const feedback = await pool.query("SELECT to_regclass('public.feedback_reports') AS ready");
     if (!feedback.rows[0]?.ready)
       await pool.query(await readFile(path.join(migrationsDir, '0026_feedback.sql'), 'utf8'));
+    for (const migration of [
+      '0027_curriculum_invitations.sql',
+      '0028_shared_lesson_import.sql',
+      '0029_lesson_edit_revision.sql'
+    ])
+      await pool.query(await readFile(path.join(migrationsDir, migration), 'utf8'));
     return;
   }
 
@@ -86,7 +92,10 @@ async function runMigrations() {
     '0023_school_invitations.sql',
     '0024_one_course_owner.sql',
     '0025_school_invitation_expiry.sql',
-    '0026_feedback.sql'
+    '0026_feedback.sql',
+    '0027_curriculum_invitations.sql',
+    '0028_shared_lesson_import.sql',
+    '0029_lesson_edit_revision.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -120,6 +129,7 @@ async function resetDatabase() {
       school_claim_requests,
       school_invitations,
       school_memberships,
+      curriculum_invitation_history,
       course_collaborators,
       courses,
       teacher_profiles,
@@ -598,12 +608,70 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         method: 'POST',
         url: `/v1/courses/${course.id}/collaborators`,
         headers: teacherHeaders,
-        payload: { email: 'teacher2@example.com' }
+        payload: { email: 'teacher2@example.com', invitationMode: 'copy_only' }
       });
       expect(invited.statusCode).toBe(200);
       expect(invited.json<{ collaborators: Array<{ status: string }> }>().collaborators).toEqual(
         expect.arrayContaining([expect.objectContaining({ status: 'invited' })])
       );
+
+      const recipient = invited
+        .json()
+        .collaborators.find((item: { status: string }) => item.status === 'invited');
+      const invitationUrl = `/v1/courses/${course.id}/collaborators/${recipient.userId}`;
+      const acceptUrl = `/v1/course-invitations/${course.id}/accept`;
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: `${invitationUrl}/resend`,
+            headers: teacherHeaders
+          })
+        ).statusCode
+      ).toBe(200);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: acceptUrl,
+            headers: otherTeacherHeaders,
+            payload: { mode: 'collaborate', name: 'Forbidden join' }
+          })
+        ).statusCode
+      ).toBe(404);
+      expect(
+        (await app.inject({ method: 'DELETE', url: invitationUrl, headers: teacherHeaders }))
+          .statusCode
+      ).toBe(200);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: `${invitationUrl}/resend`,
+            headers: teacherHeaders
+          })
+        ).statusCode
+      ).toBe(409);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: acceptUrl,
+            headers: otherTeacherHeaders,
+            payload: { mode: 'copy', name: 'Canceled copy' }
+          })
+        ).statusCode
+      ).toBe(404);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: `/v1/courses/${course.id}/collaborators`,
+            headers: teacherHeaders,
+            payload: { email: 'teacher2@example.com', invitationMode: 'copy_only' }
+          })
+        ).statusCode
+      ).toBe(200);
 
       const pending = await app.inject({
         method: 'GET',
@@ -617,6 +685,94 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           expect.objectContaining({ course: expect.objectContaining({ id: course.id }) })
         ])
       );
+      const lesson = await app.inject({
+        method: 'POST',
+        url: `/v1/units/${unitId}/lessons`,
+        headers: teacherHeaders,
+        payload: {
+          title: 'Greetings',
+          description: null,
+          estimatedDurationMinutes: null,
+          lessonPlan: {
+            objective: null,
+            teacherNotes: 'Private invitation copy sentinel',
+            studentDirections: 'Greet a partner.',
+            materials: null,
+            links: [{ title: 'Handout', url: 'https://example.com/handout' }]
+          }
+        }
+      });
+      expect(lesson.statusCode).toBe(200);
+      const copyRequest = {
+        method: 'POST' as const,
+        url: `/v1/course-invitations/${course.id}/accept`,
+        headers: otherTeacherHeaders,
+        payload: { mode: 'copy', name: 'Independent Spanish' }
+      };
+      const copyResponses = await Promise.all([app.inject(copyRequest), app.inject(copyRequest)]);
+      expect(copyResponses.map((response) => response.statusCode).sort()).toEqual([200, 404]);
+      const copied = copyResponses.find((response) => response.statusCode === 200)!;
+      expect(copied.statusCode).toBe(200);
+      expect(copied.json().course).toMatchObject({
+        accessRole: 'owner',
+        relationshipType: 'independent',
+        lifecycle: 'unlinked'
+      });
+      expect(copied.json().course.id).not.toBe(course.id);
+      expect(copied.json().course.units[0].id).not.toBe(unitId);
+      expect(copied.json().course.units[0].lessons[0].lessonPlan).toMatchObject({
+        teacherNotes: null,
+        studentDirections: 'Greet a partner.',
+        links: [{ title: 'Handout', url: 'https://example.com/handout' }]
+      });
+
+      const copiedLessonId = copied.json().course.units[0].lessons[0].id;
+      const updatedCopy = await app.inject({
+        method: 'PATCH',
+        url: `/v1/lessons/${copiedLessonId}`,
+        headers: otherTeacherHeaders,
+        payload: { title: 'Copy only change' }
+      });
+      expect(updatedCopy.statusCode).toBe(200);
+      const original = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${course.id}`,
+        headers: teacherHeaders
+      });
+      expect(original.json().course.units[0].lessons[0]).toMatchObject({
+        title: 'Greetings',
+        lessonPlan: { teacherNotes: 'Private invitation copy sentinel' }
+      });
+
+      expect((await app.inject(copyRequest)).statusCode).toBe(404);
+      const history = await pool.query(
+        'SELECT status, invitation_mode FROM curriculum_invitation_history WHERE course_id = $1 ORDER BY recorded_at',
+        [course.id]
+      );
+      expect(history.rows).toEqual([
+        { status: 'canceled', invitation_mode: 'copy_only' },
+        { status: 'copied', invitation_mode: 'copy_only' }
+      ]);
+
+      expect(
+        (
+          await app.inject({
+            method: 'GET',
+            url: `/v1/courses/${course.id}`,
+            headers: otherTeacherHeaders
+          })
+        ).statusCode
+      ).toBe(404);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: `/v1/courses/${course.id}/collaborators`,
+            headers: teacherHeaders,
+            payload: { email: 'teacher2@example.com' }
+          })
+        ).statusCode
+      ).toBe(200);
       const accepted = await app.inject({
         method: 'POST',
         url: `/v1/course-invitations/${course.id}/accept`,
@@ -638,7 +794,10 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         payload: {
           courseId: course.id,
           sectionName: 'Spanish V Honors · Period 4',
-          meetings: [{ day: 'Thursday', time: '13:10', endTime: '14:00', room: '204' }]
+          meetings: [
+            { day: 'Tuesday', time: '13:10', endTime: '14:00', room: '204' },
+            { day: 'Thursday', time: '13:10', endTime: '14:00', room: '204' }
+          ]
         }
       });
       expect(linked.statusCode).toBe(200);
@@ -680,9 +839,278 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         }
       });
       expect(lessonResponse.statusCode).toBe(200);
-      const lessonId = lessonResponse.json<{
-        course: { units: Array<{ lessons: Array<{ id: string }> }> };
-      }>().course.units[0]!.lessons[0]!.id;
+      const lessonId = lessonResponse
+        .json<{
+          course: { units: Array<{ lessons: Array<{ id: string; description: string | null }> }> };
+        }>()
+        .course.units[0]!.lessons.find((item) => item.description === 'First shared lesson')!.id;
+
+      const ownerSections = await Promise.all(
+        ['Monday', 'Wednesday', 'Friday'].map((day) =>
+          app.inject({
+            method: 'POST',
+            url: '/v1/sections',
+            headers: teacherHeaders,
+            payload: {
+              courseId: course.id,
+              sectionName: day,
+              meetings: [{ day, time: '10:00', endTime: '10:50', room: null }]
+            }
+          })
+        )
+      );
+      const ownerIds = ownerSections.map((response, index) => {
+        expect(response.statusCode).toBe(200);
+        return response
+          .json()
+          .sections.find(
+            (section: { sectionName: string }) =>
+              section.sectionName === ['Monday', 'Wednesday', 'Friday'][index]
+          ).sectionId;
+      });
+      const collaboratorSectionId = linked
+        .json()
+        .sections.find((section: { courseId: string }) => section.courseId === course.id).sectionId;
+      const year = await app.inject({
+        method: 'POST',
+        url: '/v1/school-year',
+        headers: teacherHeaders,
+        payload: { startDate: '2026-01-01', endDate: '2026-12-31' }
+      });
+      expect(year.statusCode).toBe(200);
+      const holiday = await app.inject({
+        method: 'POST',
+        url: '/v1/holidays',
+        headers: teacherHeaders,
+        payload: { holidays: [{ date: '2026-09-07', name: 'Labor Day' }] }
+      });
+      expect(holiday.statusCode).toBe(200);
+      const meetingsUrl = '/v1/meeting-instances?startDate=2026-09-07&endDate=2026-09-14';
+      const ownerMeetings = (
+        await app.inject({ method: 'GET', url: meetingsUrl, headers: teacherHeaders })
+      ).json().meetings;
+      const collaboratorMeetings = (
+        await app.inject({ method: 'GET', url: meetingsUrl, headers: otherTeacherHeaders })
+      ).json().meetings;
+      expect(
+        ownerMeetings.map((meeting: { sectionId: string; date: string }) => [
+          meeting.sectionId,
+          meeting.date
+        ])
+      ).toEqual([
+        [ownerIds[1], '2026-09-09'],
+        [ownerIds[2], '2026-09-11'],
+        [ownerIds[0], '2026-09-14']
+      ]);
+      expect(
+        collaboratorMeetings.map((meeting: { sectionId: string; date: string }) => [
+          meeting.sectionId,
+          meeting.date
+        ])
+      ).toEqual([
+        [collaboratorSectionId, '2026-09-08'],
+        [collaboratorSectionId, '2026-09-10']
+      ]);
+      const timing = { lessonId, plannedStartMeeting: 1, plannedMeetingCount: 2 };
+      const shiftUrl = `/v1/sections/${collaboratorSectionId}/lesson-plans/shift`;
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: shiftUrl,
+            headers: teacherHeaders,
+            payload: timing
+          })
+        ).statusCode
+      ).toBe(404);
+      const moved = await app.inject({
+        method: 'POST',
+        url: shiftUrl,
+        headers: otherTeacherHeaders,
+        payload: timing
+      });
+      expect(moved.statusCode, moved.body).toBe(200);
+      expect(moved.json().plans).toEqual([expect.objectContaining(timing)]);
+      for (const ownerSectionId of ownerIds) {
+        const plan = await app.inject({
+          method: 'GET',
+          url: `/v1/sections/${ownerSectionId}/lesson-plans`,
+          headers: teacherHeaders
+        });
+        expect(plan.json().plans).toEqual([]);
+      }
+      expect(
+        (
+          await app.inject({
+            method: 'PATCH',
+            url: `/v1/lessons/${lessonId}`,
+            headers: teacherHeaders,
+            payload: { orderIndex: 0, plannedStartMeeting: 0, plannedMeetingCount: 1 }
+          })
+        ).statusCode
+      ).toBe(200);
+      const ownerPlan = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${ownerIds[0]}/planning-context?meetingIndex=0`,
+        headers: teacherHeaders
+      });
+      expect(ownerPlan.json().planned).toMatchObject({
+        lessonId,
+        source: 'course',
+        plannedStartMeeting: 0
+      });
+      const collaboratorPlan = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${collaboratorSectionId}/planning-context?meetingIndex=1`,
+        headers: otherTeacherHeaders
+      });
+      expect(collaboratorPlan.json().planned).toMatchObject({
+        lessonId,
+        source: 'section',
+        plannedStartMeeting: 1
+      });
+
+      const progressPayload = {
+        sectionId: collaboratorSectionId,
+        lessonId,
+        status: 'completed',
+        completedSegmentIds: [],
+        currentSegmentId: null,
+        stoppedAtSegmentId: null,
+        carryOverNote: null,
+        lastTaughtDate: '2026-09-10'
+      };
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/v1/lesson-progress/upsert',
+            headers: teacherHeaders,
+            payload: progressPayload
+          })
+        ).statusCode
+      ).toBe(404);
+      const progress = await app.inject({
+        method: 'POST',
+        url: '/v1/lesson-progress/upsert',
+        headers: otherTeacherHeaders,
+        payload: progressPayload
+      });
+      expect(progress.statusCode, progress.body).toBe(200);
+      const ownerResume = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${ownerIds[0]}/resume`,
+        headers: teacherHeaders
+      });
+      expect(ownerResume.json().progress).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ lessonId, status: 'completed' })])
+      );
+      const removedSection = await app.inject({
+        method: 'DELETE',
+        url: `/v1/sections/${ownerIds[2]}`,
+        headers: teacherHeaders
+      });
+      expect(removedSection.statusCode).toBe(200);
+      const collaboratorResume = await app.inject({
+        method: 'GET',
+        url: `/v1/sections/${collaboratorSectionId}/resume`,
+        headers: otherTeacherHeaders
+      });
+      expect(collaboratorResume.json().progress).toEqual(
+        expect.arrayContaining([expect.objectContaining({ lessonId, status: 'completed' })])
+      );
+      const skip = await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${collaboratorSectionId}/meeting-overrides`,
+        headers: otherTeacherHeaders,
+        payload: {
+          date: '2026-09-10',
+          scheduledStartTime: '13:10',
+          startTime: null,
+          endTime: null,
+          room: null,
+          cancelled: true
+        }
+      });
+      expect(skip.statusCode, skip.body).toBe(200);
+      const afterSkip = await app.inject({
+        method: 'GET',
+        url: meetingsUrl,
+        headers: otherTeacherHeaders
+      });
+      expect(afterSkip.json().meetings.map((meeting: { date: string }) => meeting.date)).toEqual([
+        '2026-09-08'
+      ]);
+
+      const workspaceUrl = `/v1/lessons/${lessonId}/workspace`;
+      const baseline = (
+        await app.inject({ method: 'GET', url: workspaceUrl, headers: teacherHeaders })
+      ).json().lesson;
+      const write = (headers: typeof teacherHeaders, title: string) =>
+        app.inject({
+          method: 'PATCH',
+          url: `/v1/lessons/${lessonId}`,
+          headers,
+          payload: { title, expectedRevision: baseline.editRevision, steps: baseline.segments }
+        });
+      const firstWrite = await write(otherTeacherHeaders, 'Collaborator save');
+      expect(firstWrite.statusCode, firstWrite.body).toBe(200);
+      expect(firstWrite.json().savedLessonRevision).toBeGreaterThan(baseline.editRevision);
+      expect((await write(teacherHeaders, 'Stale undo')).statusCode).toBe(409);
+      const savedWorkspace = await app.inject({
+        method: 'GET',
+        url: workspaceUrl,
+        headers: teacherHeaders
+      });
+      expect(savedWorkspace.json().lesson.title).toBe('Collaborator save');
+      const undone = await app.inject({
+        method: 'POST',
+        url: `/v1/sections/${collaboratorSectionId}/lesson-plans/${moved.json().operationId}/undo`,
+        headers: otherTeacherHeaders
+      });
+      expect(undone.statusCode, undone.body).toBe(200);
+      expect(undone.json().plans).toEqual([]);
+      const redone = await app.inject({
+        method: 'POST',
+        url: shiftUrl,
+        headers: otherTeacherHeaders,
+        payload: { ...timing, expectedLastOperationId: undone.json().previousOperationId }
+      });
+      expect(redone.statusCode, redone.body).toBe(200);
+      expect(redone.json().plans).toEqual([expect.objectContaining(timing)]);
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: shiftUrl,
+            headers: otherTeacherHeaders,
+            payload: { ...timing, expectedLastOperationId: undone.json().previousOperationId }
+          })
+        ).statusCode
+      ).toBe(409);
+      expect(
+        (await app.inject({ method: 'GET', url: workspaceUrl, headers: teacherHeaders })).json()
+          .lesson.title
+      ).toBe('Collaborator save');
+      const orderSource = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${course.id}`,
+        headers: teacherHeaders
+      });
+      const ordered = [...orderSource.json().course.units[0].lessons].reverse();
+      const items = ordered.map((item: { id: string; editRevision: number }, orderIndex) => ({
+        id: item.id,
+        orderIndex,
+        expectedRevision: item.editRevision
+      }));
+      const reorder = {
+        method: 'PATCH' as const,
+        url: `/v1/units/${unitId}/lesson-order`,
+        headers: teacherHeaders,
+        payload: { items }
+      };
+      expect((await app.inject(reorder)).statusCode).toBe(200);
+      expect((await app.inject(reorder)).statusCode).toBe(409);
 
       const comment = await app.inject({
         method: 'POST',
@@ -1308,7 +1736,14 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         payload: {
           title: 'Solving for X',
           description: 'Balance method',
-          estimatedDurationMinutes: 45
+          estimatedDurationMinutes: 45,
+          lessonPlan: {
+            objective: 'Solve for x',
+            teacherNotes: 'Private lesson import sentinel',
+            studentDirections: 'Show each step',
+            materials: 'Practice sheet',
+            links: [{ title: 'Worksheet', url: 'https://example.com/worksheet' }]
+          }
         }
       });
       expect(createLesson.statusCode).toBe(200);
@@ -1428,12 +1863,108 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         lessonSlides: null,
         lesson: expect.objectContaining({
           title: 'Solving for X',
-          links: [],
+          links: [{ title: 'Worksheet', url: 'https://example.com/worksheet' }],
           steps: expect.arrayContaining([expect.objectContaining({ title: 'Guided practice' })])
         })
       });
       expect(sharePayload.lesson).not.toHaveProperty('id');
       expect(sharePayload).not.toHaveProperty('courseId');
+
+      expect(publicLesson.body).not.toContain('Private lesson import sentinel');
+
+      const recipientOnboarding = await app.inject({
+        method: 'POST',
+        url: '/v1/onboarding',
+        headers: otherTeacherHeaders,
+        payload: { ...onboardingBody, fullName: 'Teacher Two', workEmail: 'teacher2@example.com' }
+      });
+      expect(recipientOnboarding.statusCode).toBe(200);
+      const destination = await app.inject({
+        method: 'POST',
+        url: '/v1/courses',
+        headers: otherTeacherHeaders,
+        payload: { name: 'Recipient Algebra', subject: 'Math', gradeLevel: '8' }
+      });
+      expect(destination.statusCode).toBe(200);
+      const destinationId = destination.json().course.id;
+      const targetUnit = await app.inject({
+        method: 'POST',
+        url: `/v1/courses/${destinationId}/units`,
+        headers: otherTeacherHeaders,
+        payload: { title: 'Existing unit', description: null }
+      });
+      expect(targetUnit.statusCode).toBe(200);
+      const targetUnitId = targetUnit.json().course.units[0].id;
+      const importRequest = {
+        method: 'POST' as const,
+        url: `/v1/public/lessons/${enableShare.json().token}/import`,
+        headers: otherTeacherHeaders,
+        payload: {
+          courseId: destinationId,
+          unitId: targetUnitId,
+          requestId: 'd4d8a52f-5652-44a0-b411-086d420e8661'
+        }
+      };
+      const [imported, duplicateImport] = await Promise.all([
+        app.inject(importRequest),
+        app.inject(importRequest)
+      ]);
+      expect(imported.statusCode, imported.body).toBe(200);
+      const importedId = imported.json().lessonId;
+      expect(duplicateImport.statusCode).toBe(200);
+      expect(duplicateImport.json().lessonId).toBe(importedId);
+      expect(importedId).not.toBe(lessonId);
+      expect((await app.inject(importRequest)).json().lessonId).toBe(importedId);
+      expect((await app.inject({ ...importRequest, headers: teacherHeaders })).statusCode).toBe(
+        404
+      );
+      const importedCourse = await app.inject({
+        method: 'GET',
+        url: `/v1/courses/${destinationId}`,
+        headers: otherTeacherHeaders
+      });
+      const importedLessons = importedCourse.json().course.units[0].lessons;
+      expect(importedLessons).toHaveLength(1);
+      expect(importedLessons[0].segments.map((step: { title: string }) => step.title)).toEqual([
+        'Guided practice',
+        'Do Now + Attendance'
+      ]);
+      expect(importedLessons[0].lessonPlan).toMatchObject({
+        teacherNotes: null,
+        studentDirections: 'Show each step',
+        links: [{ title: 'Worksheet', url: 'https://example.com/worksheet' }]
+      });
+      const newUnitImport = await app.inject({
+        ...importRequest,
+        payload: {
+          courseId: destinationId,
+          unitTitle: 'Imported unit',
+          requestId: 'b5ab13c7-7181-4c71-9ebb-4675b9514045'
+        }
+      });
+      expect(newUnitImport.statusCode, newUnitImport.body).toBe(200);
+      expect(newUnitImport.json().lessonId).not.toBe(importedId);
+      expect(
+        (
+          await app.inject({
+            method: 'PATCH',
+            url: `/v1/lessons/${lessonId}/share`,
+            headers: teacherHeaders,
+            payload: { enabled: false }
+          })
+        ).statusCode
+      ).toBe(200);
+      expect((await app.inject(importRequest)).statusCode).toBe(404);
+      expect(
+        (
+          await app.inject({
+            method: 'PATCH',
+            url: `/v1/lessons/${importedId}`,
+            headers: otherTeacherHeaders,
+            payload: { title: 'Edited copy' }
+          })
+        ).statusCode
+      ).toBe(200);
 
       const fetchCourse = await app.inject({
         method: 'GET',
@@ -1441,6 +1972,8 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         headers: teacherHeaders
       });
       expect(fetchCourse.statusCode).toBe(200);
+      expect(fetchCourse.json().course.units[0].lessons[0].title).toBe('Solving for X');
+
       const fetched = fetchCourse.json<{
         course: {
           units: Array<{

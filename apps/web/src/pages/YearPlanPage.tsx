@@ -116,7 +116,12 @@ export function YearPlanPage() {
     );
   };
   const selectedLessonId = params.get('lesson');
-  useFeedbackContext({ courseId: context.courseId, sectionId: context.sectionId, lessonId: selectedLessonId, view: context.view });
+  useFeedbackContext({
+    courseId: context.courseId,
+    sectionId: context.sectionId,
+    lessonId: selectedLessonId,
+    view: context.view
+  });
   const yearPlanReturnTo = (lessonId: string | null) => {
     const search = new URLSearchParams(yearPlanSearch(context));
     if (lessonId) search.set('lesson', lessonId);
@@ -124,7 +129,13 @@ export function YearPlanPage() {
   };
 
   if (loading) return <p className="muted">Loading Year Plan…</p>;
-  if (error) return <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div>;
+  if (error)
+    return (
+      <div className="notice warning" role="alert">
+        <p>{error}</p>
+        <FeedbackErrorAction />
+      </div>
+    );
   if (!selectedCourse)
     return (
       <main className="year-plan-selection-state">
@@ -219,7 +230,6 @@ export function YearPlanPage() {
         key={`${selectedCourse.id}_${selectedSection?.sectionId ?? 'shared'}_${context.view}`}
         course={selectedCourse}
         selectedSection={selectedSection}
-        dateProjectionOnly
         holidays={(schedule?.holidays ?? []).map((holiday) => holiday.date)}
         schoolYearSettings={
           calendar?.schoolYear

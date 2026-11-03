@@ -288,6 +288,7 @@ export const courseCollaborators = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     role: text('role').notNull(),
     status: text('status').notNull().default('invited'),
+    invitationMode: text('invitation_mode').notNull().default('join_or_copy'),
     invitedByUserId: uuid('invited_by_user_id').references(() => users.id, {
       onDelete: 'set null'
     }),
@@ -507,6 +508,16 @@ export const lessons = pgTable(
         materials: null,
         links: []
       }),
+    editRevision: integer('edit_revision').notNull().default(0),
+    importedBy: uuid('imported_by').references(() => users.id, { onDelete: 'set null' }),
+    importRequestId: uuid('import_request_id'),
+    importedFrom: jsonb('imported_from').$type<{
+      lessonId: string;
+      courseId: string;
+      courseName: string;
+      authorId: string;
+      importedAt: string;
+    }>(),
     orderIndex: integer('order_index').notNull().default(0),
     estimatedDurationMinutes: integer('estimated_duration_minutes'),
     plannedStartMeeting: integer('planned_start_meeting'),

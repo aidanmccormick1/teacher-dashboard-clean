@@ -61,9 +61,15 @@ export function lessonDisplay(
       resume.state.status
     )
   );
+  const plannedStatus = resume?.progress.find(
+    (item) => item.lessonId === planned?.lessonId
+  )?.status;
+  const preferredPlan =
+    !unfinished && plannedStatus !== 'completed' && plannedStatus !== 'skipped' ? planned : null;
   return {
     actual,
     planned,
+    preferredPlan,
     isContinuation: unfinished,
     differsFromPlan: Boolean(actual && planned && actual.id !== planned.lessonId)
   };

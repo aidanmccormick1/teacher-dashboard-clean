@@ -467,6 +467,9 @@ export function SharingPage() {
   const [lessonShares, setLessonShares] = useState<Record<string, LessonShareResponse>>({});
   const [lessonSharesLoading, setLessonSharesLoading] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [invitationMode, setInvitationMode] = useState<'join_or_copy' | 'copy_only'>(
+    'join_or_copy'
+  );
   const [classToLink, setClassToLink] = useState('');
   const [lessonSearch, setLessonSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -657,8 +660,12 @@ export function SharingPage() {
     try {
       setSavingKey('invite');
       setCollaborators(
-        (await api.inviteCourseCollaborator(selectedCourse.id, { email: inviteEmail.trim() }))
-          .collaborators
+        (
+          await api.inviteCourseCollaborator(selectedCourse.id, {
+            email: inviteEmail.trim(),
+            invitationMode
+          })
+        ).collaborators
       );
       setNotice(`Invitation sent to ${inviteEmail.trim()}.`);
       setInviteEmail('');
@@ -806,29 +813,39 @@ export function SharingPage() {
     }
   };
 
-  const respondToInvitation = async (courseId: string, response: 'accept' | 'decline') => {
+  const respondToInvitation = async (courseId: string, response: 'accept' | 'copy' | 'decline') => {
     if (isDesignPreview) {
       setInvitations((current) =>
         current.filter((invitation) => invitation.course.id !== courseId)
       );
       setNotice(
-        response === 'accept' ? 'Course added to your sharing workspace.' : 'Invitation declined.'
+        response === 'decline'
+          ? 'Invitation declined.'
+          : response === 'copy'
+            ? 'Your independent course was created.'
+            : 'You joined the shared curriculum.'
       );
       return;
     }
     try {
       setSavingKey(`invitation-${courseId}`);
-      if (response === 'accept') {
+      let destination = courseId;
+      if (response !== 'decline') {
         const invitation = invitations.find((item) => item.course.id === courseId);
-        await api.acceptCourseInvitation(courseId, {
-          mode: 'collaborate',
+        const result = await api.acceptCourseInvitation(courseId, {
+          mode: response === 'copy' ? 'copy' : 'collaborate',
           name: invitation?.course.curriculumName ?? 'My course'
         });
+        destination = result.course.id;
       } else await api.declineCourseInvitation(courseId);
       await loadPage();
-      if (response === 'accept') updateLocation(courseId);
+      if (response !== 'decline') updateLocation(destination);
       setNotice(
-        response === 'accept' ? 'Course added to your sharing workspace.' : 'Invitation declined.'
+        response === 'decline'
+          ? 'Invitation declined.'
+          : response === 'copy'
+            ? 'Your independent course was created.'
+            : 'You joined the shared curriculum.'
       );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not update the invitation.');
@@ -837,48 +854,69 @@ export function SharingPage() {
     }
   };
 
-  const invitationInbox = invitations.length ? (
-    <section className="sharing-invitations" aria-labelledby="sharing-invitations-title">
-      <div className="sharing-invitation-intro">
-        <span className="sharing-invitation-icon" aria-hidden="true">
-          ✉
-        </span>
-        <div>
-          <p className="eyebrow">Waiting for you</p>
-          <h2 id="sharing-invitations-title">
-            {invitations.length} course invitation{invitations.length === 1 ? '' : 's'}
-          </h2>
+  const requestedInvitation = params.get('invitation');
+  const invitationInbox =
+    invitations.length || requestedInvitation ? (
+      <section className="sharing-invitations" aria-labelledby="sharing-invitations-title">
+        <div className="sharing-invitation-intro">
+          <span className="sharing-invitation-icon" aria-hidden="true">
+            ✉
+          </span>
+          <div>
+            <p className="eyebrow">Waiting for you</p>
+            <h2 id="sharing-invitations-title">
+              {invitations.length} course invitation{invitations.length === 1 ? '' : 's'}
+            </h2>
+          </div>
         </div>
-      </div>
-      <div className="sharing-invitation-list">
-        {invitations.map((invitation) => (
-          <article key={invitation.course.id}>
-            <div>
-              <strong>{invitation.course.name}</strong>
-              <span>from {invitation.invitedBy.fullName ?? invitation.invitedBy.email}</span>
-            </div>
-            <div>
-              <button
-                type="button"
-                disabled={savingKey === `invitation-${invitation.course.id}`}
-                onClick={() => void respondToInvitation(invitation.course.id, 'accept')}
-              >
-                Accept
-              </button>
-              <button
-                className="secondary"
-                type="button"
-                disabled={savingKey === `invitation-${invitation.course.id}`}
-                onClick={() => void respondToInvitation(invitation.course.id, 'decline')}
-              >
-                Decline
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  ) : null;
+        {requestedInvitation &&
+        !invitations.some((item) => item.course.id === requestedInvitation) ? (
+          <p>This invitation is no longer pending or is unavailable to your account.</p>
+        ) : null}
+        <div className="sharing-invitation-list">
+          {invitations.map((invitation) => (
+            <article key={invitation.course.id}>
+              <div>
+                <strong>{invitation.course.name}</strong>
+                <span>From {invitation.invitedBy.fullName ?? invitation.invitedBy.email}</span>
+                <span>
+                  {invitation.invitationMode === 'copy_only'
+                    ? 'Create your own editable course.'
+                    : 'Join to edit together, or create a course only you can edit.'}
+                </span>
+              </div>
+              <div>
+                {invitation.invitationMode !== 'copy_only' ? (
+                  <button
+                    type="button"
+                    disabled={savingKey === `invitation-${invitation.course.id}`}
+                    onClick={() => void respondToInvitation(invitation.course.id, 'accept')}
+                  >
+                    Join shared curriculum
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={savingKey !== null}
+                  onClick={() => void respondToInvitation(invitation.course.id, 'copy')}
+                >
+                  Create my own copy
+                </button>
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={savingKey === `invitation-${invitation.course.id}`}
+                  onClick={() => void respondToInvitation(invitation.course.id, 'decline')}
+                >
+                  Decline
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    ) : null;
 
   if (loading) {
     return (
@@ -1037,8 +1075,11 @@ export function SharingPage() {
                   <div className="sharing-panel-heading">
                     <div>
                       <p className="eyebrow">Collaborators</p>
-                      <h3>Everyone here can edit this curriculum.</h3>
-                      <p>Classes, schedules, progress, and notes stay private.</p>
+                      <h3>Collaborate on a course</h3>
+                      <p>
+                        Invite a colleague at your school to co-edit. Class groups, schedules, and
+                        private notes stay separate. Progress sharing is optional.
+                      </p>
                     </div>
                     <span className="sharing-count-badge">{collaborators.length}</span>
                   </div>
@@ -1056,16 +1097,63 @@ export function SharingPage() {
                           </span>
                         </div>
                         <div className="sharing-person-role">
-                          <strong>{collaborator.role === 'owner' ? 'Owner' : 'Can edit'}</strong>
+                          <strong>
+                            {collaborator.role === 'owner'
+                              ? 'Owner'
+                              : collaborator.status === 'accepted'
+                                ? 'Can edit'
+                                : collaborator.invitationMode === 'copy_only'
+                                  ? 'Copy only'
+                                  : 'Join or copy'}
+                          </strong>
                           <span>
-                            {collaborator.status === 'invited' ? 'Invitation pending' : 'Active'}
+                            {
+                              {
+                                invited: 'Pending',
+                                accepted: 'Accepted as collaborator',
+                                copied: 'Accepted as copy',
+                                declined: 'Declined',
+                                canceled: 'Canceled'
+                              }[collaborator.status]
+                            }
                           </span>
+                          {selectedCourse.accessRole === 'owner' &&
+                          collaborator.status === 'invited' &&
+                          !isDesignPreview ? (
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={savingKey !== null}
+                              onClick={async () => {
+                                setSavingKey('resend');
+                                try {
+                                  await api.resendCourseInvitation(
+                                    selectedCourse.id,
+                                    collaborator.userId
+                                  );
+                                  setNotice('Invitation notification resent.');
+                                } catch (error) {
+                                  setError(
+                                    error instanceof ApiError
+                                      ? error.message
+                                      : 'Could not resend invitation.'
+                                  );
+                                } finally {
+                                  setSavingKey(null);
+                                }
+                              }}
+                            >
+                              Resend
+                            </button>
+                          ) : null}
                         </div>
-                        {selectedCourse.accessRole === 'owner' && collaborator.role === 'editor' ? (
+                        {selectedCourse.accessRole === 'owner' &&
+                        collaborator.role === 'editor' &&
+                        ['invited', 'accepted'].includes(collaborator.status) ? (
                           <button
                             className="sharing-remove-person"
                             type="button"
-                            aria-label={`Remove ${collaborator.fullName ?? collaborator.email}`}
+                            aria-label={`${collaborator.status === 'invited' ? 'Cancel invitation for' : 'Remove'} ${collaborator.fullName ?? collaborator.email}`}
                             disabled={savingKey === `remove-${collaborator.userId}`}
                             onClick={async () => {
                               if (
@@ -1085,12 +1173,18 @@ export function SharingPage() {
                                 setSavingKey(`remove-${collaborator.userId}`);
                                 await api.removeCourseCollaborator(
                                   selectedCourse.id,
-                                  collaborator.userId
+                                  collaborator.userId,
+                                  collaborator.status === 'invited'
                                 );
-                                setCollaborators((current) =>
-                                  current.filter((person) => person.userId !== collaborator.userId)
+                                setCollaborators(
+                                  (await api.getCourseCollaborators(selectedCourse.id))
+                                    .collaborators
                                 );
-                                setNotice('Collaborator removed.');
+                                setNotice(
+                                  collaborator.status === 'invited'
+                                    ? 'Invitation canceled.'
+                                    : 'Collaborator removed.'
+                                );
                               } catch (err) {
                                 setError(
                                   err instanceof ApiError
@@ -1127,6 +1221,21 @@ export function SharingPage() {
                           onChange={(event) => setInviteEmail(event.target.value)}
                           placeholder="colleague@school.edu"
                         />
+                      </label>
+                      <label>
+                        <span>Invitation permissions</span>
+                        <select
+                          className="input"
+                          value={invitationMode}
+                          onChange={(event) =>
+                            setInvitationMode(
+                              event.target.value === 'copy_only' ? 'copy_only' : 'join_or_copy'
+                            )
+                          }
+                        >
+                          <option value="join_or_copy">Collaborate or make a copy</option>
+                          <option value="copy_only">Send a copy</option>
+                        </select>
                       </label>
                       <button
                         type="submit"
@@ -1205,10 +1314,15 @@ export function SharingPage() {
                   <div className="sharing-panel-heading compact">
                     <div>
                       <p className="eyebrow">Course link</p>
-                      <h3>Share a view-only copy</h3>
+                      <h3>Share a view-only link</h3>
                     </div>
                   </div>
-                  <p>For a substitute, department lead, or anyone who should not edit.</p>
+                  <p>
+                    Anyone with an active link can view the curriculum and its lesson content,
+                    resources, and slide links. They cannot edit the original. Signed-in teachers
+                    can add an independent copy. Class groups, schedules, progress, private teacher
+                    notes, and collaboration activity stay private.
+                  </p>
                   <label className="sharing-toggle-row">
                     <span>
                       <strong>{courseShare?.enabled ? 'Link is on' : 'Link is off'}</strong>
@@ -1252,15 +1366,31 @@ export function SharingPage() {
                           )
                         }
                       >
-                        Copy course link
+                        Copy view-only link
                       </button>
                       <a
                         href={`/shared/curriculum/${courseShare.token}`}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Preview ↗
+                        Preview link ↗
                       </a>
+                    </div>
+                  ) : null}
+                  {courseShare?.enabled && courseShare.token ? (
+                    <div className="sharing-link-actions">
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() =>
+                          void copyLink(
+                            `/shared/curriculum/${courseShare.token}#add-curriculum-title`,
+                            'Copy invitation link copied. Send it to a colleague so they can add their own course.'
+                          )
+                        }
+                      >
+                        Send an independent copy
+                      </button>
                     </div>
                   ) : null}
                   {selectedCourse.accessRole !== 'owner' ? (

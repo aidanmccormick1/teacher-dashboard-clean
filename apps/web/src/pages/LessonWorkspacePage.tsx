@@ -1,3 +1,5 @@
+import { recordEdit, travelEdit } from '../lib/editHistory.js';
+import { useAppAuth } from '../lib/auth.js';
 import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
 import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -21,7 +23,24 @@ const types = [
   'Exit Ticket',
   'Custom'
 ];
-const draftKey = (id: string) => `teacherdesk_lesson_workspace_${id}`;
+type EditDraft = Pick<
+  Workspace['lesson'],
+  'title' | 'description' | 'lessonPlan' | 'estimatedDurationMinutes' | 'segments'
+>;
+type StoredDraft = { revision: number; lesson: EditDraft; updatedAt: number };
+const editableLesson = ({
+  title,
+  description,
+  lessonPlan,
+  estimatedDurationMinutes,
+  segments
+}: Workspace['lesson']): EditDraft => ({
+  title,
+  description,
+  lessonPlan,
+  estimatedDurationMinutes,
+  segments
+});
 const rich = (value: string | null) => value ?? '';
 const blurOnEscape = (event: KeyboardEvent<HTMLElement>) => {
   if (event.key === 'Escape') event.currentTarget.blur();
@@ -184,14 +203,45 @@ function RichField({
 }
 
 export function LessonWorkspacePage() {
-  const api = useApiClient();
   const { lessonId = '' } = useParams();
+  const { userId } = useAppAuth();
+  const [params] = useSearchParams();
+  return (
+    <LessonWorkspaceEditor
+      key={JSON.stringify([userId, lessonId, params.get('section')])}
+      lessonId={lessonId}
+      userId={userId ?? ''}
+    />
+  );
+}
+
+function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId: string }) {
+  const api = useApiClient();
   const [params] = useSearchParams();
   const [data, setData] = useState<Workspace | null>(null);
-  useFeedbackContext({ lessonId, sectionId: params.get('section'), unitId: data?.unit.id ?? null, courseId: data?.course.id ?? null });
+  useFeedbackContext({
+    lessonId,
+    sectionId: params.get('section'),
+    unitId: data?.unit.id ?? null,
+    courseId: data?.course.id ?? null
+  });
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  const pending = useRef(0);
+  const [status, setStatus] = useState<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
+  const revision = useRef(0);
+  const savedVersion = useRef(0);
+  const storageKey = useRef('');
+  const recoveredStorage = useRef<{ key: string; raw: string } | null>(null);
+  const clearRecoveredDraft = () => {
+    const recovered = recoveredStorage.current;
+    if (recovered && localStorage.getItem(recovered.key) === recovered.raw)
+      localStorage.removeItem(recovered.key);
+    recoveredStorage.current = null;
+  };
+  const blocked = useRef(false);
+  const [recovery, setRecovery] = useState<StoredDraft | null>(null);
+  const [conflict, setConflict] = useState(false);
+  const [historyCount, setHistoryCount] = useState({ undo: 0, redo: 0 });
+  const history = useRef<{ undo: EditDraft[]; redo: EditDraft[] }>({ undo: [], redo: [] });
   const timer = useRef<number | null>(null);
   const latest = useRef<Workspace | null>(null);
   const saveChain = useRef<Promise<void>>(Promise.resolve());
@@ -217,27 +267,52 @@ export function LessonWorkspacePage() {
   const [commentSaving, setCommentSaving] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
   const draftVersion = useRef(0);
-  const retryTimer = useRef<number | null>(null);
   useEffect(() => {
+    let active = true;
     void api
       .getLessonWorkspace(lessonId)
       .then((loaded) => {
-        const draft = localStorage.getItem(draftKey(lessonId));
-        let restored = loaded;
+        if (!active) return;
+        revision.current = loaded.lesson.editRevision ?? 0;
+        const prefix =
+          'teacheros:lesson-draft:' +
+          JSON.stringify([userId, loaded.course.id, lessonId, params.get('section')]) +
+          ':';
+        storageKey.current = prefix + crypto.randomUUID();
         try {
-          const local = draft ? (JSON.parse(draft) as Workspace) : null;
-          // Unit Slides are shared curriculum and may have changed in another
-          // lesson or collaborator session. Never let an old local lesson
-          // draft replace the latest unit-level deck configuration.
-          restored = local ? { ...loaded, ...local, unit: loaded.unit } : loaded;
+          const drafts = Object.keys(localStorage)
+            .filter((key) => key.startsWith(prefix))
+            .flatMap((key) => {
+              const raw = localStorage.getItem(key);
+              if (!raw) return [];
+              try {
+                return [{ key, raw, draft: JSON.parse(raw) as StoredDraft }];
+              } catch {
+                return [];
+              }
+            })
+            .sort((a, b) => b.draft.updatedAt - a.draft.updatedAt);
+          const recovered = drafts[0];
+          if (recovered) {
+            recoveredStorage.current = recovered;
+            blocked.current = true;
+            setRecovery(recovered.draft);
+            setConflict(recovered.draft.revision !== revision.current);
+            setStatus('unsaved');
+          }
         } catch {
-          localStorage.removeItem(draftKey(lessonId));
+          setStatus('error');
         }
-        latest.current = restored;
-        setData(restored);
+        latest.current = loaded;
+        setData(loaded);
       })
-      .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load this lesson.'));
-  }, [api, lessonId]);
+      .catch((e) => {
+        if (active) setError(e instanceof ApiError ? e.message : 'Could not load this lesson.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, lessonId, userId]);
   useEffect(() => {
     if (!lessonId) return;
     void api
@@ -245,71 +320,95 @@ export function LessonWorkspacePage() {
       .then((response) => setComments(response.comments))
       .catch(() => undefined);
   }, [api, lessonId]);
-  const queue = (next: Workspace, delay = 650) => {
+  const storeDraft = (next: Workspace) => {
+    try {
+      localStorage.setItem(
+        storageKey.current,
+        JSON.stringify({
+          revision: revision.current,
+          lesson: editableLesson(next.lesson),
+          updatedAt: Date.now()
+        })
+      );
+    } catch {
+      setStatus('error');
+    }
+  };
+  const save = async (next: Workspace, version: number) => {
+    if (blocked.current || version !== draftVersion.current) return;
+    setStatus('saving');
+    try {
+      const { segments, ...fields } = editableLesson(next.lesson);
+      const result = await api.updateLesson(next.lesson.id, {
+        ...fields,
+        steps: segments,
+        expectedRevision: revision.current
+      });
+      if (result.savedLessonRevision === undefined) throw new Error('Missing save revision');
+      revision.current = result.savedLessonRevision;
+      savedVersion.current = version;
+      if (version === draftVersion.current) {
+        localStorage.removeItem(storageKey.current);
+        clearRecoveredDraft();
+        setStatus('saved');
+      } else if (latest.current) {
+        storeDraft(latest.current);
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        blocked.current = true;
+        setConflict(true);
+      }
+      setStatus('error');
+    }
+  };
+  const queue = (next: Workspace, delay = 650, record = true) => {
+    if (blocked.current) return;
+    if (record && latest.current) {
+      history.current = recordEdit(history.current, editableLesson(latest.current.lesson));
+      setHistoryCount({ undo: history.current.undo.length, redo: 0 });
+    }
     const version = ++draftVersion.current;
     latest.current = next;
     setData(next);
-    localStorage.setItem(draftKey(lessonId), JSON.stringify(next));
-    setStatus('saving');
+    setStatus('unsaved');
+    storeDraft(next);
     if (timer.current) clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
+      timer.current = null;
       saveChain.current = saveChain.current.then(() => save(next, version));
     }, delay);
   };
-  const save = async (next: Workspace, version = draftVersion.current) => {
-    const revision = ++pending.current;
-    try {
-      await api.updateLesson(next.lesson.id, {
-        title: next.lesson.title,
-        description: next.lesson.description,
-        lessonPlan: next.lesson.lessonPlan,
-        estimatedDurationMinutes: next.lesson.estimatedDurationMinutes
-      });
-      for (const step of next.lesson.segments)
-        await api.updateSegment(step.id, {
-          title: step.title,
-          description: step.description,
-          durationMinutes: step.durationMinutes,
-          stepType: step.stepType ?? null,
-          orderIndex: step.orderIndex
-        });
-      await api.reorderSegments(next.lesson.id, {
-        segmentIds: next.lesson.segments.map((step) => step.id)
-      });
-      if (revision === pending.current && version === draftVersion.current) {
-        localStorage.removeItem(draftKey(lessonId));
-        setStatus('saved');
-      }
-    } catch {
-      if (revision === pending.current && version === draftVersion.current) {
-        setStatus('error');
-        // Keep the local draft and retry the exact latest revision once the
-        // connection recovers. New typing supersedes this retry naturally.
-        if (retryTimer.current) clearTimeout(retryTimer.current);
-        retryTimer.current = window.setTimeout(() => {
-          retryTimer.current = null;
-          if (latest.current && version === draftVersion.current) {
-            saveChain.current = saveChain.current.then(() => save(latest.current!, version));
-          }
-        }, 1_500);
-      }
-    }
+  const replay = (direction: 'undo' | 'redo') => {
+    if (blocked.current || !latest.current) return;
+    const result = travelEdit(history.current, editableLesson(latest.current.lesson), direction);
+    if (!result) return;
+    history.current = result.history;
+    setHistoryCount({ undo: history.current.undo.length, redo: history.current.redo.length });
+    queue({ ...latest.current, lesson: { ...latest.current.lesson, ...result.value } }, 0, false);
   };
-  const saveRef = useRef(save);
-  saveRef.current = save;
-  useEffect(
-    () => () => {
-      if (timer.current) {
-        clearTimeout(timer.current);
-        if (latest.current)
-          saveChain.current = saveChain.current.then(() =>
-            saveRef.current(latest.current!, draftVersion.current)
-          );
-      }
-      if (retryTimer.current) clearTimeout(retryTimer.current);
-    },
-    []
-  );
+  const replayRef = useRef(replay);
+  replayRef.current = replay;
+  useEffect(() => {
+    const onShortcut = (event: globalThis.KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'z')
+        return;
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest('input, textarea, select, [contenteditable], [role="textbox"]')
+      )
+        return;
+      if (!history.current[event.shiftKey ? 'redo' : 'undo'].length || blocked.current) return;
+      event.preventDefault();
+      replayRef.current(event.shiftKey ? 'redo' : 'undo');
+    };
+    window.addEventListener('keydown', onShortcut);
+    return () => {
+      window.removeEventListener('keydown', onShortcut);
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
   const addComment = async () => {
     const body = commentDraft.trim();
     if (!body) return;
@@ -325,16 +424,25 @@ export function LessonWorkspacePage() {
       setCommentSaving(false);
     }
   };
-  if (error) return <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div>;
+  if (error)
+    return (
+      <div className="notice warning" role="alert">
+        <p>{error}</p>
+        <FeedbackErrorAction />
+      </div>
+    );
   if (!data) return <p className="muted">Loading lesson…</p>;
   const returnTo = params.get('returnTo');
   const yearPlanReturn = returnTo?.startsWith('/year-plan')
     ? returnTo
     : `/year-plan?course=${data.course.id}`;
   const updateLesson = (patch: Partial<Workspace['lesson']>) =>
-    queue({ ...data, lesson: { ...data.lesson, ...patch } });
+    queue({
+      ...(latest.current ?? data),
+      lesson: { ...(latest.current ?? data).lesson, ...patch }
+    });
   const updateLessonPlan = (patch: Partial<Workspace['lesson']['lessonPlan']>) =>
-    updateLesson({ lessonPlan: { ...data.lesson.lessonPlan, ...patch } });
+    updateLesson({ lessonPlan: { ...(latest.current ?? data).lesson.lessonPlan, ...patch } });
   const updateStep = (id: string, patch: Partial<Step>) => {
     const currentStep = data.lesson.segments.find((step) => step.id === id);
     const durationDelta =
@@ -362,7 +470,26 @@ export function LessonWorkspacePage() {
       const version = draftVersion.current;
       if (snapshot) saveChain.current = saveChain.current.then(() => save(snapshot, version));
     }
-    const request = saveChain.current.then(mutation);
+    const request = saveChain.current.then(async () => {
+      const version = draftVersion.current;
+      if (blocked.current || savedVersion.current !== version)
+        throw new Error('Save your draft first');
+      setStatus('saving');
+      const result = await mutation();
+      const current = await api.getLessonWorkspace(lessonId);
+      if (version !== draftVersion.current) {
+        blocked.current = true;
+        setConflict(true);
+        throw new Error('The lesson changed while the draft was being edited.');
+      }
+      revision.current = current.lesson.editRevision ?? 0;
+      latest.current = current;
+      setData(current);
+      history.current = { undo: [], redo: [] };
+      setHistoryCount({ undo: 0, redo: 0 });
+      setStatus('saved');
+      return result;
+    });
     // Keep the queue usable after a failed create/delete while still returning
     // the original rejection to the button action.
     saveChain.current = request.then(
@@ -371,25 +498,9 @@ export function LessonWorkspacePage() {
     );
     return request;
   };
-  const replaceSegmentsFromDetail = (detail: Awaited<ReturnType<typeof api.createSegment>>) => {
-    const unit = detail.course.units.find((item) => item.id === data.unit.id);
-    const lesson = unit?.lessons.find((item) => item.id === data.lesson.id);
-    if (!lesson || !latest.current) return;
-    const locallyEdited = new Map(latest.current.lesson.segments.map((step) => [step.id, step]));
-    queue(
-      {
-        ...latest.current,
-        lesson: {
-          ...latest.current.lesson,
-          segments: lesson.segments.map((step) => ({ ...step, ...locallyEdited.get(step.id) }))
-        }
-      },
-      0
-    );
-  };
   const addStep = async () => {
     try {
-      const detail = await queueServerMutation(() =>
+      await queueServerMutation(() =>
         api.createSegment(data.lesson.id, {
           title: 'New step',
           description: null,
@@ -397,14 +508,13 @@ export function LessonWorkspacePage() {
           stepType: null
         })
       );
-      replaceSegmentsFromDetail(detail);
     } catch {
       setStatus('error');
     }
   };
   const duplicate = async (step: Step) => {
     try {
-      const detail = await queueServerMutation(() =>
+      await queueServerMutation(() =>
         api.createSegment(data.lesson.id, {
           title: `${step.title} copy`,
           description: step.description,
@@ -412,7 +522,6 @@ export function LessonWorkspacePage() {
           stepType: step.stepType ?? null
         })
       );
-      replaceSegmentsFromDetail(detail);
     } catch {
       setStatus('error');
     }
@@ -421,18 +530,6 @@ export function LessonWorkspacePage() {
     if (!window.confirm('Delete this step?')) return;
     try {
       await queueServerMutation(() => api.deleteSegment(id));
-      if (latest.current) {
-        queue(
-          {
-            ...latest.current,
-            lesson: {
-              ...latest.current.lesson,
-              segments: latest.current.lesson.segments.filter((step) => step.id !== id)
-            }
-          },
-          0
-        );
-      }
     } catch {
       setStatus('error');
     }
@@ -447,7 +544,6 @@ export function LessonWorkspacePage() {
         const next = { ...latest.current, share: response };
         latest.current = next;
         setData(next);
-        localStorage.setItem(draftKey(lessonId), JSON.stringify(next));
       }
     } catch {
       setStatus('error');
@@ -479,6 +575,7 @@ export function LessonWorkspacePage() {
         setStatus('saving');
         await queueServerMutation(() =>
           api.updateLesson(data.lesson.id, {
+            expectedRevision: revision.current,
             googleSlidesUrl: url,
             googleSlidesStartSlide: startSlide
           })
@@ -543,7 +640,11 @@ export function LessonWorkspacePage() {
     try {
       setStatus('saving');
       await queueServerMutation(() =>
-        api.updateLesson(data.lesson.id, { googleSlidesUrl: null, googleSlidesStartSlide: 1 })
+        api.updateLesson(data.lesson.id, {
+          expectedRevision: revision.current,
+          googleSlidesUrl: null,
+          googleSlidesStartSlide: 1
+        })
       );
       const current = latest.current ?? data;
       const next = {
@@ -590,36 +691,6 @@ export function LessonWorkspacePage() {
           });
         }
       });
-      const refreshed = await queueServerMutation(() => api.getLessonWorkspace(data.lesson.id));
-      const local = latest.current;
-      if (local) {
-        const serverById = new Map(refreshed.lesson.segments.map((step) => [step.id, step]));
-        const retained = local.lesson.segments
-          .filter((step) => serverById.has(step.id))
-          .map((step) => ({ ...serverById.get(step.id)!, ...step }));
-        const retainedIds = new Set(retained.map((step) => step.id));
-        queue(
-          {
-            ...refreshed,
-            lesson: {
-              ...refreshed.lesson,
-              title: local.lesson.title,
-              description: local.lesson.description,
-              lessonPlan: local.lesson.lessonPlan,
-              estimatedDurationMinutes: local.lesson.estimatedDurationMinutes,
-              segments: [
-                ...retained,
-                ...refreshed.lesson.segments.filter((step) => !retainedIds.has(step.id))
-              ]
-            }
-          },
-          0
-        );
-      } else {
-        latest.current = refreshed;
-        setData(refreshed);
-        setStatus('saved');
-      }
       setGeneratedSteps(null);
       setGenerationOpen(false);
     } catch (err) {
@@ -630,6 +701,88 @@ export function LessonWorkspacePage() {
   };
   return (
     <main className="lesson-workspace lesson-document-page">
+      {data.importedFromCourseName ? (
+        <p className="muted">Copied from {data.importedFromCourseName}</p>
+      ) : null}
+      {recovery || conflict ? (
+        <section className="notice warning" aria-label="Lesson draft recovery">
+          <p>
+            {conflict
+              ? 'This lesson was updated by another teacher or tab. Your draft is kept locally.'
+              : 'You have an unsaved lesson draft.'}
+          </p>
+          {recovery && !conflict ? (
+            <button
+              type="button"
+              onClick={() => {
+                blocked.current = false;
+                setRecovery(null);
+                queue({ ...data, lesson: { ...data.lesson, ...recovery.lesson } }, 0, false);
+              }}
+            >
+              Restore draft
+            </button>
+          ) : null}
+          {conflict ? (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const current = await api.getLessonWorkspace(lessonId);
+                  const raw = localStorage.getItem(storageKey.current);
+                  if (raw) setRecovery(JSON.parse(raw) as StoredDraft);
+                  else if (!recovery && latest.current)
+                    setRecovery({
+                      revision: revision.current,
+                      lesson: editableLesson(latest.current.lesson),
+                      updatedAt: Date.now()
+                    });
+                  latest.current = current;
+                  setData(current);
+                } catch {
+                  setStatus('error');
+                }
+              }}
+            >
+              View latest version
+            </button>
+          ) : null}
+          {conflict && recovery ? (
+            <details>
+              <summary>Review unsaved draft</summary>
+              <label>
+                Draft content
+                <textarea readOnly value={JSON.stringify(recovery.lesson, null, 2)} />
+              </label>
+            </details>
+          ) : null}
+          <button
+            type="button"
+            className="secondary"
+            onClick={async () => {
+              try {
+                const current = await api.getLessonWorkspace(lessonId);
+                localStorage.removeItem(storageKey.current);
+                clearRecoveredDraft();
+                revision.current = current.lesson.editRevision ?? 0;
+                latest.current = current;
+                setData(current);
+                history.current = { undo: [], redo: [] };
+                setHistoryCount({ undo: 0, redo: 0 });
+                blocked.current = false;
+                setRecovery(null);
+                setConflict(false);
+                savedVersion.current = draftVersion.current;
+                setStatus('saved');
+              } catch {
+                setStatus('error');
+              }
+            }}
+          >
+            Discard draft
+          </button>
+        </section>
+      ) : null}
       <header className="lesson-workspace-header">
         <div>
           <Link className="lesson-return" to={yearPlanReturn}>
@@ -650,9 +803,43 @@ export function LessonWorkspacePage() {
             {status === 'saving'
               ? 'Saving…'
               : status === 'error'
-                ? 'Saved locally — retrying'
-                : 'Saved'}
+                ? "Couldn't save"
+                : status === 'unsaved'
+                  ? 'Unsaved changes'
+                  : 'Saved'}
           </span>
+          {status === 'error' &&
+          !conflict &&
+          !recovery &&
+          savedVersion.current !== draftVersion.current ? (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                const next = latest.current;
+                const version = draftVersion.current;
+                if (next) saveChain.current = saveChain.current.then(() => save(next, version));
+              }}
+            >
+              Retry
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="secondary"
+            disabled={!historyCount.undo || conflict || !!recovery}
+            onClick={() => replay('undo')}
+          >
+            Undo lesson edit
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={!historyCount.redo || conflict || !!recovery}
+            onClick={() => replay('redo')}
+          >
+            Redo lesson edit
+          </button>
           <button className="secondary" type="button" onClick={() => setShareOpen((open) => !open)}>
             Share
           </button>
@@ -813,7 +1000,9 @@ export function LessonWorkspacePage() {
               </p>
             ) : null}
             {resourceError ? <p className="notice warning">{resourceError}</p> : null}
-            {data.unit.googleSlidesUrl || data.lesson.googleSlidesUrl || data.lesson.lessonPlan.links.length ? (
+            {data.unit.googleSlidesUrl ||
+            data.lesson.googleSlidesUrl ||
+            data.lesson.lessonPlan.links.length ? (
               <ul className="lesson-resource-list">
                 {data.unit.googleSlidesUrl ? (
                   <li className="is-unit-resource">

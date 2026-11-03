@@ -37,9 +37,16 @@ import { AdminAccessGate, AdminShell } from './components/AdminShell.js';
 
 function RequireAuth() {
   const auth = useAppAuth();
+  const location = useLocation();
 
   if (!auth.isLoaded) return <p className="muted">Loading...</p>;
-  if (!auth.isSignedIn) return <Navigate to="/login" replace />;
+  if (!auth.isSignedIn)
+    return (
+      <Navigate
+        to={`/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`}
+        replace
+      />
+    );
   return <Outlet />;
 }
 
@@ -84,7 +91,17 @@ function RequireOnboarding() {
     );
   }
 
-  if (state === 'onboarding') return <Navigate to="/onboarding" replace />;
+  if (state === 'onboarding')
+    return (
+      <Navigate
+        to="/onboarding"
+        state={{
+          sharingReturn:
+            location.pathname === '/sharing' ? location.pathname + location.search : undefined
+        }}
+        replace
+      />
+    );
 
   // The admin workspace is the default landing area for approved admins. A
   // deliberate teaching-workspace link opts out of this redirect.

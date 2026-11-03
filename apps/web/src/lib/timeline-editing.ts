@@ -58,10 +58,4 @@ export function zoomScrollLeft(
   return Math.max(0, ((scrollLeft + anchorX) / oldScale) * newScale - anchorX);
 }
 
-export function reflowLessonRanges(start: number, span: number, count: number): ClipRange[] {
-  return Array.from({ length: count }, (_, index) => {
-    const offset = Math.floor((index * span) / count);
-    const end = Math.floor(((index + 1) * span) / count);
-    return { start: start + offset, span: Math.max(1, end - offset) };
-  });
-}
+export { reflowLessonRanges } from '@teacheros/contracts';

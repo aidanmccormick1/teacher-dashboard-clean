@@ -50,7 +50,10 @@ const migrationFiles = [
   '0023_school_invitations.sql',
   '0024_one_course_owner.sql',
   '0025_school_invitation_expiry.sql',
-  '0026_feedback.sql'
+  '0026_feedback.sql',
+  '0027_curriculum_invitations.sql',
+  '0028_shared_lesson_import.sql',
+  '0029_lesson_edit_revision.sql'
 ];
 
 const truncateSql = `
@@ -77,7 +80,8 @@ const truncateSql = `
     school_claim_requests,
     school_invitations,
     school_memberships,
-    course_collaborators,
+    curriculum_invitation_history,
+      course_collaborators,
     courses,
     teacher_profiles,
     schools,
@@ -173,6 +177,12 @@ async function runMigrations() {
     const feedback = await pool.query("SELECT to_regclass('public.feedback_reports') AS ready");
     if (!feedback.rows[0]?.ready)
       await pool.query(await readFile(path.join(migrationsDir, '0026_feedback.sql'), 'utf8'));
+    for (const migration of [
+      '0027_curriculum_invitations.sql',
+      '0028_shared_lesson_import.sql',
+      '0029_lesson_edit_revision.sql'
+    ])
+      await pool.query(await readFile(path.join(migrationsDir, migration), 'utf8'));
     return;
   }
 

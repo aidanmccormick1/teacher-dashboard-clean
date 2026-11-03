@@ -1,3 +1,4 @@
+import { positionCurriculumUnits } from '@teacheros/contracts';
 import { recordFeedbackEvent } from '../lib/feedbackDiagnostics.js';
 import {
   useCallback,
@@ -38,8 +39,7 @@ import {
 } from '../lib/timeline-editing.js';
 import { TimelineIcon } from './TimelineIcon.js';
 import { useTimelineViewport } from './useTimelineViewport.js';
-import { HobieHint } from './HobieHelper.js';
-import { useHobieDrafting } from '../lib/hobieDrafting.js';
+import { UnitPlanningWorkspace } from './UnitPlanningWorkspace.js';
 import './CurriculumTimeline.css';
 import './TimelineEditor.css';
 
@@ -112,31 +112,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function unitMeetingCount(unit: Unit) {
-  if (unit.plannedMeetingCount) return unit.plannedMeetingCount;
-  if (!unit.lessons.length) return 1;
-  return Math.max(
-    2,
-    unit.lessons.reduce(
-      (count, lesson) =>
-        count + Math.max(1, Math.ceil((lesson.estimatedDurationMinutes ?? 50) / 50)),
-      0
-    )
-  );
-}
-
-function positionUnits(units: Unit[]): PositionedUnit[] {
-  let cursor = 0;
-  return [...units]
-    .sort((left, right) => left.orderIndex - right.orderIndex)
-    .map((unit) => {
-      const span = unitMeetingCount(unit);
-      const start = unit.plannedStartMeeting ?? cursor;
-      cursor = Math.max(cursor, start + span);
-      return { unit, start, span };
-    });
-}
-
 function overlaps(a: PositionedUnit, b: PositionedUnit) {
   return planningRangesOverlap(
     { start: a.start, meetingCount: a.span },
@@ -170,7 +145,6 @@ function distributeMeetingSpans(start: number, meetingCount: number, lessonCount
 export function CurriculumTimeline({
   course,
   selectedSection,
-  dateProjectionOnly = false,
   schoolYearSettings,
   currentLessonId,
   onCourseChange,
@@ -183,7 +157,6 @@ export function CurriculumTimeline({
 }: {
   course: Course;
   selectedSection: Section | null;
-  dateProjectionOnly?: boolean;
   holidays: string[];
   schoolYearSettings: SchoolYearSettings | null;
   currentLessonId: string | null;
@@ -204,14 +177,18 @@ export function CurriculumTimeline({
     course.units.map((unit) => unit.id)
   );
   const [showUnitComposer, setShowUnitComposer] = useState(false);
-  const [unitComposerMode, setUnitComposerMode] = useState<'manual' | 'generate'>('manual');
+  const [planningOpen, setPlanningOpen] = useState(false);
+  const planEntry = useRef<HTMLButtonElement>(null);
+  const [planningError, setPlanningError] = useState<string | null>(null);
+  const [addingPlan, setAddingPlan] = useState(false);
+  const [planSaveFailed, setPlanSaveFailed] = useState(false);
+  const [addedUnitId, setAddedUnitId] = useState<string | null>(null);
   const [quickLessonUnitId, setQuickLessonUnitId] = useState<string | null>(null);
   const [quickLessonTitle, setQuickLessonTitle] = useState('');
   const [manualUnitTitle, setManualUnitTitle] = useState('');
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftMeetingCount, setDraftMeetingCount] = useState('');
   const [draftMinutesPerMeeting, setDraftMinutesPerMeeting] = useState('');
-  const [unitGenerationAttempted, setUnitGenerationAttempted] = useState(false);
   const [lessonGeneratorUnitId, setLessonGeneratorUnitId] = useState<string | null>(null);
   const [lessonGeneratorPrompt, setLessonGeneratorPrompt] = useState('');
   const [lessonGeneratorCount, setLessonGeneratorCount] = useState('5');
@@ -225,7 +202,6 @@ export function CurriculumTimeline({
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [isGeneratingUnit, setIsGeneratingUnit] = useState(false);
-  useHobieDrafting(isGeneratingUnit);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dragPreview, setDragPreview] = useState<ClipRange | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -251,7 +227,12 @@ export function CurriculumTimeline({
   const [newSegmentMinutes, setNewSegmentMinutes] = useState('');
   const [newSegmentDescription, setNewSegmentDescription] = useState('');
   const [sectionPlans, setSectionPlans] = useState<SectionLessonPlanResponse['plans']>([]);
-  const [lastSectionPlanOperation, setLastSectionPlanOperation] = useState<string | null>(null);
+  type LocalTimingAction = { operationId: string; lessonId: string; start: number; count: number };
+  const [localUndo, setLocalUndo] = useState<LocalTimingAction[]>([]);
+  const [localRedo, setLocalRedo] = useState<LocalTimingAction[]>([]);
+  const localHead = useRef<string | null | undefined>(undefined);
+  const lastSectionPlanOperation = localUndo.at(-1)?.operationId;
+
   const [editingSharedPlan, setEditingSharedPlan] = useState(false);
   const [rangeDrag, setRangeDrag] = useState<RangeDrag | null>(null);
   const [rangePreview, setRangePreview] = useState<RangeDraft | null>(null);
@@ -275,12 +256,22 @@ export function CurriculumTimeline({
     before: { plannedStartMeeting: number | null; plannedMeetingCount: number | null };
     after: { plannedStartMeeting: number | null; plannedMeetingCount: number | null };
   };
+  type LessonOrderAction = {
+    unitId: string;
+    before: Array<{ id: string; orderIndex: number }>;
+    after: Array<{ id: string; orderIndex: number }>;
+  };
+  const [orderUndo, setOrderUndo] = useState<LessonOrderAction[]>([]);
+  const [orderRedo, setOrderRedo] = useState<LessonOrderAction[]>([]);
+  const orderRevisions = useRef<Record<string, number>>({});
+  const timingRevisions = useRef<Record<string, number>>({});
   const [undoStack, setUndoStack] = useState<TimingPatch[][]>([]);
   const [redoStack, setRedoStack] = useState<TimingPatch[][]>([]);
   const lessonPlanSaveTimer = useRef<number | null>(null);
   const lessonPlanSaveChain = useRef<Promise<void>>(Promise.resolve());
   const lessonPlanDraftRef = useRef<LessonPlanDraft>(emptyLessonPlan());
   const hydratedLessonId = useRef<string | null>(null);
+  const lessonDraftRevisions = useRef<Record<string, number>>({});
   const selectedLessonIdRef = useRef<string | null>(null);
   const selectedLessonRef = useRef<Lesson | null>(null);
   const saveLessonPlanRef = useRef<
@@ -337,16 +328,20 @@ export function CurriculumTimeline({
   }, [api]);
 
   useEffect(() => {
-    if (!selectedSectionId || dateProjectionOnly) {
+    if (!selectedSectionId) {
       setSectionPlans([]);
-      setLastSectionPlanOperation(null);
+      setLocalUndo([]);
+      setLocalRedo([]);
+      localHead.current = undefined;
       setEditingSharedPlan(false);
       return;
     }
     // Section-specific timing is the safe default whenever the planning
     // context changes. Shared curriculum edits require an explicit choice.
     setEditingSharedPlan(false);
-    setLastSectionPlanOperation(null);
+    setLocalUndo([]);
+    setLocalRedo([]);
+    localHead.current = undefined;
     let active = true;
     void api
       .getSectionLessonPlans(selectedSectionId)
@@ -359,14 +354,14 @@ export function CurriculumTimeline({
     return () => {
       active = false;
     };
-  }, [api, dateProjectionOnly, selectedSectionId]);
+  }, [api, selectedSectionId]);
 
   useEffect(() => {
     if (!initialLessonId) return;
     setSelection({ type: 'lesson', id: initialLessonId });
   }, [initialLessonId]);
 
-  const positions = useMemo(() => positionUnits(course.units), [course.units]);
+  const positions = useMemo(() => positionCurriculumUnits(course.units), [course.units]);
   const sectionPlanByLesson = useMemo(
     () => new Map(sectionPlans.map((plan) => [plan.lessonId, plan])),
     [sectionPlans]
@@ -397,8 +392,11 @@ export function CurriculumTimeline({
     [meetingData, selectedSection]
   );
   const meetings = useMemo(
-    () => sectionMeetings.map((meeting) => new Date(`${meeting.date}T12:00:00`)),
-    [sectionMeetings]
+    () =>
+      editingSharedPlan
+        ? []
+        : sectionMeetings.map((meeting) => new Date(`${meeting.date}T12:00:00`)),
+    [editingSharedPlan, sectionMeetings]
   );
   const furthestMeeting = Math.max(
     24,
@@ -497,7 +495,8 @@ export function CurriculumTimeline({
     ? Math.min(100, Math.round((plannedMeetings / planningBase) * 100))
     : 0;
   const unplannedMeetings = Math.max(0, planningBase - plannedMeetings);
-  const canEditSharedPlan = dateProjectionOnly || !selectedSection || editingSharedPlan;
+  const canEditSharedPlan = !selectedSection || editingSharedPlan;
+  const canEditLessonTiming = canEditSharedPlan || sectionMeetings.length > 0;
   const rangeOverlapsExistingPlan = (range: RangeDraft) =>
     !range.unitId &&
     planningRangeIntersects(
@@ -506,17 +505,18 @@ export function CurriculumTimeline({
     );
 
   const effectiveLessonStart = (lesson: Lesson, fallback: number) =>
-    sectionPlanByLesson.get(lesson.id)?.plannedStartMeeting ??
+    (editingSharedPlan ? undefined : sectionPlanByLesson.get(lesson.id)?.plannedStartMeeting) ??
     lesson.plannedStartMeeting ??
     fallback;
   const effectiveLessonSpan = (lesson: Lesson, fallback: number) =>
-    sectionPlanByLesson.get(lesson.id)?.plannedMeetingCount ??
+    (editingSharedPlan ? undefined : sectionPlanByLesson.get(lesson.id)?.plannedMeetingCount) ??
     lesson.plannedMeetingCount ??
     fallback;
 
   // Course planning is expressed as a shared sequence of meeting numbers.
   // A selected section contributes real dates, but is never required to plan.
-  const rangeMeetings = sectionMeetings.length ? sectionMeetings : courseMeetingSlots;
+  const rangeMeetings =
+    sectionMeetings.length && !editingSharedPlan ? sectionMeetings : courseMeetingSlots;
   const slotFromPointer = (clientX: number) => {
     const canvas = canvasWrapRef.current;
     if (!canvas || !rangeMeetings.length) return null;
@@ -658,6 +658,7 @@ export function CurriculumTimeline({
       setSaving(true);
       onCourseChange(
         await api.updateLesson(selectedLesson.id, {
+          expectedRevision: selectedLesson.editRevision,
           googleSlidesUrl: url,
           googleSlidesStartSlide: startSlide
         })
@@ -676,6 +677,7 @@ export function CurriculumTimeline({
       setSaving(true);
       onCourseChange(
         await api.updateLesson(selectedLesson.id, {
+          expectedRevision: selectedLesson.editRevision,
           googleSlidesUrl: null,
           googleSlidesStartSlide: 1
         })
@@ -732,49 +734,40 @@ export function CurriculumTimeline({
     }
   };
 
-  const shiftSelectedSectionLesson = async (meetingDelta: -1 | 1) => {
-    if (!selectedSection || !selectedLesson) return;
-    const fallback = selectedLesson.plannedStartMeeting;
-    const start = sectionPlanByLesson.get(selectedLesson.id)?.plannedStartMeeting ?? fallback;
-    if (start === null || start === undefined) {
-      setStatus('Place this lesson on the course timeline before shifting it for a section.');
-      return;
-    }
+  const travelLocalTiming = async (direction: 'undo' | 'redo') => {
+    const action = (direction === 'undo' ? localUndo : localRedo).at(-1);
+    if (!selectedSection || !action || saving || busyRef.current) return;
+    busyRef.current = true;
+    setSaving(true);
     try {
-      setSaving(true);
-      const response = await api.shiftSectionLessonPlans(
-        selectedSection.sectionId,
-        selectedLesson.id,
-        meetingDelta
-      );
+      const response =
+        direction === 'undo'
+          ? await api.undoSectionLessonPlanShift(selectedSection.sectionId, action.operationId)
+          : await api.setSectionLessonTiming(
+              selectedSection.sectionId,
+              action.lessonId,
+              action.start,
+              action.count,
+              localHead.current
+            );
       setSectionPlans(response.plans);
-      setLastSectionPlanOperation(response.operationId);
+      if (direction === 'undo') {
+        localHead.current = response.previousOperationId ?? null;
+        setLocalUndo((items) => items.slice(0, -1));
+        setLocalRedo((items) => [...items, action]);
+      } else if (response.operationId) {
+        localHead.current = response.operationId;
+        setLocalRedo((items) => items.slice(0, -1));
+        setLocalUndo((items) => [...items, { ...action, operationId: response.operationId! }]);
+      }
       setStatus(
-        `${selectedLesson.title} and following lessons shifted ${
-          meetingDelta > 0 ? 'later' : 'earlier'
-        } for ${selectedSection.sectionName}.`
+        `${direction === 'undo' ? 'Undid' : 'Redid'} timing for ${selectedSection.sectionName}.`
       );
     } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not shift this section plan');
+      if (err instanceof ApiError && err.status === 409) setLocalRedo([]);
+      setStatus(err instanceof ApiError ? err.message : 'Could not change class timing.');
     } finally {
-      setSaving(false);
-    }
-  };
-
-  const undoSectionShift = async () => {
-    if (!selectedSection || !lastSectionPlanOperation) return;
-    try {
-      setSaving(true);
-      const response = await api.undoSectionLessonPlanShift(
-        selectedSection.sectionId,
-        lastSectionPlanOperation
-      );
-      setSectionPlans(response.plans);
-      setLastSectionPlanOperation(null);
-      setStatus(`Restored ${selectedSection.sectionName}'s prior lesson timing.`);
-    } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not undo the section shift');
-    } finally {
+      busyRef.current = false;
       setSaving(false);
     }
   };
@@ -795,6 +788,7 @@ export function CurriculumTimeline({
     selectedLessonIdRef.current = selectedLessonId;
     if (hydratedLessonId.current === selectedLessonId) return;
     hydratedLessonId.current = selectedLessonId;
+    lessonDraftRevisions.current[selectedLessonId] = lesson.editRevision ?? 0;
     const plan = lesson.lessonPlan;
     setLessonPlanDraft({
       title: lesson.title,
@@ -944,17 +938,72 @@ export function CurriculumTimeline({
     direction: 'before' | 'after' = 'after',
     record = true
   ) => {
-    if (busyRef.current || saving || !canEditSharedPlan || !patches.length) return false;
+    if (busyRef.current || saving || !patches.length) return false;
+    if (!canEditSharedPlan) {
+      const patch = patches[0]!;
+      const timing = patch[direction];
+      if (
+        !selectedSection ||
+        !sectionMeetings.length ||
+        patches.length !== 1 ||
+        patch.type !== 'lesson' ||
+        timing.plannedStartMeeting === null ||
+        timing.plannedMeetingCount === null
+      )
+        return false;
+      busyRef.current = true;
+      setSaving(true);
+      try {
+        const result = await api.setSectionLessonTiming(
+          selectedSection.sectionId,
+          patch.id,
+          timing.plannedStartMeeting,
+          timing.plannedMeetingCount
+        );
+        setSectionPlans(result.plans);
+        if (result.operationId) {
+          localHead.current = result.operationId;
+          setLocalUndo((items) => [
+            ...items,
+            {
+              operationId: result.operationId!,
+              lessonId: patch.id,
+              start: timing.plannedStartMeeting!,
+              count: timing.plannedMeetingCount!
+            }
+          ]);
+          setLocalRedo([]);
+        }
+        setStatus(`Timing saved for ${selectedSection.sectionName}`);
+        return true;
+      } catch (error) {
+        setStatus(error instanceof ApiError ? error.message : 'Could not save class timing.');
+        return false;
+      } finally {
+        busyRef.current = false;
+        setSaving(false);
+      }
+    }
     busyRef.current = true;
     setSaving(true);
     let detail: CourseDetailResponse | null = null;
     const applied: TimingPatch[] = [];
+    const saveTimingPatch = async (patch: TimingPatch, side: 'before' | 'after') => {
+      if (patch.type === 'unit') return api.updateUnit(patch.id, patch[side]);
+      const lesson = course.units
+        .flatMap((unit) => unit.lessons)
+        .find((item) => item.id === patch.id);
+      const response = await api.updateLesson(patch.id, {
+        ...patch[side],
+        expectedRevision: timingRevisions.current[patch.id] ?? lesson?.editRevision ?? 0
+      });
+      if (response.savedLessonRevision !== undefined)
+        timingRevisions.current[patch.id] = response.savedLessonRevision;
+      return response;
+    };
     try {
       for (const patch of patches) {
-        detail =
-          patch.type === 'unit'
-            ? await api.updateUnit(patch.id, patch[direction])
-            : await api.updateLesson(patch.id, patch[direction]);
+        detail = await saveTimingPatch(patch, direction);
         applied.push(patch);
       }
       if (detail) onCourseChange(detail);
@@ -970,9 +1019,7 @@ export function CurriculumTimeline({
       let restored = true;
       for (const patch of applied.reverse()) {
         try {
-          const original = patch[direction === 'after' ? 'before' : 'after'];
-          if (patch.type === 'unit') await api.updateUnit(patch.id, original);
-          else await api.updateLesson(patch.id, original);
+          await saveTimingPatch(patch, direction === 'after' ? 'before' : 'after');
         } catch {
           restored = false;
         }
@@ -1188,13 +1235,17 @@ export function CurriculumTimeline({
     unitStart: number,
     unitSpan: number
   ) => {
-    if (!canEditSharedPlan || saving || pendingChange || event.button !== 0) return;
+    if (!canEditLessonTiming || saving || pendingChange || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     suppressClick.current = false;
     pointerRef.current = { clientX: event.clientX, altKey: event.altKey };
-    recordFeedbackEvent('lesson_drag_started', { lessonId: lesson.id, mode, component: 'curriculum_timeline' });
+    recordFeedbackEvent('lesson_drag_started', {
+      lessonId: lesson.id,
+      mode,
+      component: 'curriculum_timeline'
+    });
     setLessonDrag({
       lesson,
       mode,
@@ -1202,8 +1253,8 @@ export function CurriculumTimeline({
       scrollLeft: canvasWrapRef.current?.scrollLeft ?? 0,
       start,
       span,
-      unitStart,
-      unitEnd: unitStart + unitSpan
+      unitStart: canEditSharedPlan ? unitStart : 0,
+      unitEnd: canEditSharedPlan ? unitStart + unitSpan : sectionMeetings.length
     });
     setLessonDragPreview({ start, span });
   };
@@ -1220,7 +1271,11 @@ export function CurriculumTimeline({
     const start = Math.round(lessonDragPreview.start);
     const span = Math.round(lessonDragPreview.span);
     const changed = start !== lessonDrag.start || span !== lessonDrag.span;
-    recordFeedbackEvent('lesson_drag_ended', { lessonId: lessonDrag.lesson.id, changed, component: 'curriculum_timeline' });
+    recordFeedbackEvent('lesson_drag_ended', {
+      lessonId: lessonDrag.lesson.id,
+      changed,
+      component: 'curriculum_timeline'
+    });
     suppressClick.current = changed;
     pointerRef.current = null;
     setLessonDrag(null);
@@ -1238,8 +1293,11 @@ export function CurriculumTimeline({
     unitStart: number,
     unitSpan: number
   ) => {
-    if (!canEditSharedPlan || saving) return;
-    const maxSpan = Math.max(span, unitStart + unitSpan - start);
+    if (!canEditLessonTiming || saving) return;
+    const maxSpan = Math.max(
+      span,
+      (canEditSharedPlan ? unitStart + unitSpan : sectionMeetings.length) - start
+    );
     const nextSpan =
       event.key === 'Home'
         ? 1
@@ -1328,19 +1386,28 @@ export function CurriculumTimeline({
       selectedPosition.span,
       lessons.length
     )[lessons.findIndex((lesson) => lesson.id === selectedLesson.id)]!;
-    const span = Math.min(
-      selectedPosition.span,
-      effectiveLessonSpan(selectedLesson, fallback.span)
-    );
+    const effectiveSpan = effectiveLessonSpan(selectedLesson, fallback.span);
+    const start = effectiveLessonStart(selectedLesson, fallback.start);
+    if (!canEditSharedPlan) return { start, span: effectiveSpan };
+    const span = Math.min(selectedPosition.span, effectiveSpan);
     return {
       start: clamp(
-        effectiveLessonStart(selectedLesson, fallback.start),
+        start,
         selectedPosition.start,
         selectedPosition.start + selectedPosition.span - span
       ),
       span
     };
   })();
+  const canEditSelectedTiming =
+    selection?.type === 'lesson' ? canEditLessonTiming : canEditSharedPlan;
+  const timingMin =
+    selection?.type === 'unit' || !canEditSharedPlan ? 0 : (selectedPosition?.start ?? 0);
+  const timingMax = !canEditSharedPlan
+    ? sectionMeetings.length
+    : selection?.type === 'unit'
+      ? visibleMeetings
+      : (selectedPosition?.start ?? 0) + (selectedPosition?.span ?? 0);
   const selectedStart = selectedRange?.start;
   const selectedSpan = selectedRange?.span;
   useEffect(() => {
@@ -1349,7 +1416,13 @@ export function CurriculumTimeline({
   }, [selection?.id, selectedStart, selectedSpan]);
 
   const changeSelectedRange = (range: ClipRange) => {
-    if (!selectedPosition || !selectedRange || !canEditSharedPlan || saving || pendingChange)
+    if (
+      !selectedPosition ||
+      !selectedRange ||
+      !(selection?.type === 'lesson' ? canEditLessonTiming : canEditSharedPlan) ||
+      saving ||
+      pendingChange
+    )
       return;
     if (selection?.type === 'unit') {
       if (range.span !== selectedRange.span)
@@ -1421,10 +1494,7 @@ export function CurriculumTimeline({
     };
   }, []);
   const handleTimelineKeys = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (
-      (event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]') ||
-      displayMode !== 'timeline'
-    )
+    if ((event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]'))
       return;
     const key = event.key.toLowerCase();
     if (key === 'escape') {
@@ -1433,10 +1503,14 @@ export function CurriculumTimeline({
     }
     if ((event.metaKey || event.ctrlKey) && key === 'z') {
       event.preventDefault();
-      void travelHistory(event.shiftKey ? 'redo' : 'undo');
+      const direction = event.shiftKey ? 'redo' : 'undo';
+      if (displayMode === 'outline' && (direction === 'undo' ? orderUndo : orderRedo).length)
+        void travelLessonOrder(direction);
+      else if (!canEditSharedPlan) void travelLocalTiming(direction);
+      else void travelHistory(direction);
       return;
     }
-    if (event.metaKey || event.ctrlKey) return;
+    if (event.metaKey || event.ctrlKey || displayMode !== 'timeline') return;
     if (key === 'v') setHandTool(false);
     else if (key === 'h') setHandTool(true);
     else if (key === 's') setSnapEnabled((value) => !value);
@@ -1504,22 +1578,61 @@ export function CurriculumTimeline({
       setOutlineDropPosition(null);
       return;
     }
+    const action = {
+      unitId: unit.id,
+      before: [...unit.lessons]
+        .sort((a, b) => a.orderIndex - b.orderIndex)
+        .map(({ id }, orderIndex) => ({ id, orderIndex })),
+      after: ordered.map(({ id }, orderIndex) => ({ id, orderIndex }))
+    };
+    if (await saveLessonOrder(action, 'after')) {
+      setOrderUndo((items) => [...items, action]);
+      setOrderRedo([]);
+    }
+    setOutlineDraggedLessonId(null);
+    setOutlineDropPosition(null);
+  };
+
+  const saveLessonOrder = async (action: LessonOrderAction, direction: 'before' | 'after') => {
+    if (saving || busyRef.current) return false;
+    busyRef.current = true;
+    setSaving(true);
     try {
-      setSaving(true);
-      let detail: CourseDetailResponse | null = null;
-      for (const [index, lesson] of ordered.entries()) {
-        if (lesson.orderIndex !== index) {
-          detail = await api.updateLesson(lesson.id, { orderIndex: index });
-        }
-      }
-      if (detail) onCourseChange(detail);
-      setStatus(`${moving.title} reordered`);
-    } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not reorder lessons');
+      const unit = course.units.find((item) => item.id === action.unitId);
+      const result = await api.reorderUnitLessons(
+        action.unitId,
+        action[direction].map((item) => ({
+          ...item,
+          expectedRevision:
+            orderRevisions.current[item.id] ??
+            unit?.lessons.find((lesson) => lesson.id === item.id)?.editRevision ??
+            0
+        }))
+      );
+      Object.assign(orderRevisions.current, result.revisions);
+      onCourseChange(await api.getCourseDetail(course.id));
+      setStatus('Shared lesson order saved');
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) setOrderRedo([]);
+      setStatus(error instanceof ApiError ? error.message : 'Could not save shared lesson order.');
+      return false;
     } finally {
+      busyRef.current = false;
       setSaving(false);
-      setOutlineDraggedLessonId(null);
-      setOutlineDropPosition(null);
+    }
+  };
+
+  const travelLessonOrder = async (direction: 'undo' | 'redo') => {
+    const action = (direction === 'undo' ? orderUndo : orderRedo).at(-1);
+    if (!action || !(await saveLessonOrder(action, direction === 'undo' ? 'before' : 'after')))
+      return;
+    if (direction === 'undo') {
+      setOrderUndo((items) => items.slice(0, -1));
+      setOrderRedo((items) => [...items, action]);
+    } else {
+      setOrderRedo((items) => items.slice(0, -1));
+      setOrderUndo((items) => [...items, action]);
     }
   };
 
@@ -1662,22 +1775,24 @@ export function CurriculumTimeline({
     if (!lessonId || !draftToSave.title.trim()) return;
     try {
       setSaving(true);
-      onCourseChange(
-        await api.updateLesson(lessonId, {
-          title: draftToSave.title.trim(),
-          description: nullable(draftToSave.overview),
-          estimatedDurationMinutes: draftToSave.duration.trim()
-            ? Math.max(1, Number(draftToSave.duration) || 1)
-            : null,
-          lessonPlan: {
-            objective: nullable(draftToSave.objective),
-            teacherNotes: nullable(draftToSave.teacherNotes),
-            studentDirections: nullable(draftToSave.studentDirections),
-            materials: nullable(draftToSave.materials),
-            links: draftToSave.links
-          }
-        })
-      );
+      const detail = await api.updateLesson(lessonId, {
+        expectedRevision: lessonDraftRevisions.current[lessonId] ?? 0,
+        title: draftToSave.title.trim(),
+        description: nullable(draftToSave.overview),
+        estimatedDurationMinutes: draftToSave.duration.trim()
+          ? Math.max(1, Number(draftToSave.duration) || 1)
+          : null,
+        lessonPlan: {
+          objective: nullable(draftToSave.objective),
+          teacherNotes: nullable(draftToSave.teacherNotes),
+          studentDirections: nullable(draftToSave.studentDirections),
+          materials: nullable(draftToSave.materials),
+          links: draftToSave.links
+        }
+      });
+      if (detail.savedLessonRevision !== undefined)
+        lessonDraftRevisions.current[lessonId] = detail.savedLessonRevision;
+      onCourseChange(detail);
     } catch (err) {
       setStatus(err instanceof ApiError ? err.message : 'Could not save the lesson plan');
     } finally {
@@ -1687,12 +1802,15 @@ export function CurriculumTimeline({
   saveLessonPlanRef.current = saveLessonPlan;
 
   const queueLessonPlanSave = (next: LessonPlanDraft, delay = 550) => {
+    const lessonId = selectedLessonIdRef.current;
     lessonPlanDraftRef.current = next;
     setLessonPlanDraft(next);
     if (lessonPlanSaveTimer.current) clearTimeout(lessonPlanSaveTimer.current);
     lessonPlanSaveTimer.current = window.setTimeout(() => {
       lessonPlanSaveTimer.current = null;
-      lessonPlanSaveChain.current = lessonPlanSaveChain.current.then(() => saveLessonPlan(next));
+      lessonPlanSaveChain.current = lessonPlanSaveChain.current.then(() =>
+        saveLessonPlan(next, lessonId)
+      );
     }, delay);
   };
 
@@ -1700,12 +1818,16 @@ export function CurriculumTimeline({
     queueLessonPlanSave({ ...lessonPlanDraftRef.current, ...patch });
 
   const flushLessonPlanSave = () => {
+    if (!lessonPlanSaveTimer.current) return;
     if (lessonPlanSaveTimer.current) {
       clearTimeout(lessonPlanSaveTimer.current);
       lessonPlanSaveTimer.current = null;
     }
     const snapshot = lessonPlanDraftRef.current;
-    lessonPlanSaveChain.current = lessonPlanSaveChain.current.then(() => saveLessonPlan(snapshot));
+    const lessonId = selectedLessonIdRef.current;
+    lessonPlanSaveChain.current = lessonPlanSaveChain.current.then(() =>
+      saveLessonPlan(snapshot, lessonId)
+    );
   };
 
   const closeLessonPanel = () => {
@@ -1812,18 +1934,18 @@ export function CurriculumTimeline({
   const createDraft = async () => {
     const meetingCount = Number(draftMeetingCount);
     const minutesPerMeeting = Number(draftMinutesPerMeeting);
-    setUnitGenerationAttempted(true);
+    setPlanningError(null);
     if (draftPrompt.trim().length < 8) {
-      setStatus('Describe what students should learn before generating the unit plan.');
-      return;
+      setPlanningError('Describe what students should learn before generating the unit plan.');
+      return false;
     }
     if (!Number.isInteger(meetingCount) || meetingCount < 2 || meetingCount > 30) {
-      setStatus('Add the number of class meetings for this unit (2–30).');
-      return;
+      setPlanningError('Add the number of class meetings for this unit (2–30).');
+      return false;
     }
     if (!Number.isInteger(minutesPerMeeting) || minutesPerMeeting < 10 || minutesPerMeeting > 240) {
-      setStatus('Add the number of minutes in each class meeting (10–240).');
-      return;
+      setPlanningError('Add the number of minutes in each class meeting (10–240).');
+      return false;
     }
     try {
       setSaving(true);
@@ -1836,9 +1958,13 @@ export function CurriculumTimeline({
           meetingCount: clamp(meetingCount, 2, 30)
         })
       );
-      setStatus(null);
+      setPlanSaveFailed(false);
+      return true;
     } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not make a draft right now');
+      setPlanningError(
+        err instanceof ApiError ? err.message : 'Could not create a plan right now. Try again.'
+      );
+      return false;
     } finally {
       setIsGeneratingUnit(false);
       setSaving(false);
@@ -1846,7 +1972,10 @@ export function CurriculumTimeline({
   };
 
   const acceptDraft = async () => {
-    if (!draft) return;
+    if (!draft || saving || planSaveFailed) return;
+    setPlanningError(null);
+    setAddingPlan(true);
+    let latestDetail: CourseDetailResponse | null = null;
     try {
       setSaving(true);
       let detail = await api.createUnit(course.id, {
@@ -1858,7 +1987,11 @@ export function CurriculumTimeline({
           : 0,
         plannedMeetingCount: draft.unit.meetingCount
       });
-      const unit = detail.course.units.find((item) => item.title === draft.unit.title);
+      latestDetail = detail;
+      const existingIds = new Set(course.units.map((unit) => unit.id));
+      const unit = detail.course.units.find(
+        (item) => !existingIds.has(item.id) && item.title === draft.unit.title
+      );
       if (!unit) throw new Error('Draft unit was not created');
       const lessonRanges = distributeMeetingSpans(
         unit.plannedStartMeeting ?? 0,
@@ -1882,6 +2015,7 @@ export function CurriculumTimeline({
             links: []
           }
         });
+        latestDetail = detail;
         const createdUnit = detail.course.units.find((item) => item.id === unit.id);
         const createdLesson = createdUnit?.lessons.find((item) => item.orderIndex === index);
         if (!createdLesson) throw new Error(`Draft lesson "${lesson.title}" was not created`);
@@ -1893,6 +2027,7 @@ export function CurriculumTimeline({
             stepType: step.stepType ?? null,
             orderIndex: stepIndex
           });
+          latestDetail = detail;
         }
       }
       onCourseChange(detail);
@@ -1900,20 +2035,36 @@ export function CurriculumTimeline({
       setDraftPrompt('');
       setDraftMeetingCount('');
       setDraftMinutesPerMeeting('');
-      setUnitGenerationAttempted(false);
-      setStatus('Draft added to the timeline');
+      setPlanningOpen(false);
+      setAddedUnitId(unit.id);
+      setStatus(`${unit.title} was added to ${course.name}.`);
     } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not add the draft');
+      setPlanSaveFailed(true);
+      const refreshed = await api.getCourseDetail(course.id).catch(() => latestDetail);
+      if (refreshed) onCourseChange(refreshed);
+      setPlanningError(
+        `${err instanceof ApiError ? err.message : 'Could not finish adding the unit.'} Check Year Plan for any items already added before trying again. Your draft is still here.`
+      );
     } finally {
+      setAddingPlan(false);
       setSaving(false);
     }
   };
 
+  useEffect(() => {
+    if (!addedUnitId) return;
+    workspaceRef.current
+      ?.querySelector(`[data-planned-unit="${addedUnitId}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [addedUnitId]);
+
   const selectUnit = (unit: Unit) => {
+    flushLessonPlanSave();
     setSelection({ type: 'unit', id: unit.id });
     onLessonSelectionChange?.(null);
   };
   const selectLesson = (lesson: Lesson) => {
+    if (lesson.id !== selectedLessonIdRef.current) flushLessonPlanSave();
     setSelection({ type: 'lesson', id: lesson.id });
     onLessonSelectionChange?.(lesson.id);
   };
@@ -1932,145 +2083,100 @@ export function CurriculumTimeline({
               type="button"
               className="secondary"
               onClick={() => {
-                setUnitComposerMode('manual');
                 setShowUnitComposer((open) => !open);
               }}
             >
-              {showUnitComposer && unitComposerMode === 'manual' ? 'Close add unit' : '+ Add unit'}
+              {showUnitComposer ? 'Close add unit' : '+ Add unit'}
             </button>
             {allowAutoGeneration ? (
               <button
+                ref={planEntry}
                 type="button"
-                className="secondary"
+                disabled={saving}
                 onClick={() => {
-                  if (showUnitComposer && unitComposerMode === 'generate') {
-                    setShowUnitComposer(false);
-                  } else {
-                    setUnitComposerMode('generate');
-                    setShowUnitComposer(true);
+                  if (!draftMinutesPerMeeting) {
+                    const meeting = selectedSection?.meetings.find(
+                      (item) => item.time && item.endTime
+                    );
+                    if (meeting?.time && meeting.endTime) {
+                      const minutes = (time: string) => {
+                        const [hours, mins] = time.split(':').map(Number);
+                        return (hours ?? 0) * 60 + (mins ?? 0);
+                      };
+                      const duration = minutes(meeting.endTime) - minutes(meeting.time);
+                      if (duration >= 10 && duration <= 240)
+                        setDraftMinutesPerMeeting(String(duration));
+                    }
                   }
+                  setPlanningOpen(true);
                 }}
               >
-                {showUnitComposer && unitComposerMode === 'generate'
-                  ? 'Close auto generator'
-                  : 'Auto-generate'}
+                Plan a unit
               </button>
             ) : null}
           </div>
           {showUnitComposer ? (
-            unitComposerMode === 'manual' ? (
-              <div className="curriculum-unit-composer" aria-label="Manually add a unit">
-                <input
-                  className="input"
-                  autoFocus
-                  value={manualUnitTitle}
-                  onChange={(event) => setManualUnitTitle(event.target.value)}
-                  placeholder="Unit title"
-                  aria-label="Unit title"
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') void createUnit();
-                  }}
-                />
-                <button
-                  type="button"
-                  disabled={saving || !manualUnitTitle.trim()}
-                  onClick={() => void createUnit()}
-                >
-                  Add unit
-                </button>
-              </div>
-            ) : (
-              <div
-                className="curriculum-unit-generator"
-                aria-label="Auto-generate a full unit plan"
+            <div className="curriculum-unit-composer" aria-label="Manually add a unit">
+              <input
+                className="input"
+                autoFocus
+                value={manualUnitTitle}
+                onChange={(event) => setManualUnitTitle(event.target.value)}
+                placeholder="Unit title"
+                aria-label="Unit title"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void createUnit();
+                }}
+              />
+              <button
+                type="button"
+                disabled={saving || !manualUnitTitle.trim()}
+                onClick={() => void createUnit()}
               >
-                <div>
-                  <strong>Hobie can sketch a full unit plan</strong>
-                  <span>Drafts a unit, lesson sequence, and lesson steps for your review.</span>
-                </div>
-                <HobieHint className="curriculum-hobie-hint">
-                  <strong>Review before adding.</strong>
-                </HobieHint>
-                <div className="curriculum-unit-composer">
-                  <label className="curriculum-generator-prompt">
-                    <span>Learning goal</span>
-                    <input
-                      className="input"
-                      autoFocus
-                      value={draftPrompt}
-                      onChange={(event) => setDraftPrompt(event.target.value)}
-                      placeholder="What should students learn?"
-                      aria-label="What students should learn"
-                    />
-                  </label>
-                  <label className="curriculum-meeting-count">
-                    <span>Class meetings</span>
-                    <input
-                      className={`curriculum-meeting-input${
-                        unitGenerationAttempted && !draftMeetingCount.trim() ? ' is-missing' : ''
-                      }`}
-                      type="number"
-                      min="2"
-                      max="30"
-                      value={draftMeetingCount}
-                      onChange={(event) => setDraftMeetingCount(event.target.value)}
-                      placeholder="e.g. 6"
-                      aria-label="How many class meetings this unit should cover"
-                      aria-invalid={unitGenerationAttempted && !draftMeetingCount.trim()}
-                    />
-                  </label>
-                  <label className="curriculum-meeting-count">
-                    <span>Minutes per meeting</span>
-                    <input
-                      className={`curriculum-meeting-input${
-                        unitGenerationAttempted && !draftMinutesPerMeeting.trim()
-                          ? ' is-missing'
-                          : ''
-                      }`}
-                      type="number"
-                      min="10"
-                      max="240"
-                      value={draftMinutesPerMeeting}
-                      onChange={(event) => setDraftMinutesPerMeeting(event.target.value)}
-                      placeholder="e.g. 50"
-                      aria-label="How many minutes are in each class meeting"
-                      aria-invalid={unitGenerationAttempted && !draftMinutesPerMeeting.trim()}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    disabled={saving || isGeneratingUnit}
-                    onClick={() => void createDraft()}
-                  >
-                    {isGeneratingUnit ? 'Hobie is drafting…' : 'Draft unit plan'}
-                  </button>
-                </div>
-                <small>Tell us how often the class meets and how long each meeting lasts.</small>
-              </div>
-            )
+                Add unit
+              </button>
+            </div>
           ) : null}
         </div>
         {selectedSection ? (
           <div className="curriculum-scope-control">
             <span>
-              {dateProjectionOnly
-                ? `Showing ${selectedSection.sectionName} meeting dates`
-                : editingSharedPlan
-                  ? 'Editing shared course timing'
-                  : `Planning ${selectedSection.sectionName}`}
+              {editingSharedPlan
+                ? 'Editing shared meeting sequence'
+                : `Planning ${selectedSection.sectionName}`}
             </span>
-            {!dateProjectionOnly ? (
-              <button
-                className="secondary"
-                type="button"
-                onClick={() => setEditingSharedPlan((value) => !value)}
-              >
-                {editingSharedPlan ? 'Return to section planning' : 'Edit shared course plan'}
-              </button>
-            ) : null}
+            <button
+              className="secondary"
+              type="button"
+              disabled={saving}
+              onClick={() => setEditingSharedPlan((value) => !value)}
+            >
+              {editingSharedPlan ? 'Return to class dates' : 'Edit shared meeting sequence'}
+            </button>
           </div>
         ) : null}
       </div>
+
+      {displayMode === 'outline' && (orderUndo.length || orderRedo.length) ? (
+        <div className="curriculum-scope-control">
+          <button
+            className="secondary"
+            type="button"
+            disabled={saving || !orderUndo.length}
+            onClick={() => void travelLessonOrder('undo')}
+          >
+            Undo shared lesson reorder
+          </button>
+          <button
+            className="secondary"
+            type="button"
+            disabled={saving || !orderRedo.length}
+            onClick={() => void travelLessonOrder('redo')}
+          >
+            Redo shared lesson reorder
+          </button>
+        </div>
+      ) : null}
 
       {schoolYearSettings ? (
         <div className="curriculum-year-range" aria-label="Instructional year range">
@@ -2116,25 +2222,45 @@ export function CurriculumTimeline({
         </span>
       </div>
 
-      {draft && allowAutoGeneration ? (
-        <aside className="curriculum-draft-card" aria-label="Draft unit">
-          <div>
-            <span className="curriculum-draft-label">Draft</span>
-            <strong>{draft.unit.title}</strong>
-            <p>{draft.unit.description}</p>
-            <small>
-              {draft.unit.lessons.length} lessons · {draft.unit.meetingCount} meetings
-            </small>
-          </div>
-          <div className="profile-actions">
-            <button type="button" disabled={saving} onClick={() => void acceptDraft()}>
-              Add to timeline
-            </button>
-            <button className="secondary" type="button" onClick={() => setDraft(null)}>
-              Discard
-            </button>
-          </div>
-        </aside>
+      {planningOpen ? (
+        <UnitPlanningWorkspace
+          courseName={course.name}
+          groupName={selectedSection?.sectionName}
+          goal={draftPrompt}
+          meetings={draftMeetingCount}
+          minutes={draftMinutesPerMeeting}
+          setGoal={setDraftPrompt}
+          setMeetings={setDraftMeetingCount}
+          setMinutes={setDraftMinutesPerMeeting}
+          draft={draft}
+          setDraft={setDraft}
+          generating={isGeneratingUnit}
+          adding={addingPlan}
+          error={planningError}
+          saveFailed={planSaveFailed}
+          onGenerate={createDraft}
+          onAdd={() => void acceptDraft()}
+          onClose={() => {
+            setPlanningOpen(false);
+            requestAnimationFrame(() => planEntry.current?.focus());
+          }}
+        />
+      ) : null}
+      {addedUnitId ? (
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => {
+            const unit = course.units.find((item) => item.id === addedUnitId);
+            if (!unit) return;
+            selectUnit(unit);
+            workspaceRef.current
+              ?.querySelector(`[data-planned-unit="${unit.id}"]`)
+              ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          }}
+        >
+          Open added unit
+        </button>
       ) : null}
 
       {status ? (
@@ -2383,15 +2509,20 @@ export function CurriculumTimeline({
             <div className="lesson-plan-context">
               <strong>{selectedSection ? selectedSection.sectionName : 'Course curriculum'}</strong>
               <span>
-                {selectedSection
+                {selectedSection && !editingSharedPlan
                   ? (() => {
                       const unit = course.units.find((item) =>
                         item.lessons.some((lesson) => lesson.id === selectedLesson.id)
                       );
                       const index =
                         unit?.lessons.findIndex((lesson) => lesson.id === selectedLesson.id) ?? 0;
+                      const position = positions.find((item) => item.unit.id === unit?.id);
                       const fallback =
-                        (positions.find((item) => item.unit.id === unit?.id)?.start ?? 0) + index;
+                        position && unit
+                          ? (reflowLessonRanges(position.start, position.span, unit.lessons.length)[
+                              index
+                            ]?.start ?? 0)
+                          : 0;
                       const start = effectiveLessonStart(selectedLesson, fallback);
                       const date = sectionMeetings[start]?.date;
                       return date
@@ -2407,32 +2538,57 @@ export function CurriculumTimeline({
                     })()
                   : 'Shared lesson content'}
               </span>
-              {selectedSection && !dateProjectionOnly ? (
+              {selectedSection && !editingSharedPlan && selectedRange && sectionMeetings.length ? (
                 <div className="lesson-plan-context-actions">
-                  <button
-                    className="secondary"
-                    type="button"
-                    disabled={saving}
-                    onClick={() => void shiftSelectedSectionLesson(-1)}
-                  >
-                    Shift earlier
-                  </button>
-                  <button
-                    className="secondary"
-                    type="button"
-                    disabled={saving}
-                    onClick={() => void shiftSelectedSectionLesson(1)}
-                  >
-                    Shift later
-                  </button>
+                  <label>
+                    Move lesson to meeting
+                    <select
+                      className="input"
+                      disabled={saving}
+                      value={
+                        selectedRange.start < sectionMeetings.length ? selectedRange.start : ''
+                      }
+                      onChange={(event) => {
+                        if (event.target.value === '') return;
+                        void persistTiming([
+                          timingPatch(
+                            'lesson',
+                            selectedLesson,
+                            Number(event.target.value),
+                            selectedRange.span
+                          )
+                        ]);
+                      }}
+                    >
+                      <option value="" disabled>
+                        Select a meeting
+                      </option>
+                      {sectionMeetings.map((meeting, index) => (
+                        <option key={index} value={index}>
+                          {meeting.date}
+                          {meeting.startTime ? ` · ${meeting.startTime}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   {lastSectionPlanOperation ? (
                     <button
                       className="button-link"
                       type="button"
                       disabled={saving}
-                      onClick={() => void undoSectionShift()}
+                      onClick={() => void travelLocalTiming('undo')}
                     >
-                      Undo section shift
+                      Undo move for {selectedSection.sectionName}
+                    </button>
+                  ) : null}
+                  {localRedo.length ? (
+                    <button
+                      className="button-link"
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void travelLocalTiming('redo')}
+                    >
+                      Redo move for {selectedSection.sectionName}
                     </button>
                   ) : null}
                 </div>
@@ -2826,11 +2982,8 @@ export function CurriculumTimeline({
                   event.preventDefault();
                   const start = Number(timingStart) - 1,
                     span = Number(timingSpan);
-                  const min = selection?.type === 'unit' ? 0 : selectedPosition.start;
-                  const max =
-                    selection?.type === 'unit'
-                      ? visibleMeetings
-                      : selectedPosition.start + selectedPosition.span;
+                  const min = timingMin;
+                  const max = timingMax;
                   if (
                     !Number.isInteger(start) ||
                     !Number.isInteger(span) ||
@@ -2852,7 +3005,7 @@ export function CurriculumTimeline({
                   <input
                     aria-label="Start meeting"
                     type="number"
-                    min={selection?.type === 'unit' ? 1 : selectedPosition.start + 1}
+                    min={timingMin + 1}
                     max={visibleMeetings}
                     required
                     value={timingStart}
@@ -2872,7 +3025,10 @@ export function CurriculumTimeline({
                   />
                 </label>
                 <span className="timeline-inspector-unit">meetings</span>
-                <button type="submit" disabled={saving || !canEditSharedPlan || !!pendingChange}>
+                <button
+                  type="submit"
+                  disabled={saving || !canEditSelectedTiming || !!pendingChange}
+                >
                   Apply timing
                 </button>
                 {selectedLesson ? (
@@ -2890,18 +3046,10 @@ export function CurriculumTimeline({
                 <button
                   type="button"
                   aria-label="Move selected item earlier"
-                  disabled={saving || !canEditSharedPlan || !!pendingChange}
+                  disabled={saving || !canEditSelectedTiming || !!pendingChange}
                   onClick={() =>
                     changeSelectedRange(
-                      editClipRange(
-                        selectedRange,
-                        'move',
-                        -1,
-                        selection?.type === 'unit' ? 0 : selectedPosition.start,
-                        selection?.type === 'unit'
-                          ? visibleMeetings
-                          : selectedPosition.start + selectedPosition.span
-                      )
+                      editClipRange(selectedRange, 'move', -1, timingMin, timingMax)
                     )
                   }
                 >
@@ -2910,18 +3058,10 @@ export function CurriculumTimeline({
                 <button
                   type="button"
                   aria-label="Move selected item later"
-                  disabled={saving || !canEditSharedPlan || !!pendingChange}
+                  disabled={saving || !canEditSelectedTiming || !!pendingChange}
                   onClick={() =>
                     changeSelectedRange(
-                      editClipRange(
-                        selectedRange,
-                        'move',
-                        1,
-                        selection?.type === 'unit' ? 0 : selectedPosition.start,
-                        selection?.type === 'unit'
-                          ? visibleMeetings
-                          : selectedPosition.start + selectedPosition.span
-                      )
+                      editClipRange(selectedRange, 'move', 1, timingMin, timingMax)
                     )
                   }
                 >
@@ -2967,8 +3107,10 @@ export function CurriculumTimeline({
               return (
                 <div
                   key={position.unit.id}
+                  data-planned-unit={position.unit.id}
                   className={[
                     'curriculum-tree-unit',
+                    addedUnitId === position.unit.id ? 'unit-planning-added' : '',
                     unitSelected ? 'selected' : '',
                     unitDragging ? 'dragging' : '',
                     unitDropBefore ? 'drop-before' : '',
@@ -3034,6 +3176,14 @@ export function CurriculumTimeline({
                   {expanded ? (
                     <div className="curriculum-lesson-tree">
                       {orderedLessons.map((lesson, lessonIndex) => {
+                        const fallback = reflowLessonRanges(
+                          position.start,
+                          position.span,
+                          orderedLessons.length
+                        )[lessonIndex]!;
+                        const date = !editingSharedPlan
+                          ? sectionMeetings[effectiveLessonStart(lesson, fallback.start)]?.date
+                          : null;
                         const selected = selection?.type === 'lesson' && selection.id === lesson.id;
                         const dropBefore =
                           outlineDropPosition?.unitId === position.unit.id &&
@@ -3096,7 +3246,14 @@ export function CurriculumTimeline({
                             <button type="button" onClick={() => selectLesson(lesson)}>
                               {lesson.title}
                             </button>
-                            <small>{lesson.plannedMeetingCount ?? 1} mtg</small>
+                            <small>
+                              {date
+                                ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
+                                    month: 'short',
+                                    day: 'numeric'
+                                  })
+                                : `${effectiveLessonSpan(lesson, fallback.span)} mtg`}
+                            </small>
                           </div>
                         );
                       })}
@@ -3305,6 +3462,7 @@ export function CurriculumTimeline({
                     <article
                       className={[
                         'curriculum-unit-bar',
+                        addedUnitId === position.unit.id ? 'unit-planning-added' : '',
                         selected ? 'selected' : '',
                         isDragging ? 'dragging' : '',
                         hasConflict ? 'conflict' : ''
@@ -3317,6 +3475,7 @@ export function CurriculumTimeline({
                       }}
                       data-compact={span * slotWidth < 90 || undefined}
                       aria-label={`Unit ${position.unit.title}, meetings ${Math.round(start) + 1} through ${Math.round(start + span)}`}
+                      data-planned-unit={position.unit.id}
                       title={`${position.unit.title} · Meetings ${Math.round(start) + 1}–${Math.round(start + span)}. Drag to move; drag either edge to trim.`}
                       onContextMenu={(event) => openContextMenu(event, 'unit', position.unit.id)}
                       onPointerDown={(event) => beginUnitDrag(event, position, 'move')}
@@ -3420,15 +3579,17 @@ export function CurriculumTimeline({
                         )[index]!;
                         const defaultLessonSpan = fallback.span;
                         const defaultLessonStart = fallback.start;
-                        const lessonSpan = Math.min(
-                          position.span,
-                          effectiveLessonSpan(lesson, defaultLessonSpan)
-                        );
-                        const lessonStart = clamp(
-                          effectiveLessonStart(lesson, defaultLessonStart),
-                          position.start,
-                          Math.max(position.start, position.start + position.span - lessonSpan)
-                        );
+                        const lessonSpan = canEditSharedPlan
+                          ? Math.min(position.span, effectiveLessonSpan(lesson, defaultLessonSpan))
+                          : effectiveLessonSpan(lesson, defaultLessonSpan);
+                        const start = effectiveLessonStart(lesson, defaultLessonStart);
+                        const lessonStart = canEditSharedPlan
+                          ? clamp(
+                              start,
+                              position.start,
+                              Math.max(position.start, position.start + position.span - lessonSpan)
+                            )
+                          : start;
                         const active = currentLessonId === lesson.id;
                         const selectedLesson =
                           selection?.type === 'lesson' && selection.id === lesson.id;
@@ -3498,7 +3659,7 @@ export function CurriculumTimeline({
                                 aria-valuenow={Math.round(displayStart) + 1}
                                 aria-valuetext={`Meeting ${Math.round(displayStart) + 1}`}
                                 aria-orientation="horizontal"
-                                disabled={!canEditSharedPlan || saving}
+                                disabled={!canEditLessonTiming || saving}
                                 title="Drag to trim the start; arrow keys adjust one meeting"
                                 onPointerDown={(event) =>
                                   beginLessonDrag(
@@ -3564,7 +3725,7 @@ export function CurriculumTimeline({
                                 aria-valuemax={Math.max(lessonSpan, start + span - lessonStart)}
                                 aria-valuenow={Math.round(displaySpan)}
                                 aria-valuetext={`${displaySpan} ${displaySpan === 1 ? 'meeting' : 'meetings'}`}
-                                disabled={!canEditSharedPlan || saving}
+                                disabled={!canEditLessonTiming || saving}
                                 title="Drag to resize, or use the arrow keys"
                                 onPointerDown={(event) =>
                                   beginLessonDrag(
