@@ -414,7 +414,9 @@ export function AppShell() {
       <main className="main">
         <Outlet />
       </main>
-      <HobieHelper context={hobieContext} />
+      {!/^\/lessons\/[^/]+\/?$/.test(location.pathname) ? (
+        <HobieHelper context={hobieContext} />
+      ) : null}
     </div>
   );
 }

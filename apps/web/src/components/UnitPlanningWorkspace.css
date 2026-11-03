@@ -145,3 +145,7 @@
   right: auto;
   bottom: auto;
 }
+
+.app-shell:has(.unit-planning-dialog[open]) > .hobie-helper {
+  display: none;
+}

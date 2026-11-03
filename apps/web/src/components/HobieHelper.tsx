@@ -108,7 +108,9 @@ export function HobieHelper({ context = 'default' }: { context?: HobieContext })
         >
           <header>
             <div className="hobie-helper-identity">
-              <img src="/teacherdesk-favicon.png" alt="" aria-hidden="true" />
+              {!drafting || open ? (
+                <img src="/teacherdesk-favicon.png" alt="" aria-hidden="true" />
+              ) : null}
               <div>
                 <strong>Hobie</strong>
               </div>

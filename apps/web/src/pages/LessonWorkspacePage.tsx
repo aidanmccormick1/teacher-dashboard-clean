@@ -4,7 +4,6 @@ import { useAppAuth } from '../lib/auth.js';
 import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
 import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { useHobieDrafting } from '../lib/hobieDrafting.js';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type {
   HobieLessonDraftResponse,
@@ -262,7 +261,7 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
   const [shareOpen, setShareOpen] = useState(false);
   const [generationOpen, setGenerationOpen] = useState(false);
   const [isGeneratingSteps, setIsGeneratingSteps] = useState(false);
-  useHobieDrafting(isGeneratingSteps);
+  const hobieDrafting = hobieBusy || isGeneratingSteps;
   const [generatedSteps, setGeneratedSteps] = useState<Array<{
     title: string;
     description: string;
@@ -713,7 +712,7 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
     }
   };
   const askHobie = async (answer?: string) => {
-    if (hobieBusy || hobieInstruction.trim().length < 3) return;
+    if (hobieDrafting || hobieInstruction.trim().length < 3) return;
     setHobieBusy(true);
     setHobieError(null);
     hobieVersion.current = draftVersion.current;
@@ -952,11 +951,15 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
           <button
             className="secondary lesson-hobie-toggle"
             type="button"
+            disabled={hobieDrafting}
             aria-expanded={hobieOpen}
             aria-controls="lesson-hobie-panel"
             onClick={() => setHobieOpen((open) => !open)}
           >
-            <img src="/teacherdesk-favicon.png" alt="" width="20" height="20" /> Hobie
+            {!hobieDrafting ? (
+              <img src="/teacherdesk-favicon.png" alt="" width="20" height="20" />
+            ) : null}{' '}
+            Hobie
           </button>
           <button className="secondary" type="button" onClick={() => setShareOpen((open) => !open)}>
             Share
@@ -998,7 +1001,7 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
               rows={3}
               maxLength={3000}
               value={hobieInstruction}
-              disabled={hobieBusy || hobieApplying}
+              disabled={hobieDrafting || hobieApplying}
               onChange={(event) => {
                 setHobieInstruction(event.target.value);
                 setHobieResult(null);
@@ -1006,12 +1009,61 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
             />
             <button
               type="submit"
-              disabled={hobieBusy || hobieApplying || hobieInstruction.trim().length < 3}
+              disabled={hobieDrafting || hobieApplying || hobieInstruction.trim().length < 3}
             >
               Create lesson draft
             </button>
           </form>
-          {hobieBusy ? (
+          <button
+            className="secondary"
+            type="button"
+            disabled={hobieDrafting || hobieApplying}
+            aria-expanded={generationOpen}
+            onClick={() => setGenerationOpen((open) => !open)}
+          >
+            Draft steps only
+          </button>
+          {generationOpen ? (
+            <aside className="lesson-generation-draft">
+              <strong>Hobie’s lesson-step draft</strong>
+              <p>Hobie can sketch a starting point. Nothing changes until you add the steps.</p>
+              {!generatedSteps ? (
+                <button
+                  type="button"
+                  disabled={hobieDrafting || hobieApplying}
+                  aria-busy={isGeneratingSteps}
+                  onClick={() => void generateStepDraft()}
+                >
+                  {isGeneratingSteps ? 'Hobie is drafting…' : 'Draft lesson steps'}
+                </button>
+              ) : (
+                <>
+                  <ol>
+                    {generatedSteps.map((step) => (
+                      <li key={`${step.title}-${step.durationMinutes}`}>
+                        <strong>{step.title}</strong> · {step.durationMinutes} min
+                        <span>{step.description}</span>
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="profile-actions">
+                    <button type="button" onClick={() => void acceptGeneratedSteps()}>
+                      Add approved steps
+                    </button>
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => setGeneratedSteps(null)}
+                    >
+                      Discard draft
+                    </button>
+                  </div>
+                </>
+              )}
+              {generationError ? <p className="notice warning">{generationError}</p> : null}
+            </aside>
+          ) : null}
+          {hobieDrafting ? (
             <div className="lesson-hobie-progress">
               <HobieDraftingIllustration />
               <p role="status">Hobie is drafting…</p>
@@ -1022,7 +1074,7 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
               {hobieError}
             </p>
           ) : null}
-          {hobieResult?.question && !hobieResult.draft && !hobieBusy ? (
+          {hobieResult?.question && !hobieResult.draft && !hobieDrafting ? (
             <fieldset className="stack">
               <legend>{hobieResult.question.prompt}</legend>
               {hobieResult.question.options.map((option, index) => (
@@ -1037,7 +1089,7 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
               ))}
             </fieldset>
           ) : null}
-          {hobieResult?.draft && !hobieBusy ? (
+          {hobieResult?.draft && !hobieDrafting ? (
             <div className="stack">
               <h3>
                 {hobieResult.draft.title} · {hobieResult.draft.durationMinutes} min
@@ -1286,63 +1338,11 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
               <h2 id="lesson-steps-heading">Build the sequence students will follow.</h2>
             </div>
             <div className="profile-actions">
-              <button
-                className="secondary"
-                type="button"
-                onClick={() => setGenerationOpen((open) => !open)}
-              >
-                Auto-generate steps
-              </button>
               <button className="add-step" type="button" onClick={() => void addStep()}>
                 + Add step
               </button>
             </div>
           </div>
-          {generationOpen ? (
-            <aside className="lesson-generation-draft">
-              <strong>Hobie’s lesson-step draft</strong>
-              <p>Hobie can sketch a starting point. Nothing changes until you add the steps.</p>
-              {!generatedSteps ? (
-                <button
-                  type="button"
-                  disabled={isGeneratingSteps}
-                  aria-busy={isGeneratingSteps}
-                  onClick={() => void generateStepDraft()}
-                >
-                  {isGeneratingSteps ? 'Hobie is drafting…' : 'Draft lesson steps'}
-                </button>
-              ) : (
-                <>
-                  <ol>
-                    {generatedSteps.map((step) => (
-                      <li key={`${step.title}-${step.durationMinutes}`}>
-                        <strong>{step.title}</strong> · {step.durationMinutes} min
-                        <span>{step.description}</span>
-                      </li>
-                    ))}
-                  </ol>
-                  <div className="profile-actions">
-                    <button type="button" onClick={() => void acceptGeneratedSteps()}>
-                      Add approved steps
-                    </button>
-                    <button
-                      className="secondary"
-                      type="button"
-                      onClick={() => setGeneratedSteps(null)}
-                    >
-                      Discard draft
-                    </button>
-                  </div>
-                </>
-              )}
-              {isGeneratingSteps ? (
-                <p className="lesson-generation-status" role="status">
-                  Hobie is drafting a lesson-step draft…
-                </p>
-              ) : null}
-              {generationError ? <p className="notice warning">{generationError}</p> : null}
-            </aside>
-          ) : null}
           <div className="lesson-sequence" aria-label="Lesson sequence">
             {data.lesson.segments.map((step, index) => (
               <article
