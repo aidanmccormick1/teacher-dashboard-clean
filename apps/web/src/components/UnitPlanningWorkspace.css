@@ -129,3 +129,19 @@
     flex-wrap: wrap;
   }
 }
+
+.unit-planning-numbers {
+  grid-template-columns: minmax(0, 12rem);
+}
+
+.unit-planning-hobie {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.unit-planning-hobie .hobie-drafting {
+  position: relative;
+  right: auto;
+  bottom: auto;
+}

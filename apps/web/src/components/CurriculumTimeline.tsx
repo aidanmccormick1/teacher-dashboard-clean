@@ -38,7 +38,7 @@ import {
   type TrimMode
 } from '../lib/timeline-editing.js';
 import { TimelineIcon } from './TimelineIcon.js';
-import { useTimelineViewport } from './useTimelineViewport.js';
+import { MAX_TIMELINE_SCALE, useTimelineViewport } from './useTimelineViewport.js';
 import { UnitPlanningWorkspace } from './UnitPlanningWorkspace.js';
 import './CurriculumTimeline.css';
 import './TimelineEditor.css';
@@ -188,7 +188,17 @@ export function CurriculumTimeline({
   const [manualUnitTitle, setManualUnitTitle] = useState('');
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftMeetingCount, setDraftMeetingCount] = useState('');
-  const [draftMinutesPerMeeting, setDraftMinutesPerMeeting] = useState('');
+  const scheduledMinutes =
+    selectedSection?.meetings.flatMap(({ time, endTime }) => {
+      if (!time || !endTime) return [];
+      const toMinutes = (value: string) => {
+        const [hours, minutes] = value.split(':').map(Number);
+        return (hours ?? 0) * 60 + (minutes ?? 0);
+      };
+      const duration = toMinutes(endTime) - toMinutes(time);
+      return duration > 0 ? [duration] : [];
+    }) ?? [];
+  const minutesPerMeeting = scheduledMinutes.length ? Math.min(...scheduledMinutes) : 50;
   const [lessonGeneratorUnitId, setLessonGeneratorUnitId] = useState<string | null>(null);
   const [lessonGeneratorPrompt, setLessonGeneratorPrompt] = useState('');
   const [lessonGeneratorCount, setLessonGeneratorCount] = useState('5');
@@ -424,6 +434,7 @@ export function CurriculumTimeline({
     canvasRef: canvasWrapRef,
     scale: slotWidth,
     zoomTo,
+    fitRange,
     minScale,
     viewport,
     handTool,
@@ -1451,15 +1462,16 @@ export function CurriculumTimeline({
       void persistTiming([timingPatch('lesson', selectedLesson, range.start, range.span)]);
   };
   const fitSelection = () => {
-    if (!selectedRange) return;
-    zoomTo(Math.min(200, viewport.width / (selectedRange.span + 2)));
-    requestAnimationFrame(() =>
-      canvasWrapRef.current?.scrollTo({
-        left:
-          Math.max(0, selectedRange.start - 1) *
-          Math.min(200, viewport.width / (selectedRange.span + 2))
-      })
-    );
+    if (selectedRange) fitRange(selectedRange.start, selectedRange.span);
+  };
+  const editLesson = (lesson: Lesson) => {
+    selectLesson(lesson);
+    setOpenLessonPlanId(lesson.id);
+  };
+  const openLessonEditor = (lessonId: string) => {
+    flushLessonPlanSave();
+    if (onOpenLesson) onOpenLesson(lessonId);
+    else navigate(`/lessons/${lessonId}`);
   };
   const cancelTimelineGesture = () => {
     pointerRef.current = null;
@@ -1543,14 +1555,18 @@ export function CurriculumTimeline({
     if (!quickLessonTitle.trim()) return;
     try {
       setSaving(true);
-      onCourseChange(
-        await api.createLesson(unit.id, {
-          title: quickLessonTitle.trim(),
-          description: null,
-          estimatedDurationMinutes: 50,
-          orderIndex: nextOrder(unit.lessons)
-        })
-      );
+      const detail = await api.createLesson(unit.id, {
+        title: quickLessonTitle.trim(),
+        description: null,
+        estimatedDurationMinutes: 50,
+        orderIndex: nextOrder(unit.lessons)
+      });
+      onCourseChange(detail);
+      const existing = new Set(unit.lessons.map((lesson) => lesson.id));
+      const created = detail.course.units
+        .find((item) => item.id === unit.id)
+        ?.lessons.find((lesson) => !existing.has(lesson.id));
+      if (created) editLesson(created);
       setQuickLessonTitle('');
       setQuickLessonUnitId(null);
     } catch (err) {
@@ -1933,7 +1949,6 @@ export function CurriculumTimeline({
 
   const createDraft = async () => {
     const meetingCount = Number(draftMeetingCount);
-    const minutesPerMeeting = Number(draftMinutesPerMeeting);
     setPlanningError(null);
     if (draftPrompt.trim().length < 8) {
       setPlanningError('Describe what students should learn before generating the unit plan.');
@@ -1941,10 +1956,6 @@ export function CurriculumTimeline({
     }
     if (!Number.isInteger(meetingCount) || meetingCount < 2 || meetingCount > 30) {
       setPlanningError('Add the number of class meetings for this unit (2–30).');
-      return false;
-    }
-    if (!Number.isInteger(minutesPerMeeting) || minutesPerMeeting < 10 || minutesPerMeeting > 240) {
-      setPlanningError('Add the number of minutes in each class meeting (10–240).');
       return false;
     }
     try {
@@ -2034,7 +2045,6 @@ export function CurriculumTimeline({
       setDraft(null);
       setDraftPrompt('');
       setDraftMeetingCount('');
-      setDraftMinutesPerMeeting('');
       setPlanningOpen(false);
       setAddedUnitId(unit.id);
       setStatus(`${unit.title} was added to ${course.name}.`);
@@ -2086,32 +2096,16 @@ export function CurriculumTimeline({
                 setShowUnitComposer((open) => !open);
               }}
             >
-              {showUnitComposer ? 'Close add unit' : '+ Add unit'}
+              {showUnitComposer ? 'Close add unit' : 'Add unit'}
             </button>
             {allowAutoGeneration ? (
               <button
                 ref={planEntry}
                 type="button"
                 disabled={saving}
-                onClick={() => {
-                  if (!draftMinutesPerMeeting) {
-                    const meeting = selectedSection?.meetings.find(
-                      (item) => item.time && item.endTime
-                    );
-                    if (meeting?.time && meeting.endTime) {
-                      const minutes = (time: string) => {
-                        const [hours, mins] = time.split(':').map(Number);
-                        return (hours ?? 0) * 60 + (mins ?? 0);
-                      };
-                      const duration = minutes(meeting.endTime) - minutes(meeting.time);
-                      if (duration >= 10 && duration <= 240)
-                        setDraftMinutesPerMeeting(String(duration));
-                    }
-                  }
-                  setPlanningOpen(true);
-                }}
+                onClick={() => setPlanningOpen(true)}
               >
-                Plan a unit
+                Auto plan unit
               </button>
             ) : null}
           </div>
@@ -2228,10 +2222,11 @@ export function CurriculumTimeline({
           groupName={selectedSection?.sectionName}
           goal={draftPrompt}
           meetings={draftMeetingCount}
-          minutes={draftMinutesPerMeeting}
+          minutes={minutesPerMeeting}
+          hasScheduledDuration={scheduledMinutes.length > 0}
+          mixedDurations={new Set(scheduledMinutes).size > 1}
           setGoal={setDraftPrompt}
           setMeetings={setDraftMeetingCount}
-          setMinutes={setDraftMinutesPerMeeting}
           draft={draft}
           setDraft={setDraft}
           generating={isGeneratingUnit}
@@ -2499,9 +2494,7 @@ export function CurriculumTimeline({
               <button
                 className="secondary"
                 type="button"
-                onClick={() =>
-                  onOpenLesson?.(selectedLesson.id) ?? navigate(`/lessons/${selectedLesson.id}`)
-                }
+                onClick={() => openLessonEditor(selectedLesson.id)}
               >
                 Open Lesson
               </button>
@@ -2878,16 +2871,21 @@ export function CurriculumTimeline({
                 min="0"
                 max="100"
                 step="0.1"
-                value={(100 * Math.log(slotWidth / minScale)) / Math.log(200 / minScale)}
+                value={
+                  (100 * Math.log(slotWidth / minScale)) / Math.log(MAX_TIMELINE_SCALE / minScale)
+                }
                 disabled={!!drag || !!lessonDrag}
                 onChange={(event) =>
-                  zoomTo(minScale * Math.pow(200 / minScale, Number(event.target.value) / 100))
+                  zoomTo(
+                    minScale *
+                      Math.pow(MAX_TIMELINE_SCALE / minScale, Number(event.target.value) / 100)
+                  )
                 }
               />
               <button
                 type="button"
                 aria-label="Zoom in"
-                disabled={slotWidth >= 200 || !!drag || !!lessonDrag}
+                disabled={slotWidth >= MAX_TIMELINE_SCALE || !!drag || !!lessonDrag}
                 onClick={() => zoomTo(slotWidth * 1.25)}
               >
                 <TimelineIcon name="plus" />
@@ -2918,7 +2916,7 @@ export function CurriculumTimeline({
                 disabled={!selectedRange}
                 onClick={fitSelection}
               >
-                Selection
+                {selection?.type === 'unit' ? 'Fit unit' : 'Fit lesson'}
               </button>
             </div>
             <div className="timeline-tool-group timeline-navigation">
@@ -3167,7 +3165,10 @@ export function CurriculumTimeline({
                       className="curriculum-tree-select"
                       type="button"
                       aria-pressed={unitSelected}
-                      onClick={() => selectUnit(position.unit)}
+                      onClick={() => {
+                        selectUnit(position.unit);
+                        if (displayMode === 'timeline') fitRange(position.start, position.span);
+                      }}
                     >
                       <span>{position.unit.title}</span>
                       <small>{position.unit.lessons.length} lessons</small>
@@ -3243,7 +3244,12 @@ export function CurriculumTimeline({
                                 );
                             }}
                           >
-                            <button type="button" onClick={() => selectLesson(lesson)}>
+                            <button
+                              type="button"
+                              title={`Edit ${lesson.title}`}
+                              aria-label={`Edit ${lesson.title}`}
+                              onClick={() => editLesson(lesson)}
+                            >
                               {lesson.title}
                             </button>
                             <small>
@@ -3254,6 +3260,15 @@ export function CurriculumTimeline({
                                   })
                                 : `${effectiveLessonSpan(lesson, fallback.span)} mtg`}
                             </small>
+                            <button
+                              className="curriculum-open-lesson-editor"
+                              type="button"
+                              title="Open lesson editor"
+                              aria-label={`Open lesson editor for ${lesson.title}`}
+                              onClick={() => openLessonEditor(lesson.id)}
+                            >
+                              ↗
+                            </button>
                           </div>
                         );
                       })}
@@ -3289,20 +3304,28 @@ export function CurriculumTimeline({
                         }}
                       />
                       {quickLessonUnitId === position.unit.id ? (
-                        <input
-                          className="curriculum-inline-input"
-                          autoFocus
-                          value={quickLessonTitle}
-                          onChange={(event) => setQuickLessonTitle(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') void createQuickLesson(position.unit);
-                            if (event.key === 'Escape') setQuickLessonUnitId(null);
+                        <form
+                          className="curriculum-quick-lesson"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            if (!saving) void createQuickLesson(position.unit);
                           }}
-                          onBlur={() => {
-                            if (!quickLessonTitle.trim()) setQuickLessonUnitId(null);
-                          }}
-                          placeholder="Lesson title"
-                        />
+                        >
+                          <input
+                            className="curriculum-inline-input"
+                            autoFocus
+                            aria-label="Lesson title"
+                            value={quickLessonTitle}
+                            placeholder="Lesson title"
+                            onChange={(event) => setQuickLessonTitle(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Escape') setQuickLessonUnitId(null);
+                            }}
+                          />
+                          <button type="submit" disabled={saving || !quickLessonTitle.trim()}>
+                            Add
+                          </button>
+                        </form>
                       ) : null}
                       <div className="curriculum-lesson-create-actions">
                         <button
@@ -3327,7 +3350,7 @@ export function CurriculumTimeline({
                             setGeneratedLessonDraft(null);
                           }}
                         >
-                          Hobie can draft lessons
+                          Draft with Hobie
                         </button>
                       </div>
                       {lessonGeneratorUnitId === position.unit.id ? (
@@ -3701,7 +3724,7 @@ export function CurriculumTimeline({
                                 className="curriculum-lesson-content"
                                 type="button"
                                 onClick={() => {
-                                  if (!suppressClick.current) selectLesson(lesson);
+                                  if (!suppressClick.current) editLesson(lesson);
                                   suppressClick.current = false;
                                 }}
                                 onDoubleClick={() => {

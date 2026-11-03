@@ -1,3 +1,4 @@
+import { HobieDraftingIllustration } from './HobieHelper.js';
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { GenerateUnitDraftResponse } from '@teacheros/contracts';
 import './UnitPlanningWorkspace.css';
@@ -13,7 +14,8 @@ export function UnitPlanningWorkspace({
   minutes,
   setGoal,
   setMeetings,
-  setMinutes,
+  hasScheduledDuration,
+  mixedDurations,
   draft,
   setDraft,
   generating,
@@ -28,10 +30,11 @@ export function UnitPlanningWorkspace({
   groupName?: string;
   goal: string;
   meetings: string;
-  minutes: string;
+  minutes: number;
   setGoal: (value: string) => void;
   setMeetings: (value: string) => void;
-  setMinutes: (value: string) => void;
+  hasScheduledDuration: boolean;
+  mixedDurations: boolean;
   draft: Draft | null;
   setDraft: Dispatch<SetStateAction<Draft | null>>;
   generating: boolean;
@@ -114,6 +117,12 @@ export function UnitPlanningWorkspace({
         </button>
       </header>
       <div className="unit-planning-body">
+        {generating ? (
+          <div className="unit-planning-hobie">
+            <HobieDraftingIllustration />
+          </div>
+        ) : null}
+
         {error ? (
           <p role="alert" className="notice warning">
             {error}
@@ -312,9 +321,9 @@ export function UnitPlanningWorkspace({
             }}
           >
             <p>
-              {groupName
-                ? 'Use the class duration as a planning estimate. Adjust it as needed.'
-                : 'Plan the sequence of meetings without assigning calendar dates.'}
+              {hasScheduledDuration
+                ? `Planning for ${minutes}-minute meetings from ${groupName}’s schedule${mixedDurations ? ' (the shortest scheduled meeting)' : ''}.`
+                : `Planning with a ${minutes}-minute estimate per meeting. ${groupName ? 'This Class Group has no meeting length set.' : 'Select a Class Group to use its schedule.'}`}
             </p>
             <label>
               Learning goal
@@ -343,19 +352,6 @@ export function UnitPlanningWorkspace({
                   onChange={(event) => setMeetings(event.target.value)}
                 />
               </label>
-              <label>
-                Minutes per meeting
-                <input
-                  className="input"
-                  type="number"
-                  required
-                  min={10}
-                  max={240}
-                  value={minutes}
-                  disabled={busy}
-                  onChange={(event) => setMinutes(event.target.value)}
-                />
-              </label>
             </div>
             <small>The plan stays a draft until you add it to your course.</small>
           </form>
@@ -375,7 +371,7 @@ export function UnitPlanningWorkspace({
           </>
         ) : (
           <>
-            <span role="status">{generating ? 'Preparing your unit plan…' : ''}</span>
+            <span role="status">{generating ? 'Hobie is drafting your unit plan…' : ''}</span>
             <div className="unit-planning-actions">
               {draft ? (
                 <button

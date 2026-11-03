@@ -8,6 +8,8 @@ import {
 } from 'react';
 import { clampTimeline, zoomScrollLeft } from '../lib/timeline-editing.js';
 
+export const MAX_TIMELINE_SCALE = 360;
+
 export function useTimelineViewport(meetingCount: number, storageKey: string, locked = false) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(72);
@@ -25,7 +27,11 @@ export function useTimelineViewport(meetingCount: number, storageKey: string, lo
       if (locked) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const value = clampTimeline(next, Math.min(8, canvas.clientWidth / meetingCount), 200);
+      const value = clampTimeline(
+        next,
+        Math.min(8, canvas.clientWidth / meetingCount),
+        MAX_TIMELINE_SCALE
+      );
       const anchor = pointerX ?? canvas.clientWidth / 2;
       zoomAnchor.current = zoomScrollLeft(canvas.scrollLeft, anchor, scaleRef.current, value);
       scaleRef.current = value;
@@ -33,6 +39,26 @@ export function useTimelineViewport(meetingCount: number, storageKey: string, lo
     },
     [meetingCount, locked]
   );
+
+  const fitRange = (start: number, span: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas || locked || span <= 0 || !canvas.clientWidth) return;
+    const width = canvas.clientWidth;
+    const next = clampTimeline(
+      (width - Math.min(48, width / 5)) / span,
+      Math.min(8, width / meetingCount),
+      MAX_TIMELINE_SCALE
+    );
+    const left = Math.max(0, (start + span / 2) * next - width / 2);
+    if (next === scaleRef.current) {
+      canvas.scrollLeft = left;
+      setViewport({ left: canvas.scrollLeft, width });
+      return;
+    }
+    zoomAnchor.current = left;
+    scaleRef.current = next;
+    setScale(next);
+  };
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -52,7 +78,7 @@ export function useTimelineViewport(meetingCount: number, storageKey: string, lo
         const value = clampTimeline(
           Number(stored.scale) || 72,
           Math.min(8, canvas.clientWidth / meetingCount),
-          200
+          MAX_TIMELINE_SCALE
         );
         scaleRef.current = value;
         setScale(value);
@@ -152,6 +178,7 @@ export function useTimelineViewport(meetingCount: number, storageKey: string, lo
     canvasRef,
     scale,
     zoomTo,
+    fitRange,
     minScale,
     viewport,
     handTool,

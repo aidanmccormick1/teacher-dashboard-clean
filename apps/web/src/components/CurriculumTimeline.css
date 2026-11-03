@@ -1322,3 +1322,51 @@
 .curriculum-canvas {
   padding-top: 0;
 }
+
+/* The outline and the canvas use matching rows, even when labels are long. */
+.curriculum-workspace .curriculum-lesson-create-actions,
+.curriculum-workspace .curriculum-lesson-action-track {
+  box-sizing: border-box;
+  height: var(--timeline-action-row-height);
+}
+.curriculum-workspace .curriculum-lesson-create-actions {
+  padding-inline: 8px;
+  justify-content: space-between;
+  overflow: hidden;
+}
+.curriculum-workspace .curriculum-lesson-create-actions button {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.curriculum-workspace .curriculum-lesson-action-track.is-add-open {
+  height: calc(var(--timeline-action-row-height) + 36px);
+}
+.curriculum-workspace .curriculum-lesson-action-track.is-generator-open {
+  height: calc(var(--timeline-action-row-height) + 182px);
+}
+.curriculum-quick-lesson {
+  box-sizing: border-box;
+  height: 36px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+  padding: 3px 8px;
+}
+.curriculum-quick-lesson .curriculum-inline-input {
+  min-width: 0;
+  width: 100%;
+}
+.curriculum-quick-lesson button,
+.curriculum-workspace .curriculum-lesson-row > .curriculum-open-lesson-editor {
+  padding: 2px 6px;
+  min-height: 26px;
+}
+.curriculum-workspace .curriculum-lesson-row > .curriculum-open-lesson-editor {
+  flex: 0 0 auto;
+  background: transparent;
+  color: var(--blue);
+  border: 0;
+  box-shadow: none;
+}
