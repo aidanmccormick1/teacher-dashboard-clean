@@ -1,3 +1,4 @@
+import type { HobieLessonDraftResponse } from '@teacheros/contracts';
 import { useMemo } from 'react';
 
 import type {
@@ -762,6 +763,13 @@ export function useApiClient() {
           `/v1/lessons/${lessonId}/duplicate`,
           { method: 'POST' },
           auth
+        ),
+      draftLessonWithHobie: (lessonId: string, instruction: string, answer?: string) =>
+        request<HobieLessonDraftResponse>(
+          `/v1/lessons/${lessonId}/hobie-draft`,
+          { method: 'POST', body: JSON.stringify({ instruction, answer }) },
+          auth,
+          AI_REQUEST_TIMEOUT_MS
         ),
       getLessonWorkspace: (lessonId: string) =>
         request<LessonWorkspaceResponse>(

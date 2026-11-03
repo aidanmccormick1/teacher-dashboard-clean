@@ -13761,3 +13761,54 @@ button:disabled,
     font-size: clamp(2rem, 11vw, 3.1rem);
   }
 }
+
+.lesson-document-page .lesson-workspace-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px 20px;
+  padding: 14px 16px;
+}
+.lesson-document-page .lesson-workspace-header .lesson-title-input {
+  width: 100%;
+  font-size: clamp(1.35rem, 2.4vw, 2.15rem);
+  line-height: 1.2;
+}
+.lesson-document-page .lesson-header-tools {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 26rem;
+}
+.lesson-document-page .lesson-header-tools :is(button, .button-link),
+.lesson-document-page .lesson-header-icon {
+  min-height: 34px;
+  padding: 4px 8px;
+  font-size: .85rem;
+}
+.lesson-document-page .lesson-header-icon,
+.lesson-document-page .lesson-hobie-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.lesson-document-page .lesson-header-icon {
+  justify-content: center;
+  width: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.lesson-hobie-panel {
+  margin-bottom: 14px;
+  overflow-wrap: anywhere;
+}
+.lesson-hobie-panel textarea { width: 100%; }
+.lesson-hobie-preview dt { font-weight: 700; }
+.lesson-hobie-preview dd { margin: 0 0 10px; white-space: pre-wrap; }
+.lesson-hobie-progress { display: flex; align-items: center; flex-wrap: wrap; }
+.lesson-hobie-progress .hobie-drafting { position: relative; right: auto; bottom: auto; }
+@media (max-width: 700px) {
+  .lesson-document-page .lesson-workspace-header { grid-template-columns: minmax(0, 1fr); }
+  .lesson-document-page .lesson-header-tools { justify-content: flex-start; max-width: none; }
+}

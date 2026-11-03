@@ -706,6 +706,40 @@ export const GenerateUnitDraftResponseSchema = z.object({
   })
 });
 
+export const HobieLessonDraftRequestSchema = z.object({
+  instruction: z.string().trim().min(3).max(3000),
+  answer: z.string().trim().max(300).optional()
+});
+export const HobieLessonDraftResponseSchema = z.object({
+  question: z
+    .object({
+      prompt: z.string().min(1),
+      options: z.array(z.string().min(1).max(300)).min(2).max(4)
+    })
+    .nullable(),
+  draft: z
+    .object({
+      title: z.string().min(1),
+      description: z.string(),
+      objective: z.string(),
+      studentDirections: z.string(),
+      teacherNotes: z.string(),
+      materials: z.string(),
+      durationMinutes: z.number().int().positive(),
+      steps: z
+        .array(
+          z.object({
+            title: z.string().min(1),
+            description: z.string(),
+            durationMinutes: z.number().int().positive()
+          })
+        )
+        .max(12)
+    })
+    .nullable()
+});
+export type HobieLessonDraftResponse = z.infer<typeof HobieLessonDraftResponseSchema>;
+
 export const GenerateContinuityRequestSchema = z.object({
   lessonTitle: z.string().min(1),
   lastSegmentTitle: z.string().nullable(),
