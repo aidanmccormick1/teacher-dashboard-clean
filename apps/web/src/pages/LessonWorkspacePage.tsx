@@ -218,10 +218,11 @@ export function LessonWorkspacePage() {
 function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId: string }) {
   const api = useApiClient();
   const [params] = useSearchParams();
+  const sectionId = params.get('section');
   const [data, setData] = useState<Workspace | null>(null);
   useFeedbackContext({
     lessonId,
-    sectionId: params.get('section'),
+    sectionId,
     unitId: data?.unit.id ?? null,
     courseId: data?.course.id ?? null
   });
@@ -276,7 +277,7 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
         revision.current = loaded.lesson.editRevision ?? 0;
         const prefix =
           'teacheros:lesson-draft:' +
-          JSON.stringify([userId, loaded.course.id, lessonId, params.get('section')]) +
+          JSON.stringify([userId, loaded.course.id, lessonId, sectionId]) +
           ':';
         storageKey.current = prefix + crypto.randomUUID();
         try {
@@ -312,7 +313,7 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
     return () => {
       active = false;
     };
-  }, [api, lessonId, userId]);
+  }, [api, lessonId, userId, sectionId]);
   useEffect(() => {
     if (!lessonId) return;
     void api

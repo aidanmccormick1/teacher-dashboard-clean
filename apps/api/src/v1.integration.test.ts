@@ -862,11 +862,11 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       const ownerIds = ownerSections.map((response, index) => {
         expect(response.statusCode).toBe(200);
         return response
-          .json()
+          .json<{ sections: Array<{ sectionName: string; sectionId: string }> }>()
           .sections.find(
             (section: { sectionName: string }) =>
               section.sectionName === ['Monday', 'Wednesday', 'Friday'][index]
-          ).sectionId;
+          )!.sectionId;
       });
       const collaboratorSectionId = linked
         .json()

@@ -3,7 +3,7 @@ export function loginReturnPath(path: string | null): string {
     !path?.startsWith('/') ||
     path.startsWith('//') ||
     path.includes('\\') ||
-    /[\x00-\x20]/.test(path)
+    Array.from(path).some((character) => character.charCodeAt(0) <= 32)
   ) {
     return '/today';
   }
