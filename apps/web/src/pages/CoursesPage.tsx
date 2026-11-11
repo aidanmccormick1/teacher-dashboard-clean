@@ -871,7 +871,15 @@ export function CoursesPage() {
               )}
             </>
           ) : null}
-          <details className="course-actions-menu">
+          <details
+            className="course-actions-menu"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.currentTarget.open = false;
+                event.currentTarget.querySelector('summary')?.focus();
+              }
+            }}
+          >
             <summary aria-label={`Actions for ${course.name}`}>•••</summary>
             <div>
               {course.lifecycle === 'ended' ? (
@@ -891,9 +899,10 @@ export function CoursesPage() {
                 <>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={(event) => {
                       setLinkingCourseId(course.id);
                       setLinkingSectionId('');
+                      event.currentTarget.closest('details')?.removeAttribute('open');
                     }}
                   >
                     Link to a class
@@ -1271,18 +1280,20 @@ export function CoursesPage() {
           <div className="workspace-skeleton workspace-skeleton-row" />
         </section>
       ) : null}
-      {!loading && !courses.length ? (
+      {!loading && !error && !courses.length ? (
         <section className="courses-empty-state">
           <h2>Create or import your first course</h2>
           <p>Start with a course, then add its class groups and meeting times.</p>
         </section>
       ) : null}
-      <section className="courses-archived">
-        <h2>Active courses</h2>
-        <div className="course-hub-list">
-          {courses.filter((course) => course.lifecycle === 'active').map(renderCourse)}
-        </div>
-      </section>
+      {courses.some((course) => course.lifecycle === 'active') ? (
+        <section className="courses-archived">
+          <h2>Active courses</h2>
+          <div className="course-hub-list">
+            {courses.filter((course) => course.lifecycle === 'active').map(renderCourse)}
+          </div>
+        </section>
+      ) : null}
       {courses.some((course) => course.lifecycle === 'unlinked') ? (
         <section className="courses-archived">
           <h2>Unlinked courses</h2>

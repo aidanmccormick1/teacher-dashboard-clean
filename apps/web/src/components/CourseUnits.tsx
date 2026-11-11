@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { CourseDetailResponse, UnitUpdateRequest } from '@teacheros/contracts';
 import { isGoogleSlidesUrl } from '../lib/googleSlides.js';
@@ -113,6 +113,7 @@ function CourseUnitRow({
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [slidesOpen, setSlidesOpen] = useState(false);
+  const slidesControl = useRef<HTMLAnchorElement | HTMLButtonElement | null>(null);
   const [title, setTitle] = useState(unit.title);
   const [description, setDescription] = useState(unit.description ?? '');
   const [order, setOrder] = useState(String(unit.orderIndex));
@@ -122,6 +123,10 @@ function CourseUnitRow({
   const validStart = Number.isInteger(Number(startSlide)) && Number(startSlide) >= 1;
   const contentId = `unit-content-${unit.id}`;
   const slidesId = `unit-slides-${unit.id}`;
+  const closeSlides = () => {
+    setSlidesOpen(false);
+    window.requestAnimationFrame(() => slidesControl.current?.focus());
+  };
 
   const toggleSlides = () => {
     if (!slidesOpen) {
@@ -152,6 +157,9 @@ function CourseUnitRow({
         </button>
         {hasSlides ? (
           <a
+            ref={(node) => {
+              slidesControl.current = node;
+            }}
             className="course-slides-status has-slides"
             href={unit.googleSlidesUrl!}
             target="_blank"
@@ -164,6 +172,9 @@ function CourseUnitRow({
         ) : (
           <button
             className="course-slides-status no-slides"
+            ref={(node) => {
+              slidesControl.current = node;
+            }}
             type="button"
             aria-expanded={slidesOpen}
             aria-controls={slidesId}
@@ -295,10 +306,10 @@ function CourseUnitRow({
                 googleSlidesStartSlide: Number(startSlide)
               })
             )
-              setSlidesOpen(false);
+              closeSlides();
           }}
           onKeyDown={(event) => {
-            if (event.key === 'Escape') setSlidesOpen(false);
+            if (event.key === 'Escape') closeSlides();
           }}
         >
           <label>
@@ -329,7 +340,7 @@ function CourseUnitRow({
             <button type="submit" disabled={saving || !isGoogleSlidesUrl(url) || !validStart}>
               {saving ? 'Saving…' : 'Save slides'}
             </button>
-            <button type="button" className="secondary" onClick={() => setSlidesOpen(false)}>
+            <button type="button" className="secondary" onClick={closeSlides}>
               Cancel
             </button>
             {hasSlides ? (
@@ -339,7 +350,7 @@ function CourseUnitRow({
                 disabled={saving}
                 onClick={async () => {
                   if (await onSave(unit.id, { googleSlidesUrl: null, googleSlidesStartSlide: 1 }))
-                    setSlidesOpen(false);
+                    closeSlides();
                 }}
               >
                 Remove slides

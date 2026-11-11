@@ -31,6 +31,7 @@ import {
 import { isGoogleSlidesUrl } from '../lib/googleSlides.js';
 import { projectMeetingsForSection } from '../lib/year-plan-projection.js';
 import { unitPlanTiming } from '../lib/unit-plan-timing.js';
+import { distributeUnitPeriods } from '../lib/unit-plan-layout.js';
 import {
   editClipRange,
   reflowLessonRanges,
@@ -108,25 +109,6 @@ function nextOrder(items: Array<{ orderIndex: number }>) {
   return items.reduce((largest, item) => Math.max(largest, item.orderIndex), -1) + 1;
 }
 
-function distributeMeetingSpans(start: number, meetingCount: number, lessonCount: number) {
-  if (lessonCount < 1) return [];
-  if (lessonCount > meetingCount) {
-    return Array.from({ length: lessonCount }, (_, index) => ({
-      start: start + Math.floor((index * meetingCount) / lessonCount),
-      span: 1
-    }));
-  }
-  const base = Math.floor(meetingCount / lessonCount);
-  const remainder = meetingCount % lessonCount;
-  let cursor = start;
-  return Array.from({ length: lessonCount }, (_, index) => {
-    const span = Math.max(1, base + (index < remainder ? 1 : 0));
-    const range = { start: cursor, span };
-    cursor += span;
-    return range;
-  });
-}
-
 export function CurriculumTimeline({
   course,
   selectedSection,
@@ -176,6 +158,7 @@ export function CurriculumTimeline({
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftMeetingCount, setDraftMeetingCount] = useState('');
   const [manualPeriodMinutes, setManualPeriodMinutes] = useState('');
+  const [generatedPeriodMinutes, setGeneratedPeriodMinutes] = useState<number[]>([]);
   const [lessonGeneratorUnitId, setLessonGeneratorUnitId] = useState<string | null>(null);
   const [lessonGeneratorPrompt, setLessonGeneratorPrompt] = useState('');
   const [lessonGeneratorCount, setLessonGeneratorCount] = useState('5');
@@ -1882,11 +1865,14 @@ export function CurriculumTimeline({
         await api.generateUnitDraft({
           courseName: course.name,
           gradeLevel: course.gradeLevel,
-          prompt: draftPrompt.trim(),
+          prompt: draft
+            ? `${draftPrompt.trim()}\nDevelop a fresh unit idea with a different approach from the previous draft, titled "${draft.unit.title}": ${draft.unit.description}`
+            : draftPrompt.trim(),
           meetingCount,
           meetingDurationsMinutes: draftPeriodMinutes
         })
       );
+      setGeneratedPeriodMinutes([...draftPeriodMinutes]);
       setPlanSaveFailed(false);
       return true;
     } catch (err) {
@@ -1920,7 +1906,7 @@ export function CurriculumTimeline({
         (item) => !existingIds.has(item.id) && item.title === draft.unit.title
       );
       if (!unit) throw new Error('Draft unit was not created');
-      const lessonRanges = distributeMeetingSpans(
+      const lessonRanges = distributeUnitPeriods(
         unit.plannedStartMeeting ?? 0,
         draft.unit.meetingCount,
         draft.unit.lessons.length
@@ -2134,10 +2120,22 @@ export function CurriculumTimeline({
       {planningOpen ? (
         <UnitPlanningWorkspace
           courseName={course.name}
+          startMeeting={nextUnitStart}
+          previousUnitTitle={
+            positions.find((item) => item.start + item.span === nextUnitStart)?.unit.title
+          }
+          meetingDates={projectMeetingsForSection(
+            meetingData,
+            selectedSection?.sectionId ??
+              (courseSections.length === 1 ? courseSections[0]!.sectionId : null)
+          )
+            .slice(nextUnitStart, nextUnitStart + 30)
+            .map((meeting) => meeting.date)}
           groupName={selectedSection?.sectionName}
           goal={draftPrompt}
           meetings={draftMeetingCount}
           periodMinutes={draftPeriodMinutes}
+          draftPeriodMinutes={generatedPeriodMinutes}
           scheduleSource={timing.source}
           timingIssue={timing.issue}
           manualPeriodMinutes={manualPeriodMinutes}

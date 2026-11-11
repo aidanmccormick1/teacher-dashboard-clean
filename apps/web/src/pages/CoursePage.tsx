@@ -111,6 +111,7 @@ export function CoursePage() {
   }, [loadActivity, course?.updatedAt]);
 
   const mutate = async (action: () => Promise<void>, message: string): Promise<boolean> => {
+    if (saving) return false;
     setSaving(true);
     setError(null);
     setNotice('');
@@ -370,6 +371,7 @@ export function CoursePage() {
         <>
           <div className="course-workspace-grid">
             <CourseUnits
+              key={course.id}
               course={course}
               saving={saving}
               onSave={saveUnit}

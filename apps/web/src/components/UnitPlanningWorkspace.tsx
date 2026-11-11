@@ -1,10 +1,11 @@
 import { HobieDraftingIllustration } from './HobieHelper.js';
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { GenerateUnitDraftResponse } from '@teacheros/contracts';
+import { distributeUnitPeriods } from '../lib/unit-plan-layout.js';
+import { UnitPlanReview } from './UnitPlanReview.js';
 import './UnitPlanningWorkspace.css';
 
 type Draft = GenerateUnitDraftResponse;
-type Lesson = Draft['unit']['lessons'][number];
 
 export function UnitPlanningWorkspace({
   courseName,
@@ -12,6 +13,7 @@ export function UnitPlanningWorkspace({
   goal,
   meetings,
   periodMinutes,
+  draftPeriodMinutes = periodMinutes,
   scheduleSource,
   timingIssue,
   manualPeriodMinutes,
@@ -26,13 +28,17 @@ export function UnitPlanningWorkspace({
   saveFailed,
   onGenerate,
   onAdd,
-  onClose
+  onClose,
+  startMeeting = 0,
+  previousUnitTitle,
+  meetingDates = []
 }: {
   courseName: string;
   groupName?: string;
   goal: string;
   meetings: string;
   periodMinutes: number[];
+  draftPeriodMinutes?: number[];
   scheduleSource: string | null;
   timingIssue: string | null;
   manualPeriodMinutes: string;
@@ -48,46 +54,31 @@ export function UnitPlanningWorkspace({
   onGenerate: () => Promise<boolean>;
   onAdd: () => void;
   onClose: () => void;
+  startMeeting?: number;
+  previousUnitTitle?: string;
+  meetingDates?: string[];
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const [review, setReview] = useState(Boolean(draft));
   const busy = generating || adding;
-  useEffect(() => {
-    const element = dialog.current;
-    element?.showModal();
-    return () => element?.close();
-  }, []);
-  useEffect(() => {
-    heading.current?.focus();
-  }, [review]);
-
-  const updateUnit = (patch: Partial<Draft['unit']>) =>
-    setDraft((current) => (current ? { unit: { ...current.unit, ...patch } } : current));
-  const updateLesson = (index: number, patch: Partial<Lesson>) =>
-    updateUnit({
-      lessons: draft!.unit.lessons.map((lesson, i) =>
-        i === index ? { ...lesson, ...patch } : lesson
-      )
-    });
-  const moveLesson = (index: number, offset: number) => {
-    const lessons = [...draft!.unit.lessons];
-    const [lesson] = lessons.splice(index, 1);
-    if (!lesson) return;
-    lessons.splice(index + offset, 0, lesson);
-    updateUnit({ lessons });
-  };
   const unit = draft?.unit;
-  const plannedMinutes = unit?.lessons.reduce(
-    (sum, lesson) => sum + lesson.estimatedDurationMinutes,
-    0
-  );
+  const ranges = unit ? distributeUnitPeriods(0, unit.meetingCount, unit.lessons.length) : [];
+  const overBudget = unit?.lessons.some((lesson, index) => {
+    const range = ranges[index]!;
+    const budget = draftPeriodMinutes
+      .slice(range.start, range.start + range.span)
+      .reduce((sum, value) => sum + value, 0);
+    return budget > 0 && lesson.estimatedDurationMinutes > budget;
+  });
   const valid = Boolean(
     unit?.title.trim() &&
     unit.lessons.length &&
+    !overBudget &&
     unit.lessons.every(
       (lesson) =>
         lesson.title.trim() &&
+        lesson.steps.length &&
         lesson.steps.every(
           (step) =>
             step.title.trim() && Number.isInteger(step.durationMinutes) && step.durationMinutes > 0
@@ -95,11 +86,27 @@ export function UnitPlanningWorkspace({
     )
   );
 
+  useEffect(() => {
+    const element = dialog.current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    element?.showModal();
+    return () => {
+      element?.close();
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+  useEffect(() => {
+    heading.current?.focus();
+    dialog.current?.querySelector('.unit-planning-body')?.scrollTo({ top: 0 });
+  }, [review]);
+
   return (
     <dialog
       ref={dialog}
-      className="unit-planning-dialog"
+      className={`unit-planning-dialog${unit ? ' unit-planning-dialog-fullscreen' : ''}`}
       aria-labelledby="unit-planning-heading"
+      aria-busy={busy}
       onKeyDown={(event) => event.stopPropagation()}
       onCancel={(event) => {
         event.preventDefault();
@@ -113,11 +120,11 @@ export function UnitPlanningWorkspace({
             {groupName ? ` · ${groupName}` : ''}
           </p>
           <h1 id="unit-planning-heading" ref={heading} tabIndex={-1}>
-            {review ? 'Review your plan' : 'Plan a unit'}
+            {review ? 'Review your unit plan' : unit ? 'Try a new idea' : 'Plan a unit'}
           </h1>
         </div>
         <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-          Close
+          {unit ? 'Back to timeline' : 'Close'}
         </button>
       </header>
       <div className="unit-planning-body">
@@ -126,204 +133,36 @@ export function UnitPlanningWorkspace({
             <HobieDraftingIllustration />
           </div>
         ) : null}
-
         {error ? (
           <p role="alert" className="notice warning">
             {error}
           </p>
         ) : null}
         {review && unit ? (
-          <div className="unit-planning-review">
-            <aside className="unit-planning-fields">
-              <label>
-                Unit title
-                <input
-                  className="input"
-                  value={unit.title}
-                  disabled={busy}
-                  onChange={(event) => updateUnit({ title: event.target.value })}
-                />
-              </label>
-              <label>
-                Unit description
-                <textarea
-                  className="input"
-                  rows={5}
-                  value={unit.description}
-                  disabled={busy}
-                  onChange={(event) => updateUnit({ description: event.target.value })}
-                />
-              </label>
-              <p>
-                {unit.lessons.length} lessons · {unit.meetingCount} class periods · {plannedMinutes}{' '}
-                planned minutes
-              </p>
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy}
-                onClick={() => setReview(false)}
-              >
-                Back to learning goal
-              </button>
-            </aside>
-            <section aria-label="Generated lessons" className="unit-planning-fields">
-              <h2>Edit lessons</h2>
-              {unit.lessons.map((lesson, index) => (
-                <details key={index} className="unit-planning-lesson">
-                  <summary>
-                    <strong>
-                      {index + 1}. {lesson.title || 'Untitled lesson'}
-                    </strong>
-                    <span>
-                      {lesson.estimatedDurationMinutes} min · {lesson.steps.length} steps
-                    </span>
-                  </summary>
-                  <div className="unit-planning-fields unit-planning-lesson-body">
-                    <label>
-                      Lesson title
-                      <input
-                        className="input"
-                        disabled={busy}
-                        value={lesson.title}
-                        onChange={(event) => updateLesson(index, { title: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      Lesson description
-                      <textarea
-                        className="input"
-                        rows={3}
-                        disabled={busy}
-                        value={lesson.description}
-                        onChange={(event) =>
-                          updateLesson(index, { description: event.target.value })
-                        }
-                      />
-                    </label>
-                    {lesson.objective ? (
-                      <p>
-                        <strong>Learning objective</strong>
-                        <br />
-                        {lesson.objective}
-                      </p>
-                    ) : null}
-                    {lesson.materials ? (
-                      <p>
-                        <strong>Materials</strong>
-                        <br />
-                        {lesson.materials}
-                      </p>
-                    ) : null}
-                    {lesson.steps.map((step, stepIndex) => {
-                      const editStep = (patch: Partial<typeof step>) =>
-                        updateLesson(index, {
-                          steps: lesson.steps.map((item, i) =>
-                            i === stepIndex ? { ...item, ...patch } : item
-                          )
-                        });
-                      return (
-                        <details key={stepIndex} className="unit-planning-step">
-                          <summary>
-                            {stepIndex + 1}. {step.title} · {step.durationMinutes} min
-                            {step.stepType ? ` · ${step.stepType}` : ''}
-                          </summary>
-                          <div className="unit-planning-fields unit-planning-lesson-body">
-                            <label>
-                              Step title
-                              <input
-                                className="input"
-                                value={step.title}
-                                disabled={busy}
-                                onChange={(event) => editStep({ title: event.target.value })}
-                              />
-                            </label>
-                            <label>
-                              Step description
-                              <textarea
-                                className="input"
-                                rows={2}
-                                value={step.description}
-                                disabled={busy}
-                                onChange={(event) => editStep({ description: event.target.value })}
-                              />
-                            </label>
-                            <label>
-                              Minutes
-                              <input
-                                className="input unit-planning-number"
-                                type="number"
-                                min={1}
-                                value={step.durationMinutes || ''}
-                                disabled={busy}
-                                onChange={(event) =>
-                                  editStep({ durationMinutes: Number(event.target.value) })
-                                }
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={busy}
-                              onClick={() =>
-                                updateLesson(index, {
-                                  steps: lesson.steps.filter((_, i) => i !== stepIndex)
-                                })
-                              }
-                            >
-                              Remove step
-                            </button>
-                          </div>
-                        </details>
-                      );
-                    })}
-                    <div className="unit-planning-actions">
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy || index === 0}
-                        onClick={() => moveLesson(index, -1)}
-                      >
-                        Move lesson up
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy || index === unit.lessons.length - 1}
-                        onClick={() => moveLesson(index, 1)}
-                      >
-                        Move lesson down
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() =>
-                          updateUnit({ lessons: unit.lessons.filter((_, i) => i !== index) })
-                        }
-                      >
-                        Remove lesson
-                      </button>
-                    </div>
-                  </div>
-                </details>
-              ))}
-              {!unit.lessons.length ? (
-                <p>Add a new plan from the learning goal to include lessons.</p>
-              ) : null}
-            </section>
-          </div>
+          <UnitPlanReview
+            unit={unit}
+            busy={busy}
+            startMeeting={startMeeting}
+            previousUnitTitle={previousUnitTitle}
+            meetingDates={meetingDates}
+            periodMinutes={draftPeriodMinutes}
+            onUpdate={(nextUnit) => setDraft({ unit: nextUnit })}
+          />
         ) : (
           <form
             id="unit-planning-form"
             className="unit-planning-fields unit-planning-setup"
             onSubmit={async (event) => {
               event.preventDefault();
-              if (busy || (draft && !window.confirm('Replace the current draft with a new plan?')))
-                return;
-              if (await onGenerate()) setReview(true);
+              if (!busy && (await onGenerate())) setReview(true);
             }}
           >
+            {unit ? (
+              <p>
+                Change the learning goal or try a different approach. Your current idea stays
+                available until the new one is ready.
+              </p>
+            ) : null}
             <p>
               {scheduleSource && periodMinutes.length
                 ? new Set(periodMinutes).size === 1
@@ -387,14 +226,43 @@ export function UnitPlanningWorkspace({
       <footer className="unit-planning-footer">
         {review && unit ? (
           <>
-            <p>
-              Adding {unit.lessons.length} {unit.lessons.length === 1 ? 'lesson' : 'lessons'} to{' '}
-              <strong>{courseName}</strong>. Course collaborators can see the unit. Class Groups
-              keep their own dates.
-            </p>
-            <button type="button" disabled={busy || !valid || saveFailed} onClick={onAdd}>
-              {adding ? 'Adding unit…' : 'Add unit to course'}
-            </button>
+            <div className="unit-planning-footer-note" role="status">
+              <strong>{adding ? 'Adding your unit…' : 'Your idea is a draft.'}</strong>
+              <span>
+                {overBudget
+                  ? 'Shorten the lesson steps to fit the scheduled periods.'
+                  : 'Edit anything above, then add it when you’re ready.'}
+              </span>
+            </div>
+            <div className="unit-planning-actions unit-planning-decision-actions">
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setDraft(null);
+                  onClose();
+                }}
+              >
+                Cancel idea
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy || saveFailed}
+                onClick={() => setReview(false)}
+              >
+                Generate new idea
+              </button>
+              <button
+                type="button"
+                className="unit-planning-add"
+                disabled={busy || !valid || saveFailed}
+                onClick={onAdd}
+              >
+                {adding ? 'Adding unit…' : 'Add unit to timeline'}
+              </button>
+            </div>
           </>
         ) : (
           <>
@@ -407,11 +275,11 @@ export function UnitPlanningWorkspace({
                   disabled={busy}
                   onClick={() => setReview(true)}
                 >
-                  Return to review
+                  Return to current idea
                 </button>
               ) : null}
               <button type="submit" form="unit-planning-form" disabled={busy}>
-                {generating ? 'Creating plan…' : 'Create plan'}
+                {generating ? 'Creating plan…' : unit ? 'Generate new idea' : 'Create plan'}
               </button>
             </div>
           </>
