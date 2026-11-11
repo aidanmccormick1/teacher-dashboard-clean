@@ -30,6 +30,7 @@ import {
 } from '../lib/year-plan-range.js';
 import { isGoogleSlidesUrl } from '../lib/googleSlides.js';
 import { projectMeetingsForSection } from '../lib/year-plan-projection.js';
+import { unitPlanTiming } from '../lib/unit-plan-timing.js';
 import {
   editClipRange,
   reflowLessonRanges,
@@ -86,27 +87,11 @@ type RangeDrag = {
 type RangeDraft = PlanningRange & { unitId: string | null };
 type LessonPlanDraft = {
   title: string;
-  duration: string;
-  overview: string;
-  objective: string;
-  teacherNotes: string;
-  studentDirections: string;
-  materials: string;
-  links: Array<{ title: string; url: string }>;
 };
 
 const emptyLessonPlan = (): LessonPlanDraft => ({
-  title: '',
-  duration: '',
-  overview: '',
-  objective: '',
-  teacherNotes: '',
-  studentDirections: '',
-  materials: '',
-  links: []
+  title: ''
 });
-
-const nullable = (value: string) => value.trim() || null;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -145,6 +130,7 @@ function distributeMeetingSpans(start: number, meetingCount: number, lessonCount
 export function CurriculumTimeline({
   course,
   selectedSection,
+  courseSections = [],
   schoolYearSettings,
   currentLessonId,
   onCourseChange,
@@ -157,6 +143,7 @@ export function CurriculumTimeline({
 }: {
   course: Course;
   selectedSection: Section | null;
+  courseSections?: Section[];
   holidays: string[];
   schoolYearSettings: SchoolYearSettings | null;
   currentLessonId: string | null;
@@ -188,17 +175,7 @@ export function CurriculumTimeline({
   const [manualUnitTitle, setManualUnitTitle] = useState('');
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftMeetingCount, setDraftMeetingCount] = useState('');
-  const scheduledMinutes =
-    selectedSection?.meetings.flatMap(({ time, endTime }) => {
-      if (!time || !endTime) return [];
-      const toMinutes = (value: string) => {
-        const [hours, minutes] = value.split(':').map(Number);
-        return (hours ?? 0) * 60 + (minutes ?? 0);
-      };
-      const duration = toMinutes(endTime) - toMinutes(time);
-      return duration > 0 ? [duration] : [];
-    }) ?? [];
-  const minutesPerMeeting = scheduledMinutes.length ? Math.min(...scheduledMinutes) : 50;
+  const [manualPeriodMinutes, setManualPeriodMinutes] = useState('');
   const [lessonGeneratorUnitId, setLessonGeneratorUnitId] = useState<string | null>(null);
   const [lessonGeneratorPrompt, setLessonGeneratorPrompt] = useState('');
   const [lessonGeneratorCount, setLessonGeneratorCount] = useState('5');
@@ -231,17 +208,11 @@ export function CurriculumTimeline({
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
   const [meetingData, setMeetingData] = useState<MeetingInstancesResponse | null>(null);
   const [lessonPlanDraft, setLessonPlanDraft] = useState<LessonPlanDraft>(emptyLessonPlan);
-  const [linkTitle, setLinkTitle] = useState('');
-  const [linkUrl, setLinkUrl] = useState('');
-  const [newSegmentTitle, setNewSegmentTitle] = useState('');
-  const [newSegmentMinutes, setNewSegmentMinutes] = useState('');
-  const [newSegmentDescription, setNewSegmentDescription] = useState('');
   const [sectionPlans, setSectionPlans] = useState<SectionLessonPlanResponse['plans']>([]);
   type LocalTimingAction = { operationId: string; lessonId: string; start: number; count: number };
   const [localUndo, setLocalUndo] = useState<LocalTimingAction[]>([]);
   const [localRedo, setLocalRedo] = useState<LocalTimingAction[]>([]);
   const localHead = useRef<string | null | undefined>(undefined);
-  const lastSectionPlanOperation = localUndo.at(-1)?.operationId;
 
   const [editingSharedPlan, setEditingSharedPlan] = useState(false);
   const [rangeDrag, setRangeDrag] = useState<RangeDrag | null>(null);
@@ -282,6 +253,7 @@ export function CurriculumTimeline({
   const lessonPlanDraftRef = useRef<LessonPlanDraft>(emptyLessonPlan());
   const hydratedLessonId = useRef<string | null>(null);
   const lessonDraftRevisions = useRef<Record<string, number>>({});
+  const lessonTitleSaveFailed = useRef(false);
   const selectedLessonIdRef = useRef<string | null>(null);
   const selectedLessonRef = useRef<Lesson | null>(null);
   const saveLessonPlanRef = useRef<
@@ -372,6 +344,32 @@ export function CurriculumTimeline({
   }, [initialLessonId]);
 
   const positions = useMemo(() => positionCurriculumUnits(course.units), [course.units]);
+  const nextUnitStart = positions.length
+    ? Math.max(...positions.map((item) => item.start + item.span))
+    : 0;
+  const planTiming = (start: number, count: number) =>
+    unitPlanTiming({
+      courseId: course.id,
+      selectedSection,
+      sections: courseSections,
+      meetingData,
+      startMeeting: start,
+      meetingCount: count
+    });
+  const requestedPeriods = Number(draftMeetingCount);
+  const previewPeriodCount =
+    Number.isInteger(requestedPeriods) && requestedPeriods >= 2 && requestedPeriods <= 30
+      ? requestedPeriods
+      : 2;
+  const timing = planTiming(nextUnitStart, previewPeriodCount);
+  const manualMinutes = Number(manualPeriodMinutes);
+  const validManualMinutes =
+    Number.isInteger(manualMinutes) && manualMinutes > 0 && manualMinutes <= 1440;
+  const draftPeriodMinutes = timing.issue
+    ? validManualMinutes
+      ? Array.from({ length: previewPeriodCount }, () => manualMinutes)
+      : []
+    : timing.minutes;
   const sectionPlanByLesson = useMemo(
     () => new Map(sectionPlans.map((plan) => [plan.lessonId, plan])),
     [sectionPlans]
@@ -799,23 +797,11 @@ export function CurriculumTimeline({
     selectedLessonIdRef.current = selectedLessonId;
     if (hydratedLessonId.current === selectedLessonId) return;
     hydratedLessonId.current = selectedLessonId;
+    lessonTitleSaveFailed.current = false;
     lessonDraftRevisions.current[selectedLessonId] = lesson.editRevision ?? 0;
-    const plan = lesson.lessonPlan;
     setLessonPlanDraft({
-      title: lesson.title,
-      duration: lesson.estimatedDurationMinutes?.toString() ?? '',
-      overview: lesson.description ?? '',
-      objective: plan.objective ?? '',
-      teacherNotes: plan.teacherNotes ?? '',
-      studentDirections: plan.studentDirections ?? '',
-      materials: plan.materials ?? '',
-      links: plan.links
+      title: lesson.title
     });
-    setLinkTitle('');
-    setLinkUrl('');
-    setNewSegmentTitle('');
-    setNewSegmentMinutes('');
-    setNewSegmentDescription('');
   }, [selectedLessonId]);
 
   useEffect(() => {
@@ -1468,8 +1454,11 @@ export function CurriculumTimeline({
     selectLesson(lesson);
     setOpenLessonPlanId(lesson.id);
   };
-  const openLessonEditor = (lessonId: string) => {
+  const openLessonEditor = async (lessonId: string) => {
+    if (lessonTitleSaveFailed.current) queueLessonPlanSave(lessonPlanDraftRef.current, 0);
     flushLessonPlanSave();
+    await lessonPlanSaveChain.current;
+    if (lessonTitleSaveFailed.current) return;
     if (onOpenLesson) onOpenLesson(lessonId);
     else navigate(`/lessons/${lessonId}`);
   };
@@ -1690,8 +1679,19 @@ export function CurriculumTimeline({
   };
 
   const createGeneratedLessonDraft = async (unit: Unit) => {
-    const meetingCount = clamp(Number(lessonGeneratorCount) || 1, 1, 30);
+    const meetingCount = clamp(Number(lessonGeneratorCount) || 2, 2, 30);
     if (lessonGeneratorPrompt.trim().length < 8) return;
+    const unitStart = positions.find((item) => item.unit.id === unit.id)?.start ?? 0;
+    let start = unitStart;
+    for (const lesson of [...unit.lessons].sort((a, b) => a.orderIndex - b.orderIndex)) {
+      start =
+        Math.max(start, lesson.plannedStartMeeting ?? start) + (lesson.plannedMeetingCount ?? 1);
+    }
+    const lessonTiming = planTiming(start, meetingCount);
+    if (lessonTiming.issue) {
+      setStatus(lessonTiming.issue);
+      return;
+    }
     try {
       setIsGeneratingUnit(true);
       setGeneratedLessonDraft({
@@ -1700,7 +1700,8 @@ export function CurriculumTimeline({
           courseName: course.name,
           gradeLevel: course.gradeLevel,
           prompt: `${unit.title}: ${lessonGeneratorPrompt.trim()}`,
-          meetingCount: Math.max(2, meetingCount)
+          meetingCount,
+          meetingDurationsMinutes: lessonTiming.minutes
         })
       });
     } catch (err) {
@@ -1793,23 +1794,14 @@ export function CurriculumTimeline({
       setSaving(true);
       const detail = await api.updateLesson(lessonId, {
         expectedRevision: lessonDraftRevisions.current[lessonId] ?? 0,
-        title: draftToSave.title.trim(),
-        description: nullable(draftToSave.overview),
-        estimatedDurationMinutes: draftToSave.duration.trim()
-          ? Math.max(1, Number(draftToSave.duration) || 1)
-          : null,
-        lessonPlan: {
-          objective: nullable(draftToSave.objective),
-          teacherNotes: nullable(draftToSave.teacherNotes),
-          studentDirections: nullable(draftToSave.studentDirections),
-          materials: nullable(draftToSave.materials),
-          links: draftToSave.links
-        }
+        title: draftToSave.title.trim()
       });
       if (detail.savedLessonRevision !== undefined)
         lessonDraftRevisions.current[lessonId] = detail.savedLessonRevision;
+      lessonTitleSaveFailed.current = false;
       onCourseChange(detail);
     } catch (err) {
+      lessonTitleSaveFailed.current = true;
       setStatus(err instanceof ApiError ? err.message : 'Could not save the lesson plan');
     } finally {
       setSaving(false);
@@ -1868,85 +1860,6 @@ export function CurriculumTimeline({
     []
   );
 
-  const addLessonLink = () => {
-    const title = linkTitle.trim();
-    const url = linkUrl.trim();
-    if (!title || !url) return;
-    try {
-      new URL(url);
-    } catch {
-      setStatus('Enter a complete resource URL, including https://');
-      return;
-    }
-    updateLessonPlanDraft({
-      links: [...lessonPlanDraftRef.current.links, { title, url }]
-    });
-    setLinkTitle('');
-    setLinkUrl('');
-  };
-
-  const addSegment = async () => {
-    if (!selectedLesson || !newSegmentTitle.trim()) return;
-    try {
-      setSaving(true);
-      onCourseChange(
-        await api.createSegment(selectedLesson.id, {
-          title: newSegmentTitle.trim(),
-          description: nullable(newSegmentDescription),
-          durationMinutes: newSegmentMinutes.trim()
-            ? Math.max(1, Number(newSegmentMinutes) || 1)
-            : null,
-          orderIndex: nextOrder(selectedLesson.segments)
-        })
-      );
-      setNewSegmentTitle('');
-      setNewSegmentMinutes('');
-      setNewSegmentDescription('');
-      setStatus('Lesson step added');
-    } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not add the lesson step');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteSegment = async (segmentId: string, title: string) => {
-    if (!window.confirm(`Delete the lesson step "${title}"?`)) return;
-    try {
-      setSaving(true);
-      await api.deleteSegment(segmentId);
-      onCourseChange(await api.getCourseDetail(course.id));
-      setStatus('Lesson step deleted');
-    } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not delete the lesson step');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const moveSegment = async (segmentId: string, direction: -1 | 1) => {
-    if (!selectedLesson) return;
-    const ordered = [...selectedLesson.segments].sort((a, b) => a.orderIndex - b.orderIndex);
-    const index = ordered.findIndex((item) => item.id === segmentId);
-    const neighborIndex = index + direction;
-    if (index < 0 || neighborIndex < 0 || neighborIndex >= ordered.length) return;
-    const segment = ordered[index];
-    const neighbor = ordered[neighborIndex];
-    if (!segment || !neighbor) return;
-    ordered[index] = neighbor;
-    ordered[neighborIndex] = segment;
-    try {
-      setSaving(true);
-      onCourseChange(
-        await api.reorderSegments(selectedLesson.id, { segmentIds: ordered.map((item) => item.id) })
-      );
-    } catch (err) {
-      setStatus(err instanceof ApiError ? err.message : 'Could not reorder the lesson steps');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const createDraft = async () => {
     const meetingCount = Number(draftMeetingCount);
     setPlanningError(null);
@@ -1955,7 +1868,11 @@ export function CurriculumTimeline({
       return false;
     }
     if (!Number.isInteger(meetingCount) || meetingCount < 2 || meetingCount > 30) {
-      setPlanningError('Add the number of class meetings for this unit (2–30).');
+      setPlanningError('Add the number of class periods for this unit (2–30).');
+      return false;
+    }
+    if (!draftPeriodMinutes.length) {
+      setPlanningError(timing.issue ?? 'Enter the number of minutes per class period.');
       return false;
     }
     try {
@@ -1965,8 +1882,9 @@ export function CurriculumTimeline({
         await api.generateUnitDraft({
           courseName: course.name,
           gradeLevel: course.gradeLevel,
-          prompt: `${draftPrompt.trim()} Each class meeting is ${minutesPerMeeting} minutes.`,
-          meetingCount: clamp(meetingCount, 2, 30)
+          prompt: draftPrompt.trim(),
+          meetingCount,
+          meetingDurationsMinutes: draftPeriodMinutes
         })
       );
       setPlanSaveFailed(false);
@@ -1993,9 +1911,7 @@ export function CurriculumTimeline({
         title: draft.unit.title,
         description: draft.unit.description,
         orderIndex: nextOrder(course.units),
-        plannedStartMeeting: positions.length
-          ? Math.max(...positions.map((item) => item.start + item.span))
-          : 0,
+        plannedStartMeeting: nextUnitStart,
         plannedMeetingCount: draft.unit.meetingCount
       });
       latestDetail = detail;
@@ -2221,9 +2137,11 @@ export function CurriculumTimeline({
           groupName={selectedSection?.sectionName}
           goal={draftPrompt}
           meetings={draftMeetingCount}
-          minutes={minutesPerMeeting}
-          hasScheduledDuration={scheduledMinutes.length > 0}
-          mixedDurations={new Set(scheduledMinutes).size > 1}
+          periodMinutes={draftPeriodMinutes}
+          scheduleSource={timing.source}
+          timingIssue={timing.issue}
+          manualPeriodMinutes={manualPeriodMinutes}
+          setManualPeriodMinutes={setManualPeriodMinutes}
           setGoal={setDraftPrompt}
           setMeetings={setDraftMeetingCount}
           draft={draft}
@@ -2262,11 +2180,7 @@ export function CurriculumTimeline({
           {status}
         </p>
       ) : null}
-      {conflicts.length ? (
-        <p className="curriculum-conflict-summary">
-          Units overlap
-        </p>
-      ) : null}
+      {conflicts.length ? <p className="curriculum-conflict-summary">Units overlap</p> : null}
 
       {selection ? (
         <div className="curriculum-selection-actions">
@@ -2475,27 +2389,16 @@ export function CurriculumTimeline({
             onClick={closeLessonPanel}
           />
           <section
-            className="lesson-plan-workspace lesson-plan-side-panel"
+            className="lesson-plan-workspace lesson-plan-side-panel lesson-quick-editor"
             aria-label={`Lesson plan for ${selectedLesson.title}`}
           >
             <div className="lesson-plan-heading">
               <div>
-                <p className="eyebrow">Lesson plan</p>
-                <h3>{selectedLesson.title}</h3>
-                <p className="muted">
-                  Build the teacher-facing plan and the student-facing directions here. Everything
-                  saves to this lesson.
-                </p>
+                <p className="eyebrow">Quick edit</p>
+                <h3>Lesson title</h3>
               </div>
               <button className="secondary" type="button" onClick={closeLessonPanel}>
                 Done
-              </button>
-              <button
-                className="secondary"
-                type="button"
-                onClick={() => openLessonEditor(selectedLesson.id)}
-              >
-                Open Lesson
               </button>
             </div>
             <div className="lesson-plan-context">
@@ -2530,61 +2433,6 @@ export function CurriculumTimeline({
                     })()
                   : 'Shared lesson content'}
               </span>
-              {selectedSection && !editingSharedPlan && selectedRange && sectionMeetings.length ? (
-                <div className="lesson-plan-context-actions">
-                  <label>
-                    Move lesson to meeting
-                    <select
-                      className="input"
-                      disabled={saving}
-                      value={
-                        selectedRange.start < sectionMeetings.length ? selectedRange.start : ''
-                      }
-                      onChange={(event) => {
-                        if (event.target.value === '') return;
-                        void persistTiming([
-                          timingPatch(
-                            'lesson',
-                            selectedLesson,
-                            Number(event.target.value),
-                            selectedRange.span
-                          )
-                        ]);
-                      }}
-                    >
-                      <option value="" disabled>
-                        Select a meeting
-                      </option>
-                      {sectionMeetings.map((meeting, index) => (
-                        <option key={index} value={index}>
-                          {meeting.date}
-                          {meeting.startTime ? ` · ${meeting.startTime}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {lastSectionPlanOperation ? (
-                    <button
-                      className="button-link"
-                      type="button"
-                      disabled={saving}
-                      onClick={() => void travelLocalTiming('undo')}
-                    >
-                      Undo move for {selectedSection.sectionName}
-                    </button>
-                  ) : null}
-                  {localRedo.length ? (
-                    <button
-                      className="button-link"
-                      type="button"
-                      disabled={saving}
-                      onClick={() => void travelLocalTiming('redo')}
-                    >
-                      Redo move for {selectedSection.sectionName}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
             <div className="lesson-plan-fields lesson-plan-top-fields">
               <label>
@@ -2595,206 +2443,22 @@ export function CurriculumTimeline({
                   onChange={(event) => updateLessonPlanDraft({ title: event.target.value })}
                 />
               </label>
-              <label>
-                Minutes
-                <input
-                  className="input"
-                  type="number"
-                  min="1"
-                  value={lessonPlanDraft.duration}
-                  onChange={(event) => updateLessonPlanDraft({ duration: event.target.value })}
-                />
-              </label>
-              <label className="lesson-plan-wide">
-                Overview
-                <textarea
-                  className="input"
-                  value={lessonPlanDraft.overview}
-                  onChange={(event) => updateLessonPlanDraft({ overview: event.target.value })}
-                  placeholder="A short description of this lesson."
-                />
-              </label>
-              <label className="lesson-plan-wide">
-                Learning objective
-                <textarea
-                  className="input"
-                  value={lessonPlanDraft.objective}
-                  onChange={(event) => updateLessonPlanDraft({ objective: event.target.value })}
-                  placeholder="Students will be able to…"
-                />
-              </label>
             </div>
-            <div className="lesson-plan-resources">
-              <div>
-                <strong>Resources</strong>
-                <span>Links are saved with this lesson.</span>
-              </div>
-              <div className="lesson-plan-link-form">
-                <input
-                  className="input"
-                  value={linkTitle}
-                  onChange={(event) => setLinkTitle(event.target.value)}
-                  placeholder="Link label"
-                />
-                <input
-                  className="input"
-                  type="url"
-                  value={linkUrl}
-                  onChange={(event) => setLinkUrl(event.target.value)}
-                  placeholder="https://…"
-                />
-                <button className="secondary" type="button" onClick={addLessonLink}>
-                  Add link
-                </button>
-              </div>
-              {lessonPlanDraft.links.length ? (
-                <ul>
-                  {lessonPlanDraft.links.map((link, index) => (
-                    <li key={`${link.url}-${index}`}>
-                      <a href={link.url} target="_blank" rel="noreferrer">
-                        <strong>{link.title}</strong>
-                        <small>{link.url}</small>
-                      </a>
-                      <button
-                        className="button-link"
-                        type="button"
-                        onClick={() =>
-                          updateLessonPlanDraft({
-                            links: lessonPlanDraftRef.current.links.filter(
-                              (_, linkIndex) => linkIndex !== index
-                            )
-                          })
-                        }
-                      >
-                        Remove
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="muted">No resources yet.</p>
-              )}
-            </div>
-            <div className="lesson-plan-steps">
-              <div>
-                <strong>Lesson steps</strong>
-                <span>
-                  Use steps for mini-lessons, practice, discussion, or checks for understanding.
-                </span>
-              </div>
-              <div className="lesson-step-form">
-                <input
-                  className="input"
-                  value={newSegmentTitle}
-                  onChange={(event) => setNewSegmentTitle(event.target.value)}
-                  placeholder="Step title"
-                />
-                <input
-                  className="input"
-                  type="number"
-                  min="1"
-                  value={newSegmentMinutes}
-                  onChange={(event) => setNewSegmentMinutes(event.target.value)}
-                  placeholder="Minutes"
-                />
-                <textarea
-                  className="input"
-                  value={newSegmentDescription}
-                  onChange={(event) => setNewSegmentDescription(event.target.value)}
-                  placeholder="What happens in this step?"
-                />
-                <button
-                  type="button"
-                  disabled={saving || !newSegmentTitle.trim()}
-                  onClick={() => void addSegment()}
-                >
-                  Add step
-                </button>
-              </div>
-              <div className="lesson-step-list">
-                {selectedLesson.segments.map((segment) => (
-                  <article key={segment.id}>
-                    <div>
-                      <strong>{segment.title}</strong>
-                      <span>
-                        {segment.durationMinutes
-                          ? `${segment.durationMinutes} min`
-                          : 'Time not set'}
-                      </span>
-                      {segment.description ? <p>{segment.description}</p> : null}
-                    </div>
-                    <button
-                      className="secondary danger"
-                      type="button"
-                      disabled={saving}
-                      onClick={() => void deleteSegment(segment.id, segment.title)}
-                    >
-                      Delete
-                    </button>
-                    <span className="segment-actions">
-                      <button
-                        className="secondary"
-                        type="button"
-                        disabled={
-                          saving ||
-                          [...selectedLesson.segments]
-                            .sort((a, b) => a.orderIndex - b.orderIndex)
-                            .findIndex((item) => item.id === segment.id) === 0
-                        }
-                        onClick={() => void moveSegment(segment.id, -1)}
-                      >
-                        Move up
-                      </button>
-                      <button
-                        className="secondary"
-                        type="button"
-                        disabled={
-                          saving ||
-                          [...selectedLesson.segments]
-                            .sort((a, b) => a.orderIndex - b.orderIndex)
-                            .findIndex((item) => item.id === segment.id) ===
-                            selectedLesson.segments.length - 1
-                        }
-                        onClick={() => void moveSegment(segment.id, 1)}
-                      >
-                        Move down
-                      </button>
-                    </span>
-                  </article>
-                ))}
-              </div>
-            </div>
-            <div className="lesson-plan-fields lesson-plan-bottom-fields">
-              <label>
-                Materials
-                <textarea
-                  className="input"
-                  value={lessonPlanDraft.materials}
-                  onChange={(event) => updateLessonPlanDraft({ materials: event.target.value })}
-                  placeholder="Handouts, supplies, technology…"
-                />
-              </label>
-              <label>
-                Student directions
-                <textarea
-                  className="input"
-                  value={lessonPlanDraft.studentDirections}
-                  onChange={(event) =>
-                    updateLessonPlanDraft({ studentDirections: event.target.value })
-                  }
-                  placeholder="What students should do, see, or submit."
-                />
-              </label>
-              <label className="lesson-plan-wide">
-                Teacher notes
-                <textarea
-                  className="input"
-                  value={lessonPlanDraft.teacherNotes}
-                  onChange={(event) => updateLessonPlanDraft({ teacherNotes: event.target.value })}
-                  placeholder="Prompts, differentiation, checks for understanding, and reminders."
-                />
-              </label>
-            </div>
+            {lessonTitleSaveFailed.current ? (
+              <p className="notice warning" role="alert">
+                Could not save the title. Choose Show more to retry before opening the full editor.
+              </p>
+            ) : null}
+            <p className="muted">
+              Open the full lesson editor for your plan, resources, steps, and Hobie.
+            </p>
+            <button
+              type="button"
+              disabled={saving || !lessonPlanDraft.title.trim()}
+              onClick={() => void openLessonEditor(selectedLesson.id)}
+            >
+              Show more
+            </button>
           </section>
         </>
       ) : null}
@@ -4014,9 +3678,7 @@ export function CurriculumTimeline({
           role="dialog"
           aria-label="Confirm timeline adjustment"
         >
-          <strong>
-            {pendingChange.kind === 'move' ? 'Move unit' : 'Resize unit'}
-          </strong>
+          <strong>{pendingChange.kind === 'move' ? 'Move unit' : 'Resize unit'}</strong>
           <span>
             {pendingChange.kind === 'move'
               ? `Meeting ${pendingChange.start + 1}`

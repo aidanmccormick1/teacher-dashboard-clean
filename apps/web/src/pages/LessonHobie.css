@@ -1,0 +1,302 @@
+.app-shell:has(.lesson-document-page) > .hobie-helper {
+  display: none;
+}
+
+.lesson-document-page {
+  padding-bottom: 140px;
+}
+
+.lesson-document-page .lesson-document[hidden] {
+  display: none;
+}
+
+.lesson-hobie-launcher {
+  position: fixed;
+  right: max(22px, env(safe-area-inset-right));
+  bottom: max(22px, env(safe-area-inset-bottom));
+  z-index: 26;
+}
+
+.lesson-hobie-launch-button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 10px 18px 10px 10px;
+  border: 1px solid #b5c9bb;
+  border-radius: 18px;
+  color: #233f32;
+  background: #fffdf7;
+  box-shadow: 0 8px 24px #1f2a3426;
+  text-align: left;
+}
+
+.lesson-hobie-launch-button img {
+  object-fit: contain;
+}
+
+.lesson-hobie-launch-button span,
+.lesson-hobie-apply-dock > div {
+  display: grid;
+  gap: 3px;
+}
+
+.lesson-hobie-launch-button small {
+  color: #4b6054;
+  font-size: 0.75rem;
+}
+
+.lesson-hobie-launch-button:hover {
+  background: #edf4ed;
+  border-color: #476c58;
+}
+
+.lesson-hobie-launch-button:active {
+  transform: translateY(1px);
+}
+
+.lesson-hobie-panel {
+  color: #243e31;
+  background: #f0f6ee;
+  border: 1px solid #b5c9bb;
+  border-radius: 18px;
+  padding: clamp(18px, 3vw, 32px);
+  overflow-wrap: anywhere;
+}
+
+.lesson-hobie-panel.is-composing {
+  position: fixed;
+  z-index: 27;
+  right: 22px;
+  bottom: 108px;
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100dvh - 140px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-shadow: 0 12px 32px #1f2a3426;
+}
+
+.lesson-hobie-panel.is-focused {
+  min-height: 50vh;
+}
+
+.lesson-hobie-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #c5d6c7;
+}
+
+.lesson-hobie-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.lesson-hobie-heading span {
+  color: #48614f;
+  font-size: 0.8rem;
+}
+
+.lesson-hobie-heading h2 {
+  margin: 4px 0 0;
+  font-size: clamp(1.15rem, 2.5vw, 1.6rem);
+  color: #243e31;
+}
+
+.lesson-hobie-panel button,
+.lesson-hobie-applied button {
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.lesson-hobie-panel button:disabled {
+  cursor: not-allowed;
+}
+
+.lesson-hobie-panel :is(button, textarea):focus-visible,
+.lesson-hobie-launch-button:focus-visible,
+.lesson-hobie-applied button:focus-visible {
+  outline: 3px solid #476c58;
+  outline-offset: 3px;
+}
+
+.lesson-hobie-panel > .secondary {
+  margin-top: 12px;
+}
+
+.lesson-hobie-panel textarea {
+  resize: vertical;
+  min-height: 96px;
+  background: #fffdf7;
+}
+
+.lesson-hobie-progress {
+  justify-content: center;
+  min-height: 260px;
+  gap: 24px;
+}
+
+.lesson-hobie-panel .lesson-hobie-progress .hobie-drafting {
+  position: relative;
+  right: auto;
+  bottom: auto;
+}
+
+.lesson-hobie-proposal {
+  max-width: 900px;
+  margin-inline: auto;
+  padding-bottom: 24px;
+}
+
+.lesson-hobie-provenance {
+  font-weight: 700;
+  color: #365b40;
+}
+
+.lesson-hobie-proposal > h3 {
+  margin-top: 24px;
+  font-size: 1.3rem;
+}
+
+.lesson-hobie-preview {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 3fr);
+  gap: 14px 24px;
+  margin-block: 28px;
+}
+
+.lesson-hobie-preview dd {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.lesson-hobie-step-preview {
+  padding-left: 24px;
+}
+
+.lesson-hobie-step-preview li {
+  padding: 12px 0 12px 8px;
+  border-bottom: 1px solid #c5d6c7;
+  white-space: pre-wrap;
+}
+
+.lesson-hobie-step-preview p {
+  margin: 6px 0;
+}
+
+.lesson-hobie-apply-dock {
+  position: fixed;
+  z-index: 28;
+  bottom: max(22px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(760px, calc(100vw - 32px));
+  padding: 16px 20px;
+  border: 1px solid #b5c9bb;
+  border-radius: 16px;
+  background: #fffdf7;
+  box-shadow: 0 8px 28px #1f2a3426;
+}
+
+.lesson-hobie-apply-dock > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.lesson-hobie-apply-dock span {
+  font-size: 0.8rem;
+  color: #48614f;
+}
+
+.lesson-document-page:has(.lesson-hobie-panel.is-focused) .lesson-hobie-launcher {
+  display: none;
+}
+
+.lesson-hobie-applied {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  border-left: 4px solid #476c58;
+  background: #f0f6ee;
+  color: #243e31;
+}
+
+.lesson-hobie-applied span {
+  flex: 1;
+}
+
+.lesson-document.has-hobie-draft
+  .lesson-writing-grid
+  .lesson-field-card:not(.lesson-resources-card),
+.lesson-document.has-hobie-draft .lesson-teacher-notes-card {
+  border-color: #b5c9bb;
+  background: #f5f9f2;
+}
+
+@media (max-width: 600px) {
+  .lesson-document-page .step-main {
+    min-width: 0;
+  }
+
+  .lesson-document-page .step-heading-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lesson-document-page .step-title {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .lesson-document-page .step-metadata {
+    flex-wrap: wrap;
+  }
+
+  .lesson-hobie-panel.is-composing {
+    right: 16px;
+  }
+
+  .lesson-hobie-heading {
+    flex-wrap: wrap;
+  }
+
+  .lesson-hobie-heading img {
+    width: 36px;
+    height: 36px;
+  }
+
+  .lesson-hobie-preview {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .lesson-hobie-preview dd {
+    margin-bottom: 14px;
+  }
+
+  .lesson-hobie-apply-dock {
+    flex-wrap: wrap;
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .lesson-hobie-apply-dock > div {
+    flex-basis: 100%;
+  }
+
+  .lesson-hobie-apply-dock > button {
+    flex: 1;
+  }
+
+  .lesson-document-page:has(.lesson-hobie-panel.is-focused) {
+    padding-bottom: 190px;
+  }
+}

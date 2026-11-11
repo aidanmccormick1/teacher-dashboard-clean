@@ -152,6 +152,7 @@ import {
 } from '@teacheros/db';
 
 import { runStructuredPrompt } from '../lib/openai.js';
+import { fitUnitDraftToPeriods } from '../services/unit-plan-timing.js';
 import { safeRedisGet, safeRedisSet } from '../lib/redis.js';
 import { createS3Client, createSignedUploadUrl } from '../lib/s3.js';
 import { AI_JOB_MAX_ATTEMPTS, enqueueAiJob } from '../lib/queue.js';
@@ -992,9 +993,7 @@ async function buildScheduleResponse(userId: string, schoolId: string) {
       bySection.get(row.sectionId)?.meetings.push({
         day: row.day,
         time: row.meetingTime ? row.meetingTime.slice(0, 5) : null,
-        endTime: row.endTime
-          ? row.endTime.slice(0, 5)
-          : endTimeFromStart(row.meetingTime ? row.meetingTime.slice(0, 5) : null),
+        endTime: row.endTime ? row.endTime.slice(0, 5) : null,
         room: row.room
       });
     }
@@ -8309,15 +8308,20 @@ export async function v1Routes(app: FastifyInstance) {
       if (!job) throw new Error('Failed to create planning draft');
 
       try {
-        const output = await runStructuredPrompt<z.infer<typeof GenerateUnitDraftResponseSchema>>({
+        const generated = await runStructuredPrompt<
+          z.infer<typeof GenerateUnitDraftResponseSchema>
+        >({
           apiKey: app.config.OPENAI_API_KEY,
           model: app.config.OPENAI_MODEL_GENERATE_SEGMENTS,
           schemaName: 'generate_unit_draft',
           schema: GenerateUnitDraftResponseSchema,
           systemPrompt:
             'Create one concise, classroom-ready curriculum unit. Return a practical sequence of lessons, each with a clear objective, materials, and three to six ordered lesson steps. Write all teacher-facing plans, titles, objectives, descriptions, materials, directions, and steps in English, even when the course teaches another language such as Spanish. Use target-language words or examples only where instruction requires them. This is a draft for a teacher to review, never an instruction to alter stored curriculum.',
-          userPrompt: `Course: ${body.courseName}\nGrade: ${body.gradeLevel ?? 'Not specified'}\nInstructional meetings: ${body.meetingCount}\nTeacher request: ${body.prompt}`
+          userPrompt: `Course: ${body.courseName}\nGrade: ${body.gradeLevel ?? 'Not specified'}\nInstructional meetings: ${body.meetingCount}\n${body.meetingDurationsMinutes ? `Create exactly ${body.meetingCount} lessons, one per class period. The ordered period lengths in minutes are: ${body.meetingDurationsMinutes.join(', ')}. Total unit time: ${body.meetingDurationsMinutes.reduce((sum, minutes) => sum + minutes, 0)} minutes. Each lesson and its steps must fit its corresponding period, with step minutes summing to that period's length. Never substitute a standard 50-minute lesson.\n` : ''}Teacher request: ${body.prompt}`
         });
+        const output = body.meetingDurationsMinutes
+          ? fitUnitDraftToPeriods(generated, body.meetingDurationsMinutes)
+          : generated;
         await db
           .insert(aiOutputs)
           .values({ jobId: job.id, outputType: 'generate_unit_draft', payload: output });

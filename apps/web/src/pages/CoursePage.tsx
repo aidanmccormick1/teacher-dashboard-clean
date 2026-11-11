@@ -1,990 +1,668 @@
-import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
-import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-
 import type {
   CourseActivityResponse,
   CourseCollaboratorsResponse,
   CourseDetailResponse,
-  GetScheduleResponse
+  GetScheduleResponse,
+  UnitUpdateRequest
 } from '@teacheros/contracts';
-
+import { FeedbackErrorAction } from '../components/FeedbackErrorAction.js';
+import { CourseUnits } from '../components/CourseUnits.js';
+import {
+  CourseMeetingEditor,
+  blankMeeting,
+  type MeetingDraft
+} from '../components/CourseMeetingEditor.js';
+import { useFeedbackContext } from '../lib/feedbackDiagnostics.js';
 import { ApiError, useApiClient } from '../lib/api.js';
-import { isGoogleSlidesUrl } from '../lib/googleSlides.js';
+import { sortCourseMeetings } from '../lib/courseSchedule.js';
 import { timeRange } from '../lib/today.js';
+import './CourseWorkspace.css';
 
-type MeetingDraft = { day: string; time: string; endTime: string; room: string };
-type UnitSlidesDraft = { url: string; startSlide: string };
-const meetingDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'];
-
-function toNullable(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function parseOptionalOrder(value: string): number | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  const parsed = Number(trimmed);
-  if (!Number.isInteger(parsed) || parsed < 0) return undefined;
-  return parsed;
-}
+type Course = CourseDetailResponse['course'];
+type Section = GetScheduleResponse['sections'][number];
 
 export function CoursePage() {
   const api = useApiClient();
   const navigate = useNavigate();
-  const params = useParams<{ id: string }>();
-  useFeedbackContext({ courseId: params.id ?? null });
-  const courseId = params.id ?? '';
-  const [course, setCourse] = useState<CourseDetailResponse['course'] | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { id: courseId = '' } = useParams<{ id: string }>();
+  useFeedbackContext({ courseId: courseId || null });
+  const [course, setCourse] = useState<Course | null>(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
-  const [collaborators, setCollaborators] = useState<CourseCollaboratorsResponse['collaborators']>(
-    []
-  );
+  const [scheduleError, setScheduleError] = useState(false);
+  const [collaborators, setCollaborators] = useState<
+    CourseCollaboratorsResponse['collaborators'] | null
+  >(null);
+  const [collaboratorsError, setCollaboratorsError] = useState(false);
   const [collaboratorEmail, setCollaboratorEmail] = useState('');
-  const [activity, setActivity] = useState<CourseActivityResponse['activity']>([]);
-
+  const [activity, setActivity] = useState<CourseActivityResponse['activity'] | null>(null);
+  const [activityError, setActivityError] = useState(false);
   const [courseName, setCourseName] = useState('');
   const [courseSubject, setCourseSubject] = useState('');
   const [courseGradeLevel, setCourseGradeLevel] = useState('');
-
-  const [unitTitle, setUnitTitle] = useState('');
-  const [unitDescription, setUnitDescription] = useState('');
-  const [unitOrder, setUnitOrder] = useState('');
-
-  const [unitSlidesDrafts, setUnitSlidesDrafts] = useState<Record<string, UnitSlidesDraft>>({});
-  const [newSectionName, setNewSectionName] = useState('');
-  const [newSectionMeetings, setNewSectionMeetings] = useState<MeetingDraft[]>([
-    { day: 'Monday', time: '', endTime: '', room: '' }
-  ]);
+  const [addingGroup, setAddingGroup] = useState(false);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
-  const [editingSectionName, setEditingSectionName] = useState('');
-  const [editingMeetings, setEditingMeetings] = useState<MeetingDraft[]>([]);
+  const [sectionName, setSectionName] = useState('');
+  const [meetings, setMeetings] = useState<MeetingDraft[]>([blankMeeting()]);
+
+  const updateFromDetail = useCallback((detail: CourseDetailResponse) => {
+    setCourse(detail.course);
+    setCourseName(detail.course.name);
+    setCourseSubject(detail.course.subject ?? '');
+    setCourseGradeLevel(detail.course.gradeLevel ?? '');
+  }, []);
 
   const loadCourse = useCallback(async () => {
     if (!courseId) return;
-
+    setLoading(true);
     try {
-      setLoading(true);
-      const data = await api.getCourseDetail(courseId);
-      setCourse(data.course);
-      setCourseName(data.course.name);
-      setCourseSubject(data.course.subject ?? '');
-      setCourseGradeLevel(data.course.gradeLevel ?? '');
+      updateFromDetail(await api.getCourseDetail(courseId));
       setError(null);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load course');
+      setError(err instanceof ApiError ? err.message : 'Could not load this course. Try again.');
     } finally {
       setLoading(false);
+    }
+  }, [api, courseId, updateFromDetail]);
+
+  const loadSchedule = useCallback(async () => {
+    setScheduleError(false);
+    try {
+      setSchedule(await api.getSchedule());
+    } catch {
+      setScheduleError(true);
+    }
+  }, [api]);
+
+  const loadCollaborators = useCallback(async () => {
+    setCollaboratorsError(false);
+    try {
+      setCollaborators((await api.getCourseCollaborators(courseId)).collaborators);
+    } catch {
+      setCollaboratorsError(true);
+    }
+  }, [api, courseId]);
+
+  const loadActivity = useCallback(async () => {
+    setActivityError(false);
+    try {
+      setActivity((await api.getCourseActivity(courseId)).activity);
+    } catch {
+      setActivityError(true);
     }
   }, [api, courseId]);
 
   useEffect(() => {
     void loadCourse();
   }, [loadCourse]);
-
   useEffect(() => {
-    void api
-      .getSchedule()
-      .then(setSchedule)
-      .catch(() => undefined);
-  }, [api]);
-
+    void loadSchedule();
+  }, [loadSchedule]);
   useEffect(() => {
-    if (!courseId) return;
-    void api
-      .getCourseCollaborators(courseId)
-      .then((response) => setCollaborators(response.collaborators))
-      .catch(() => undefined);
-  }, [api, courseId]);
-
+    void loadCollaborators();
+  }, [loadCollaborators]);
   useEffect(() => {
-    if (!courseId) return;
-    void api
-      .getCourseActivity(courseId)
-      .then((response) => setActivity(response.activity))
-      .catch(() => undefined);
-  }, [api, courseId, course?.updatedAt]);
+    void loadActivity();
+  }, [loadActivity, course?.updatedAt]);
 
-  const updateFromDetail = (detail: CourseDetailResponse) => {
-    setCourse(detail.course);
-    setCourseName(detail.course.name);
-    setCourseSubject(detail.course.subject ?? '');
-    setCourseGradeLevel(detail.course.gradeLevel ?? '');
-    void api
-      .getCourseActivity(detail.course.id)
-      .then((response) => setActivity(response.activity))
-      .catch(() => undefined);
-  };
-
-  const courseAction = async (action: 'duplicate' | 'end' | 'leave' | 'delete') => {
-    if (!course) return;
+  const mutate = async (action: () => Promise<void>, message: string): Promise<boolean> => {
+    setSaving(true);
+    setError(null);
+    setNotice('');
     try {
-      setSaving(true);
-      if (action === 'duplicate') {
-        const name = window.prompt('New course name', `${course.name} copy`)?.trim();
-        if (!name) return;
-        const duplicate = await api.duplicateCourse(course.id, name);
-        navigate(`/courses/${duplicate.course.id}`);
-      } else if (action === 'end') {
-        await api.archiveCourse(course.id);
-        navigate('/courses');
-      } else if (action === 'leave') {
-        if (!window.confirm(`Leave ${course.name}? Unlink any class groups first.`)) return;
-        await api.leaveCourse(course.id);
-        navigate('/courses');
-      } else {
-        if (
-          !window.confirm(
-            `Delete ${course.name} for everyone? This permanently deletes all linked class groups and curriculum.`
-          )
-        )
-          return;
-        await api.deleteCourse(course.id);
-        navigate('/courses');
-      }
+      await action();
+      setNotice(message);
+      return true;
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not update this course.');
+      setError(err instanceof Error ? err.message : 'Could not save your changes. Try again.');
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
-  if (!courseId) {
-    return (
-      <div className="stack">
-        <p className="notice warning">Course id is missing.</p>
-      </div>
+  const saveUnit = (id: string, patch: UnitUpdateRequest) =>
+    mutate(async () => {
+      updateFromDetail(await api.updateUnit(id, patch));
+    }, 'Unit saved.');
+
+  const courseAction = async (action: 'duplicate' | 'end' | 'leave' | 'delete') => {
+    if (!course) return;
+    if (action === 'duplicate') {
+      const name = window.prompt('New course name', `${course.name} copy`)?.trim();
+      if (!name) return;
+      await mutate(
+        async () => navigate(`/courses/${(await api.duplicateCourse(course.id, name)).course.id}`),
+        ''
+      );
+    } else {
+      if (
+        action === 'delete' &&
+        !window.confirm(
+          `Delete ${course.name} for everyone? This permanently deletes all linked class groups and curriculum.`
+        )
+      )
+        return;
+      if (
+        action === 'leave' &&
+        !window.confirm(`Leave ${course.name}? Unlink any class groups first.`)
+      )
+        return;
+      await mutate(async () => {
+        if (action === 'end') await api.archiveCourse(course.id);
+        else if (action === 'leave') await api.leaveCourse(course.id);
+        else await api.deleteCourse(course.id);
+        navigate('/courses');
+      }, '');
+    }
+  };
+
+  const editGroup = (section: Section) => {
+    setAddingGroup(false);
+    setEditingSectionId(section.sectionId);
+    setSectionName(section.sectionName);
+    setMeetings(
+      sortCourseMeetings(section.meetings).map((meeting) => ({
+        day: meeting.day,
+        time: meeting.time ?? '',
+        endTime: meeting.endTime ?? '',
+        room: meeting.room ?? ''
+      }))
     );
-  }
+  };
+
+  const meetingRangeInvalid = meetings.some(
+    (meeting) => meeting.time && meeting.endTime && meeting.endTime <= meeting.time
+  );
+  const groupForm = (
+    <form
+      className="course-inline-form course-group-form"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (!sectionName.trim() || meetingRangeInvalid) return;
+        const body = {
+          sectionName: sectionName.trim(),
+          meetings: sortCourseMeetings(meetings).map((meeting) => ({
+            day: meeting.day,
+            time: meeting.time || null,
+            endTime: meeting.endTime || null,
+            room: meeting.room.trim() || null
+          }))
+        };
+        if (
+          await mutate(
+            async () => {
+              setSchedule(
+                editingSectionId
+                  ? await api.updateSection(editingSectionId, body)
+                  : await api.createSection({ courseId, ...body })
+              );
+            },
+            editingSectionId ? 'Class group saved.' : 'Class group added.'
+          )
+        ) {
+          setEditingSectionId(null);
+          setAddingGroup(false);
+        }
+      }}
+    >
+      <label>
+        Class group name
+        <input
+          className="input"
+          value={sectionName}
+          onChange={(event) => setSectionName(event.target.value)}
+          required
+          autoFocus
+        />
+      </label>
+      <CourseMeetingEditor meetings={meetings} onChange={setMeetings} disabled={saving} />
+      {meetingRangeInvalid ? (
+        <p className="course-field-error" role="alert">
+          End time must be after start time.
+        </p>
+      ) : null}
+      <div className="course-compact-actions">
+        <button type="submit" disabled={saving || !sectionName.trim() || meetingRangeInvalid}>
+          {saving ? 'Saving…' : editingSectionId ? 'Save group' : 'Add group'}
+        </button>
+        <button
+          className="secondary"
+          type="button"
+          onClick={() => {
+            setEditingSectionId(null);
+            setAddingGroup(false);
+          }}
+        >
+          Cancel
+        </button>
+        {editingSectionId ? (
+          <button
+            className="secondary danger"
+            type="button"
+            disabled={saving}
+            onClick={async () => {
+              if (!window.confirm(`Delete ${sectionName}?`)) return;
+              if (
+                await mutate(async () => {
+                  await api.deleteSection(editingSectionId);
+                  setSchedule(await api.getSchedule());
+                }, 'Class group deleted.')
+              )
+                setEditingSectionId(null);
+            }}
+          >
+            Delete group
+          </button>
+        ) : null}
+      </div>
+    </form>
+  );
+
   const courseSections =
-    schedule?.sections.filter((section) => section.courseId === course?.id) ?? [];
+    schedule?.sections
+      .filter((section) => section.courseId === course?.id)
+      .sort((a, b) => a.sectionName.localeCompare(b.sectionName, undefined, { numeric: true })) ??
+    [];
 
   return (
-    <main className="course-detail-workspace stack">
-      <div className="editor-topbar">
-        <div>
-          <p className="eyebrow">Shared curriculum</p>
-          <h1>{course?.name ?? 'Course'}</h1>
-          <p className="muted">
-            {course?.accessRole === 'editor'
-              ? 'Shared curriculum you can edit. Your class groups, schedules, progress, and classroom history stay private to you.'
-              : 'Shared curriculum for collaborators. Each teacher keeps their own class groups, schedules, progress, and classroom history.'}
-          </p>
-        </div>
-        <div className="profile-actions">
-          <Link className="button-link secondary" to="/courses">
+    <main className="course-workspace">
+      <header className="course-workspace-header">
+        <div className="course-workspace-title">
+          <Link className="course-back-link" to="/courses">
             ← Courses
           </Link>
-          <Link className="button-link done-editing" to="/courses">
-            Done Editing
-          </Link>
-          <Link className="button-link" to={`/year-plan?course=${courseId}`}>
-            Open Year Plan
-          </Link>
-          <Link className="button-link secondary" to={`/sharing?course=${courseId}`}>
-            Manage sharing
-          </Link>
-          <details className="course-actions-menu">
-            <summary aria-label="Course actions">•••</summary>
-            <div>
-              <button type="button" onClick={() => void courseAction('duplicate')}>
-                Duplicate as independent copy
-              </button>
-              {course?.accessRole === 'editor' ? (
-                <button className="danger" type="button" onClick={() => void courseAction('leave')}>
-                  Leave course
+          <h1>{course?.name ?? 'Course'}</h1>
+          {course ? (
+            <p>
+              {[
+                course.subject,
+                course.gradeLevel,
+                course.relationshipType === 'shared'
+                  ? 'Shared curriculum'
+                  : 'Independent curriculum'
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          ) : null}
+        </div>
+        {course ? (
+          <div className="course-compact-actions">
+            <Link className="button-link secondary" to={`/year-plan?course=${courseId}`}>
+              Year Plan
+            </Link>
+            <Link className="button-link" to={`/sharing?course=${courseId}`}>
+              Share course
+            </Link>
+            <details
+              className="course-actions-menu"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.currentTarget.open = false;
+                  event.currentTarget.querySelector('summary')?.focus();
+                }
+              }}
+            >
+              <summary aria-label="Course actions">•••</summary>
+              <div>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void courseAction('duplicate')}
+                >
+                  Duplicate course
                 </button>
-              ) : (
-                <>
-                  <button className="danger" type="button" onClick={() => void courseAction('end')}>
-                    End course for me
-                  </button>
+                {course.accessRole === 'editor' ? (
                   <button
                     className="danger"
                     type="button"
-                    onClick={() => void courseAction('delete')}
-                  >
-                    Delete permanently
-                  </button>
-                </>
-              )}
-            </div>
-          </details>
-        </div>
-      </div>
-      {error ? <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div> : null}
-      {loading && !course ? <p className="muted">Loading course...</p> : null}
-
-      {course ? (
-        <>
-          <div className="course-settings card stack">
-            <p className="eyebrow">My course</p>
-            <h3>Course settings</h3>
-            <p className="muted">
-              {course.relationshipType === 'shared'
-                ? `Using shared curriculum: ${course.curriculumName}. Renaming this course only changes your workspace.`
-                : course.curriculumName !== course.name
-                  ? `Independent copy based on ${course.curriculumName}.`
-                  : 'This is your independent curriculum.'}
-            </p>
-            <input
-              className="input"
-              value={courseName}
-              onChange={(event) => setCourseName(event.target.value)}
-              placeholder="Course name"
-            />
-            <input
-              className="input"
-              value={courseSubject}
-              onChange={(event) => setCourseSubject(event.target.value)}
-              placeholder="Subject"
-            />
-            <input
-              className="input"
-              value={courseGradeLevel}
-              onChange={(event) => setCourseGradeLevel(event.target.value)}
-              placeholder="Grade level"
-            />
-            <div className="row">
-              <button
-                type="button"
-                disabled={saving || !courseName.trim()}
-                onClick={async () => {
-                  try {
-                    setSaving(true);
-                    const detail = await api.updateCourse(course.id, {
-                      name: courseName.trim(),
-                      subject: toNullable(courseSubject),
-                      gradeLevel: toNullable(courseGradeLevel)
-                    });
-                    updateFromDetail(detail);
-                    setError(null);
-                  } catch (err) {
-                    setError(err instanceof ApiError ? err.message : 'Failed to update course');
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-              >
-                Save course
-              </button>
-            </div>
-          </div>
-
-          <div className="course-activity card stack">
-            <div className="section-heading">
-              <div>
-                <h3>Activity</h3>
-                <p className="muted">Recent shared-curriculum changes and discussion.</p>
-              </div>
-            </div>
-            {activity.length ? (
-              activity.map((event) => (
-                <div className="course-edit-meeting-row" key={event.id}>
-                  <div>
-                    <strong>
-                      {event.actor?.fullName ?? event.actor?.email ?? 'A collaborator'}
-                    </strong>
-                    <span>{event.summary}</span>
-                  </div>
-                  <time className="muted" dateTime={event.createdAt}>
-                    {new Intl.DateTimeFormat(undefined, {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: 'numeric',
-                      minute: '2-digit'
-                    }).format(new Date(event.createdAt))}
-                  </time>
-                </div>
-              ))
-            ) : (
-              <p className="muted">Shared curriculum activity will appear here.</p>
-            )}
-          </div>
-
-          <div className="course-collaborators card stack">
-            <div className="section-heading">
-              <div>
-                <h3>Collaborators</h3>
-                <p className="muted">
-                  Curriculum changes are shared. Scheduled class groups remain private to each
-                  teacher.
-                </p>
-              </div>
-            </div>
-            {collaborators.map((collaborator) => (
-              <div className="course-edit-meeting-row" key={collaborator.userId}>
-                <div>
-                  <strong>{collaborator.fullName ?? collaborator.email}</strong>
-                  <span>
-                    {collaborator.role === 'owner'
-                      ? 'Owner'
-                      : collaborator.status === 'invited'
-                        ? 'Invitation pending'
-                        : 'Can edit curriculum'}
-                  </span>
-                </div>
-                {course.accessRole === 'owner' && collaborator.role === 'editor' ? (
-                  <button
-                    className="button-link"
-                    type="button"
                     disabled={saving}
-                    onClick={async () => {
-                      if (!window.confirm(`Remove ${collaborator.fullName ?? collaborator.email}?`))
-                        return;
-                      try {
-                        setSaving(true);
-                        const response = await api.removeCourseCollaborator(
-                          course.id,
-                          collaborator.userId
-                        );
-                        void response;
-                        setCollaborators((items) =>
-                          items.filter((item) => item.userId !== collaborator.userId)
-                        );
-                      } catch (err) {
-                        setError(
-                          err instanceof ApiError ? err.message : 'Could not remove collaborator.'
-                        );
-                      } finally {
-                        setSaving(false);
-                      }
-                    }}
+                    onClick={() => void courseAction('leave')}
                   >
-                    Remove
+                    Leave course
                   </button>
-                ) : null}
-              </div>
-            ))}
-            {course.accessRole === 'owner' ? (
-              <div className="profile-actions">
-                <input
-                  className="input"
-                  type="email"
-                  value={collaboratorEmail}
-                  onChange={(event) => setCollaboratorEmail(event.target.value)}
-                  placeholder="teacher@school.edu"
-                  aria-label="Collaborator email"
-                />
-                <button
-                  type="button"
-                  disabled={saving || !collaboratorEmail.trim()}
-                  onClick={async () => {
-                    try {
-                      setSaving(true);
-                      const response = await api.inviteCourseCollaborator(course.id, {
-                        email: collaboratorEmail.trim()
-                      });
-                      setCollaborators(response.collaborators);
-                      setCollaboratorEmail('');
-                    } catch (err) {
-                      setError(
-                        err instanceof ApiError ? err.message : 'Could not invite collaborator.'
-                      );
-                    } finally {
-                      setSaving(false);
-                    }
-                  }}
-                >
-                  Invite collaborator
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="course-class-groups card stack">
-            <div className="section-heading">
-              <div>
-                <h3>Class Groups</h3>
-                <p className="muted">{courseSections.length} Class Groups share this Course</p>
-              </div>
-            </div>
-            {courseSections.length ? (
-              courseSections.map((section) => (
-                <div className="course-edit-meeting-row" key={section.sectionId}>
-                  {editingSectionId === section.sectionId ? (
-                    <div className="section-meeting-editor">
-                      <input
-                        className="input"
-                        value={editingSectionName}
-                        onChange={(event) => setEditingSectionName(event.target.value)}
-                      />
-                      {editingMeetings.map((meeting, index) => (
-                        <div
-                          className="section-meeting-fields"
-                          key={`${section.sectionId}-${index}`}
-                        >
-                          <select
-                            className="input"
-                            value={meeting.day}
-                            onChange={(event) =>
-                              setEditingMeetings((items) =>
-                                items.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, day: event.target.value } : item
-                                )
-                              )
-                            }
-                          >
-                            {meetingDays.map((day) => (
-                              <option key={day}>{day}</option>
-                            ))}
-                          </select>
-                          <input
-                            className="input"
-                            type="time"
-                            value={meeting.time}
-                            onChange={(event) =>
-                              setEditingMeetings((items) =>
-                                items.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, time: event.target.value } : item
-                                )
-                              )
-                            }
-                          />
-                          <input
-                            className="input"
-                            type="time"
-                            value={meeting.endTime}
-                            onChange={(event) =>
-                              setEditingMeetings((items) =>
-                                items.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? { ...item, endTime: event.target.value }
-                                    : item
-                                )
-                              )
-                            }
-                          />
-                          <input
-                            className="input"
-                            value={meeting.room}
-                            placeholder="Room"
-                            onChange={(event) =>
-                              setEditingMeetings((items) =>
-                                items.map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, room: event.target.value } : item
-                                )
-                              )
-                            }
-                          />
-                          <button
-                            className="button-link"
-                            type="button"
-                            onClick={() =>
-                              setEditingMeetings((items) =>
-                                items.filter((_, itemIndex) => itemIndex !== index)
-                              )
-                            }
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                      <div className="profile-actions">
-                        <button
-                          className="secondary"
-                          type="button"
-                          onClick={() =>
-                            setEditingMeetings((items) => [
-                              ...items,
-                              { day: 'Monday', time: '', endTime: '', room: '' }
-                            ])
-                          }
-                        >
-                          + Meeting
-                        </button>
-                        <button
-                          type="button"
-                          disabled={saving || !editingSectionName.trim()}
-                          onClick={async () => {
-                            try {
-                              setSaving(true);
-                              setSchedule(
-                                await api.updateSection(section.sectionId, {
-                                  sectionName: editingSectionName.trim(),
-                                  meetings: editingMeetings.map((meeting) => ({
-                                    day: meeting.day as any,
-                                    time: meeting.time || null,
-                                    endTime: meeting.endTime || null,
-                                    room: meeting.room || null
-                                  }))
-                                })
-                              );
-                              setEditingSectionId(null);
-                            } catch (err) {
-                              setError(
-                                err instanceof ApiError
-                                  ? err.message
-                                  : 'Could not save class group.'
-                              );
-                            } finally {
-                              setSaving(false);
-                            }
-                          }}
-                        >
-                          Save
-                        </button>
-                        <button
-                          className="secondary"
-                          type="button"
-                          onClick={() => setEditingSectionId(null)}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <strong>{section.sectionName}</strong>
-                        <span>
-                          {section.meetings
-                            .map(
-                              (meeting) =>
-                                `${meeting.day} ${timeRange(meeting.time, meeting.endTime)}`
-                            )
-                            .join(' · ') || 'No meeting times yet'}
-                        </span>
-                      </div>
-                      <div className="profile-actions">
-                        <button
-                          className="secondary"
-                          type="button"
-                          onClick={() => {
-                            setEditingSectionId(section.sectionId);
-                            setEditingSectionName(section.sectionName);
-                            setEditingMeetings(
-                              section.meetings.map((meeting) => ({
-                                day: meeting.day,
-                                time: meeting.time ?? '',
-                                endTime: meeting.endTime ?? '',
-                                room: meeting.room ?? ''
-                              }))
-                            );
-                          }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className="button-link"
-                          type="button"
-                          onClick={async () => {
-                            if (!window.confirm(`Delete ${section.sectionName}?`)) return;
-                            try {
-                              setSaving(true);
-                              await api.deleteSection(section.sectionId);
-                              setSchedule(await api.getSchedule());
-                            } catch (err) {
-                              setError(
-                                err instanceof ApiError
-                                  ? err.message
-                                  : 'Could not delete class group.'
-                              );
-                            } finally {
-                              setSaving(false);
-                            }
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ))
-            ) : (
-              <p className="muted">No class groups yet. Add one below.</p>
-            )}
-            <div className="section-meeting-editor">
-              <strong>Add class group</strong>
-              <input
-                className="input"
-                value={newSectionName}
-                onChange={(event) => setNewSectionName(event.target.value)}
-                placeholder="Group A"
-              />
-              {newSectionMeetings.map((meeting, index) => (
-                <div className="section-meeting-fields" key={`new-${index}`}>
-                  <select
-                    className="input"
-                    value={meeting.day}
-                    onChange={(event) =>
-                      setNewSectionMeetings((items) =>
-                        items.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, day: event.target.value } : item
-                        )
-                      )
-                    }
-                  >
-                    {meetingDays.map((day) => (
-                      <option key={day}>{day}</option>
-                    ))}
-                  </select>
-                  <input
-                    className="input"
-                    type="time"
-                    value={meeting.time}
-                    onChange={(event) =>
-                      setNewSectionMeetings((items) =>
-                        items.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, time: event.target.value } : item
-                        )
-                      )
-                    }
-                  />
-                  <input
-                    className="input"
-                    type="time"
-                    value={meeting.endTime}
-                    onChange={(event) =>
-                      setNewSectionMeetings((items) =>
-                        items.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, endTime: event.target.value } : item
-                        )
-                      )
-                    }
-                  />
-                  <input
-                    className="input"
-                    value={meeting.room}
-                    placeholder="Room"
-                    onChange={(event) =>
-                      setNewSectionMeetings((items) =>
-                        items.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, room: event.target.value } : item
-                        )
-                      )
-                    }
-                  />
-                  <button
-                    className="button-link"
-                    type="button"
-                    disabled={newSectionMeetings.length === 1}
-                    onClick={() =>
-                      setNewSectionMeetings((items) =>
-                        items.filter((_, itemIndex) => itemIndex !== index)
-                      )
-                    }
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <div className="profile-actions">
-                <button
-                  className="secondary"
-                  type="button"
-                  onClick={() =>
-                    setNewSectionMeetings((items) => [
-                      ...items,
-                      { day: 'Monday', time: '', endTime: '', room: '' }
-                    ])
-                  }
-                >
-                  + Meeting
-                </button>
-                <button
-                  type="button"
-                  disabled={saving || !newSectionName.trim()}
-                  onClick={async () => {
-                    try {
-                      setSaving(true);
-                      setSchedule(
-                        await api.createSection({
-                          courseId: course.id,
-                          sectionName: newSectionName.trim(),
-                          meetings: newSectionMeetings.map((meeting) => ({
-                            day: meeting.day as any,
-                            time: meeting.time || null,
-                            endTime: meeting.endTime || null,
-                            room: meeting.room || null
-                          }))
-                        })
-                      );
-                      setNewSectionName('');
-                      setNewSectionMeetings([{ day: 'Monday', time: '', endTime: '', room: '' }]);
-                    } catch (err) {
-                      setError(
-                        err instanceof ApiError ? err.message : 'Could not add class group.'
-                      );
-                    } finally {
-                      setSaving(false);
-                    }
-                  }}
-                >
-                  Add group
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="course-unit-slides card stack">
-            <div className="section-heading">
-              <div>
-                <h3>Unit Slides</h3>
-                <p className="muted">
-                  Add one Google Slides deck to each unit. Lessons are edited in the Year Plan.
-                </p>
-              </div>
-              <Link className="button-link secondary" to={`/year-plan?course=${courseId}`}>
-                Edit lessons in Year Plan
-              </Link>
-            </div>
-            <details>
-              <summary>Add unit</summary>
-              <div className="stack course-add-unit-form">
-                <input
-                  className="input"
-                  value={unitTitle}
-                  onChange={(event) => setUnitTitle(event.target.value)}
-                  placeholder="Unit title"
-                />
-                <input
-                  className="input"
-                  value={unitDescription}
-                  onChange={(event) => setUnitDescription(event.target.value)}
-                  placeholder="Unit description (optional)"
-                />
-                <input
-                  className="input"
-                  value={unitOrder}
-                  onChange={(event) => setUnitOrder(event.target.value)}
-                  placeholder="Order index (optional)"
-                />
-                <button
-                  type="button"
-                  disabled={saving || !unitTitle.trim()}
-                  onClick={async () => {
-                    try {
-                      setSaving(true);
-                      const detail = await api.createUnit(course.id, {
-                        title: unitTitle.trim(),
-                        description: toNullable(unitDescription),
-                        orderIndex: parseOptionalOrder(unitOrder)
-                      });
-                      updateFromDetail(detail);
-                      setUnitTitle('');
-                      setUnitDescription('');
-                      setUnitOrder('');
-                    } catch (err) {
-                      setError(err instanceof ApiError ? err.message : 'Failed to add unit');
-                    } finally {
-                      setSaving(false);
-                    }
-                  }}
-                >
-                  Add unit
-                </button>
+                ) : (
+                  <>
+                    <button
+                      className="danger"
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void courseAction('end')}
+                    >
+                      End course
+                    </button>
+                    <button
+                      className="danger"
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void courseAction('delete')}
+                    >
+                      Delete permanently
+                    </button>
+                  </>
+                )}
               </div>
             </details>
           </div>
-
-          <div className="course-unit-slides stack">
-            {course.units.map((unit) => {
-              const unitSlidesDraft = unitSlidesDrafts[unit.id] ?? {
-                url: unit.googleSlidesUrl ?? '',
-                startSlide: String(unit.googleSlidesStartSlide)
-              };
-
-              return (
-                <div key={unit.id} className="card stack">
-                  <div className="row">
-                    <strong>
-                      Unit {unit.orderIndex}: {unit.title}
-                    </strong>
+        ) : null}
+      </header>
+      <p className="visually-hidden" role="status">
+        {notice}
+      </p>
+      {error ? (
+        <div className="notice warning" role="alert">
+          <p>{error}</p>
+          <button className="secondary" type="button" onClick={() => void loadCourse()}>
+            Reload course
+          </button>
+          <FeedbackErrorAction />
+        </div>
+      ) : null}
+      {!courseId ? <p role="alert">Course id is missing.</p> : null}
+      {loading && !course ? <p role="status">Loading course…</p> : null}
+      {course ? (
+        <>
+          <div className="course-workspace-grid">
+            <CourseUnits
+              course={course}
+              saving={saving}
+              onSave={saveUnit}
+              onCreate={(title, description) =>
+                mutate(async () => {
+                  updateFromDetail(
+                    await api.createUnit(course.id, { title, description: description || null })
+                  );
+                }, 'Unit added.')
+              }
+              onDelete={async (unit) => {
+                if (!window.confirm(`Delete unit "${unit.title}" and its lessons?`)) return;
+                await mutate(async () => {
+                  await api.deleteUnit(unit.id);
+                  updateFromDetail(await api.getCourseDetail(course.id));
+                }, 'Unit deleted.');
+              }}
+            />
+            <aside className="course-context-column" aria-label="Class groups and collaborators">
+              <section className="course-groups-panel" aria-labelledby="course-groups-title">
+                <header className="course-panel-heading">
+                  <div className="course-heading-label">
+                    <h2 id="course-groups-title">Class groups</h2>
+                    {schedule ? <span>{courseSections.length}</span> : null}
+                  </div>
+                  <button
+                    className="secondary"
+                    type="button"
+                    aria-expanded={addingGroup}
+                    onClick={() => {
+                      setAddingGroup(!addingGroup);
+                      setEditingSectionId(null);
+                      setSectionName('');
+                      setMeetings([blankMeeting()]);
+                    }}
+                  >
+                    {addingGroup ? 'Cancel' : '+ Group'}
+                  </button>
+                </header>
+                {scheduleError ? (
+                  <p className="course-empty" role="alert">
+                    Could not load class groups.{' '}
+                    <button className="secondary" type="button" onClick={() => void loadSchedule()}>
+                      Retry
+                    </button>
+                  </p>
+                ) : !schedule ? (
+                  <p className="course-empty" role="status">
+                    Loading class groups…
+                  </p>
+                ) : !courseSections.length ? (
+                  <p className="course-empty">
+                    No class groups yet. Add a group to set meeting times.
+                  </p>
+                ) : null}
+                {courseSections.map((section) => (
+                  <div className="course-group" key={section.sectionId}>
+                    <div className="course-group-heading">
+                      <h3>{section.sectionName}</h3>
+                      <button
+                        className="secondary"
+                        type="button"
+                        aria-label={`Edit ${section.sectionName}`}
+                        aria-expanded={editingSectionId === section.sectionId}
+                        onClick={() =>
+                          editingSectionId === section.sectionId
+                            ? setEditingSectionId(null)
+                            : editGroup(section)
+                        }
+                      >
+                        {editingSectionId === section.sectionId ? 'Cancel' : 'Edit'}
+                      </button>
+                    </div>
+                    {editingSectionId === section.sectionId ? (
+                      groupForm
+                    ) : section.meetings.length ? (
+                      <ul className="course-meeting-list">
+                        {sortCourseMeetings(section.meetings).map((meeting, index) => (
+                          <li key={`${meeting.day}-${index}`}>
+                            <strong>{meeting.day}</strong>
+                            <span>
+                              {timeRange(meeting.time, meeting.endTime)}
+                              {meeting.room ? <small>{meeting.room}</small> : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="course-empty">No meeting times set.</p>
+                    )}
+                  </div>
+                ))}
+                {addingGroup ? groupForm : null}
+              </section>
+              <section className="course-sharing-panel" aria-labelledby="course-sharing-title">
+                <header className="course-panel-heading">
+                  <h2 id="course-sharing-title">Collaborators</h2>
+                </header>
+                <p className="course-sharing-note">
+                  Share curriculum. Class schedules and progress stay private.
+                </p>
+                {collaboratorsError ? (
+                  <p className="course-empty" role="alert">
+                    Could not load collaborators.{' '}
                     <button
                       className="secondary"
                       type="button"
-                      onClick={async () => {
-                        const nextTitle = window.prompt('Unit title', unit.title);
-                        if (nextTitle === null || !nextTitle.trim()) return;
-                        const nextDescription = window.prompt(
-                          'Unit description (optional)',
-                          unit.description ?? ''
-                        );
-                        const nextOrder = window.prompt(
-                          'Unit order index',
-                          String(unit.orderIndex)
-                        );
-                        try {
-                          setSaving(true);
-                          const detail = await api.updateUnit(unit.id, {
-                            title: nextTitle.trim(),
-                            description: toNullable(nextDescription ?? ''),
-                            orderIndex: parseOptionalOrder(nextOrder ?? '')
-                          });
-                          updateFromDetail(detail);
-                        } catch (err) {
-                          setError(err instanceof ApiError ? err.message : 'Failed to update unit');
-                        } finally {
-                          setSaving(false);
-                        }
-                      }}
+                      onClick={() => void loadCollaborators()}
                     >
-                      Edit unit
+                      Retry
                     </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!window.confirm(`Delete unit "${unit.title}" and its lessons?`)) return;
-                        try {
-                          setSaving(true);
-                          await api.deleteUnit(unit.id);
-                          await loadCourse();
-                        } catch (err) {
-                          setError(err instanceof ApiError ? err.message : 'Failed to delete unit');
-                        } finally {
-                          setSaving(false);
-                        }
-                      }}
-                    >
-                      Delete unit
+                  </p>
+                ) : collaborators === null ? (
+                  <p className="course-empty" role="status">
+                    Loading collaborators…
+                  </p>
+                ) : collaborators.length ? (
+                  <ul className="course-collaborator-list">
+                    {collaborators.map((collaborator) => (
+                      <li key={collaborator.userId}>
+                        <div>
+                          <strong>{collaborator.fullName ?? collaborator.email}</strong>
+                          <small>
+                            {collaborator.role === 'owner'
+                              ? 'Owner'
+                              : collaborator.status === 'invited'
+                                ? 'Invitation pending'
+                                : 'Can edit'}
+                          </small>
+                        </div>
+                        {course.accessRole === 'owner' && collaborator.role === 'editor' ? (
+                          <button
+                            className="secondary"
+                            type="button"
+                            disabled={saving}
+                            aria-label={`Remove ${collaborator.fullName ?? collaborator.email}`}
+                            onClick={async () => {
+                              if (
+                                !window.confirm(
+                                  `Remove ${collaborator.fullName ?? collaborator.email}?`
+                                )
+                              )
+                                return;
+                              await mutate(async () => {
+                                await api.removeCourseCollaborator(course.id, collaborator.userId);
+                                setCollaborators(
+                                  (items) =>
+                                    items?.filter((item) => item.userId !== collaborator.userId) ??
+                                    null
+                                );
+                              }, 'Collaborator removed.');
+                            }}
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="course-empty">No collaborators yet.</p>
+                )}
+                {course.accessRole === 'owner' ? (
+                  <form
+                    className="course-invite-form"
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      if (
+                        await mutate(async () => {
+                          setCollaborators(
+                            (
+                              await api.inviteCourseCollaborator(course.id, {
+                                email: collaboratorEmail.trim()
+                              })
+                            ).collaborators
+                          );
+                        }, 'Invitation sent.')
+                      )
+                        setCollaboratorEmail('');
+                    }}
+                  >
+                    <label>
+                      Invite by email
+                      <input
+                        className="input"
+                        type="email"
+                        value={collaboratorEmail}
+                        onChange={(event) => setCollaboratorEmail(event.target.value)}
+                        placeholder="teacher@school.edu"
+                        required
+                      />
+                    </label>
+                    <button type="submit" disabled={saving || !collaboratorEmail.trim()}>
+                      Invite
                     </button>
-                  </div>
-                  {unit.description ? <p className="muted">{unit.description}</p> : null}
-
-                  <section className="unit-slides-settings" aria-label={`Slides for ${unit.title}`}>
-                    <div>
-                      <p className="eyebrow">Unit Slides</p>
-                      <span>One deck follows this unit through every lesson and class group.</span>
-                    </div>
-                    <div className="unit-slides-settings-form">
-                      <label>
-                        <span>Google Slides link</span>
-                        <input
-                          className="input"
-                          type="url"
-                          value={unitSlidesDraft.url}
-                          onChange={(event) =>
-                            setUnitSlidesDrafts((previous) => ({
-                              ...previous,
-                              [unit.id]: { ...unitSlidesDraft, url: event.target.value }
-                            }))
-                          }
-                          placeholder="https://docs.google.com/presentation/d/…"
-                        />
-                      </label>
-                      <label>
-                        <span>Start on slide</span>
-                        <input
-                          className="input"
-                          type="number"
-                          min="1"
-                          value={unitSlidesDraft.startSlide}
-                          onChange={(event) =>
-                            setUnitSlidesDrafts((previous) => ({
-                              ...previous,
-                              [unit.id]: { ...unitSlidesDraft, startSlide: event.target.value }
-                            }))
-                          }
-                          placeholder="1"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        disabled={saving || !isGoogleSlidesUrl(unitSlidesDraft.url)}
-                        onClick={async () => {
-                          const parsedStart = Number(unitSlidesDraft.startSlide || '1');
-                          if (!Number.isInteger(parsedStart) || parsedStart < 1) {
-                            setError('The starting slide must be a whole number of 1 or greater.');
-                            return;
-                          }
-                          try {
-                            setSaving(true);
-                            const detail = await api.updateUnit(unit.id, {
-                              googleSlidesUrl: unitSlidesDraft.url.trim(),
-                              googleSlidesStartSlide: parsedStart
-                            });
-                            updateFromDetail(detail);
-                            setUnitSlidesDrafts((previous) => ({
-                              ...previous,
-                              [unit.id]: {
-                                url: unitSlidesDraft.url.trim(),
-                                startSlide: String(parsedStart)
-                              }
-                            }));
-                            setError(null);
-                          } catch (err) {
-                            setError(
-                              err instanceof ApiError ? err.message : 'Failed to save Unit Slides'
-                            );
-                          } finally {
-                            setSaving(false);
-                          }
-                        }}
-                      >
-                        {unit.googleSlidesUrl ? 'Update slides' : 'Add slides'}
-                      </button>
-                      {unit.googleSlidesUrl ? (
-                        <button
-                          className="button-link danger"
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              setSaving(true);
-                              const detail = await api.updateUnit(unit.id, {
-                                googleSlidesUrl: null,
-                                googleSlidesStartSlide: 1
-                              });
-                              updateFromDetail(detail);
-                              setUnitSlidesDrafts((previous) => ({
-                                ...previous,
-                                [unit.id]: { url: '', startSlide: '1' }
-                              }));
-                            } catch (err) {
-                              setError(
-                                err instanceof ApiError
-                                  ? err.message
-                                  : 'Failed to remove Unit Slides'
-                              );
-                            } finally {
-                              setSaving(false);
-                            }
-                          }}
-                        >
-                          Remove
-                        </button>
-                      ) : null}
-                    </div>
-                    {unitSlidesDraft.url && !isGoogleSlidesUrl(unitSlidesDraft.url) ? (
-                      <p className="unit-slides-detection is-error">
-                        Paste a Google Slides presentation link.
-                      </p>
-                    ) : unitSlidesDraft.url ? (
-                      <p className="unit-slides-detection">Google Slides detected</p>
-                    ) : null}
-                  </section>
-
-                  <section className="unit-lesson-summary" aria-label={`Lessons in ${unit.title}`}>
-                    <div className="section-heading">
+                  </form>
+                ) : null}
+              </section>
+            </aside>
+          </div>
+          <div className="course-secondary-panels">
+            <details className="course-disclosure">
+              <summary>Course settings</summary>
+              <form
+                className="course-settings-form course-inline-form"
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  await mutate(
+                    async () =>
+                      updateFromDetail(
+                        await api.updateCourse(course.id, {
+                          name: courseName.trim(),
+                          subject: courseSubject.trim() || null,
+                          gradeLevel: courseGradeLevel.trim() || null
+                        })
+                      ),
+                    'Course saved.'
+                  );
+                }}
+              >
+                {course.relationshipType === 'shared' ? (
+                  <p>Using {course.curriculumName}. Renaming only changes your workspace.</p>
+                ) : course.curriculumName !== course.name ? (
+                  <p>Independent copy of {course.curriculumName}.</p>
+                ) : null}
+                <label>
+                  Course name
+                  <input
+                    className="input"
+                    value={courseName}
+                    onChange={(event) => setCourseName(event.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  Subject
+                  <input
+                    className="input"
+                    value={courseSubject}
+                    onChange={(event) => setCourseSubject(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Grade
+                  <input
+                    className="input"
+                    value={courseGradeLevel}
+                    onChange={(event) => setCourseGradeLevel(event.target.value)}
+                  />
+                </label>
+                <button type="submit" disabled={saving || !courseName.trim()}>
+                  {saving ? 'Saving…' : 'Save course'}
+                </button>
+              </form>
+            </details>
+            <details className="course-disclosure">
+              <summary>Recent activity</summary>
+              {activityError ? (
+                <p className="course-empty" role="alert">
+                  Could not load activity.{' '}
+                  <button className="secondary" type="button" onClick={() => void loadActivity()}>
+                    Retry
+                  </button>
+                </p>
+              ) : activity === null ? (
+                <p className="course-empty" role="status">
+                  Loading activity…
+                </p>
+              ) : activity.length ? (
+                <ul className="course-activity-list">
+                  {activity.map((event) => (
+                    <li key={event.id}>
                       <div>
-                        <h4>Lessons</h4>
-                        <p className="muted">Lesson editing happens in the Year Plan.</p>
+                        <strong>
+                          {event.actor?.fullName ?? event.actor?.email ?? 'A collaborator'}
+                        </strong>
+                        <span>{event.summary}</span>
                       </div>
-                      <Link className="button-link secondary" to={`/year-plan?course=${courseId}`}>
-                        Edit lessons
-                      </Link>
-                    </div>
-                    {unit.lessons.length ? (
-                      <ol>
-                        {unit.lessons.map((lesson) => (
-                          <li key={lesson.id}>
-                            {lesson.orderIndex}. {lesson.title}
-                          </li>
-                        ))}
-                      </ol>
-                    ) : (
-                      <p className="muted">No lessons yet.</p>
-                    )}
-                  </section>
-                </div>
-              );
-            })}
+                      <time dateTime={event.createdAt}>
+                        {new Intl.DateTimeFormat(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit'
+                        }).format(new Date(event.createdAt))}
+                      </time>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="course-empty">No curriculum changes yet.</p>
+              )}
+            </details>
           </div>
         </>
       ) : null}

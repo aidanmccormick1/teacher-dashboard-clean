@@ -11,11 +11,13 @@ export function UnitPlanningWorkspace({
   groupName,
   goal,
   meetings,
-  minutes,
+  periodMinutes,
+  scheduleSource,
+  timingIssue,
+  manualPeriodMinutes,
+  setManualPeriodMinutes,
   setGoal,
   setMeetings,
-  hasScheduledDuration,
-  mixedDurations,
   draft,
   setDraft,
   generating,
@@ -30,11 +32,13 @@ export function UnitPlanningWorkspace({
   groupName?: string;
   goal: string;
   meetings: string;
-  minutes: number;
+  periodMinutes: number[];
+  scheduleSource: string | null;
+  timingIssue: string | null;
+  manualPeriodMinutes: string;
+  setManualPeriodMinutes: (value: string) => void;
   setGoal: (value: string) => void;
   setMeetings: (value: string) => void;
-  hasScheduledDuration: boolean;
-  mixedDurations: boolean;
   draft: Draft | null;
   setDraft: Dispatch<SetStateAction<Draft | null>>;
   generating: boolean;
@@ -151,8 +155,8 @@ export function UnitPlanningWorkspace({
                 />
               </label>
               <p>
-                {unit.lessons.length} lessons · {unit.meetingCount} class meetings ·{' '}
-                {plannedMinutes} planned minutes
+                {unit.lessons.length} lessons · {unit.meetingCount} class periods · {plannedMinutes}{' '}
+                planned minutes
               </p>
               <button
                 type="button"
@@ -321,10 +325,18 @@ export function UnitPlanningWorkspace({
             }}
           >
             <p>
-              {hasScheduledDuration
-                ? `Planning for ${minutes}-minute meetings from ${groupName}’s schedule${mixedDurations ? ' (the shortest scheduled meeting)' : ''}.`
-                : `Planning with a ${minutes}-minute estimate per meeting. ${groupName ? 'This Class Group has no meeting length set.' : 'Select a Class Group to use its schedule.'}`}
+              {scheduleSource && periodMinutes.length
+                ? new Set(periodMinutes).size === 1
+                  ? `Using ${periodMinutes[0]}-minute class periods from ${scheduleSource}’s schedule.`
+                  : `Using the scheduled period lengths from ${scheduleSource}: ${periodMinutes.join(', ')} minutes, in teaching order.`
+                : timingIssue}
             </p>
+            {Number(meetings) >= 2 && periodMinutes.length ? (
+              <p role="status">
+                {periodMinutes.length} class periods ·{' '}
+                {periodMinutes.reduce((sum, value) => sum + value, 0)} total minutes
+              </p>
+            ) : null}
             <label>
               Learning goal
               <textarea
@@ -340,7 +352,7 @@ export function UnitPlanningWorkspace({
             </label>
             <div className="unit-planning-numbers">
               <label>
-                Class meetings
+                Class periods
                 <input
                   className="input"
                   type="number"
@@ -352,6 +364,21 @@ export function UnitPlanningWorkspace({
                   onChange={(event) => setMeetings(event.target.value)}
                 />
               </label>
+              {timingIssue ? (
+                <label>
+                  Minutes per period
+                  <input
+                    className="input"
+                    type="number"
+                    required
+                    min={1}
+                    max={1440}
+                    value={manualPeriodMinutes}
+                    disabled={busy}
+                    onChange={(event) => setManualPeriodMinutes(event.target.value)}
+                  />
+                </label>
+              ) : null}
             </div>
             <small>The plan stays a draft until you add it to your course.</small>
           </form>

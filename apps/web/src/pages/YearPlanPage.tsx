@@ -230,6 +230,7 @@ export function YearPlanPage() {
         key={`${selectedCourse.id}_${selectedSection?.sectionId ?? 'shared'}_${context.view}`}
         course={selectedCourse}
         selectedSection={selectedSection}
+        courseSections={courseSections}
         holidays={(schedule?.holidays ?? []).map((holiday) => holiday.date)}
         schoolYearSettings={
           calendar?.schoolYear

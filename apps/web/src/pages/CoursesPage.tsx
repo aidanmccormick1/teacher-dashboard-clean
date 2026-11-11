@@ -13,7 +13,9 @@ import type {
 import { ApiError, useApiClient } from '../lib/api.js';
 import { groupImportedSchedule, normalizeImportedCourseVariants } from '../lib/scheduleImport.js';
 import { timeRange } from '../lib/today.js';
+import { sortCourseMeetings } from '../lib/courseSchedule.js';
 import { HobieHint } from '../components/HobieHelper.js';
+import './CourseWorkspace.css';
 
 type Course = CourseDetailResponse['course'];
 
@@ -108,7 +110,7 @@ function importKey(courseName: string, sectionName: string) {
 
 function classPickerLabel(section: GetScheduleResponse['sections'][number]) {
   const meetingLabel = section.meetings.length
-    ? section.meetings
+    ? sortCourseMeetings(section.meetings)
         .map((meeting) => `${meeting.day} ${timeRange(meeting.time, meeting.endTime)}`)
         .join(', ')
     : 'No meeting time set';
@@ -801,45 +803,59 @@ export function CoursesPage() {
         className={`course-hub-row ${course.lifecycle === 'ended' ? 'is-archived' : ''}`}
       >
         <div>
-          <h2>{course.name}</h2>
-          <p>{[course.subject, course.gradeLevel].filter(Boolean).join(' · ') || 'Course'}</p>
-          <span className="course-curriculum-status">
-            {course.relationshipType === 'shared'
-              ? `Using shared curriculum: ${course.curriculumName}`
-              : course.curriculumName !== course.name
-                ? `Based on: ${course.curriculumName} · Independent copy`
-                : 'Independent curriculum'}
-          </span>
-          <span>
-            {course.lifecycle === 'ended'
-              ? 'Ended'
-              : sections.length
-                ? `${sections.length} ${sections.length === 1 ? 'class group' : 'class groups'} · ${sections
-                    .map((section) => section.sectionName)
-                    .join(' · ')}`
-                : 'Unlinked · no class groups yet'}
-          </span>
-          <span
-            className={
-              course.units.length ? 'course-curriculum-status' : 'course-curriculum-status is-empty'
-            }
-          >
-            {course.units.length
-              ? `Curriculum · ${course.units.length} ${course.units.length === 1 ? 'unit' : 'units'} · ${lessonCount} ${lessonCount === 1 ? 'lesson' : 'lessons'}`
-              : 'Curriculum not added'}
-          </span>
+          <h2>
+            <Link to={`/courses/${course.id}`}>{course.name}</Link>
+          </h2>
+          <p>
+            {[
+              course.subject,
+              course.gradeLevel,
+              `${course.units.length} units`,
+              `${lessonCount} lessons`
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+          {course.relationshipType === 'shared' || course.curriculumName !== course.name ? (
+            <span className="course-curriculum-status">
+              {course.relationshipType === 'shared'
+                ? `Using shared curriculum: ${course.curriculumName}`
+                : course.curriculumName !== course.name
+                  ? `Based on: ${course.curriculumName} · Independent copy`
+                  : 'Independent curriculum'}
+            </span>
+          ) : null}
+          {sections.length ? (
+            <ul className="course-hub-meetings" aria-label={`Class groups for ${course.name}`}>
+              {[...sections]
+                .sort((a, b) =>
+                  a.sectionName.localeCompare(b.sectionName, undefined, { numeric: true })
+                )
+                .map((section) => (
+                  <li key={section.sectionId}>
+                    <strong>{section.sectionName}</strong>
+                    <span>
+                      {sortCourseMeetings(section.meetings)
+                        .map(
+                          (meeting) => `${meeting.day} ${timeRange(meeting.time, meeting.endTime)}`
+                        )
+                        .join(' · ') || 'No meeting times'}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <span>{course.lifecycle === 'ended' ? 'Ended' : 'No class groups'}</span>
+          )}
         </div>
         <div className="course-row-actions">
           {course.lifecycle !== 'ended' ? (
             <>
-              <Link className="button-link secondary" to={`/courses/${course.id}`}>
-                Open course
-              </Link>
-              <Link className="button-link secondary" to={`/sharing?course=${course.id}`}>
-                Sharing
+              <Link className="button-link" to={`/sharing?course=${course.id}`}>
+                Share
               </Link>
               {course.units.length ? (
-                <Link className="button-link" to={`/year-plan?course=${course.id}`}>
+                <Link className="button-link secondary" to={`/year-plan?course=${course.id}`}>
                   Year Plan
                 </Link>
               ) : (
@@ -853,16 +869,6 @@ export function CoursesPage() {
                   Add curriculum
                 </button>
               )}
-              <button
-                className="secondary"
-                type="button"
-                onClick={() => {
-                  setLinkingCourseId(course.id);
-                  setLinkingSectionId('');
-                }}
-              >
-                Link to a class
-              </button>
             </>
           ) : null}
           <details className="course-actions-menu">
@@ -883,6 +889,15 @@ export function CoursesPage() {
                 </>
               ) : (
                 <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLinkingCourseId(course.id);
+                      setLinkingSectionId('');
+                    }}
+                  >
+                    Link to a class
+                  </button>
                   <button type="button" onClick={() => void runCourseAction(course, 'duplicate')}>
                     Duplicate as independent copy
                   </button>
@@ -997,8 +1012,7 @@ export function CoursesPage() {
     <main className="courses-page page-entry">
       <header className="courses-page-header">
         <div>
-          <p className="eyebrow">Courses</p>
-          <h1>What you teach</h1>
+          <h1>Courses</h1>
         </div>
         <div className="courses-header-actions">
           <button
@@ -1013,7 +1027,12 @@ export function CoursesPage() {
           </button>
         </div>
       </header>
-      {error ? <div className="notice warning" role="alert"><p>{error}</p><FeedbackErrorAction /></div> : null}
+      {error ? (
+        <div className="notice warning" role="alert">
+          <p>{error}</p>
+          <FeedbackErrorAction />
+        </div>
+      ) : null}
       {importOpen ? (
         <ScheduleImportPanel
           existingSections={schedule?.sections ?? []}

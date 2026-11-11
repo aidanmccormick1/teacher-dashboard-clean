@@ -672,12 +672,30 @@ export const GenerateSegmentsResponseSchema = z.object({
   )
 });
 
-export const GenerateUnitDraftRequestSchema = z.object({
-  courseName: z.string().min(1),
-  gradeLevel: z.string().nullable(),
-  prompt: z.string().min(8),
-  meetingCount: z.number().int().min(2).max(30).default(6)
-});
+export const GenerateUnitDraftRequestSchema = z
+  .object({
+    courseName: z.string().min(1),
+    gradeLevel: z.string().nullable(),
+    prompt: z.string().min(8),
+    meetingCount: z.number().int().min(2).max(30).default(6),
+    meetingDurationsMinutes: z
+      .array(z.number().int().positive().max(1440))
+      .min(2)
+      .max(30)
+      .optional()
+  })
+  .superRefine((value, context) => {
+    if (
+      value.meetingDurationsMinutes &&
+      value.meetingDurationsMinutes.length !== value.meetingCount
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['meetingDurationsMinutes'],
+        message: 'Provide one duration for each class period.'
+      });
+    }
+  });
 
 export const GenerateUnitDraftResponseSchema = z.object({
   unit: z.object({

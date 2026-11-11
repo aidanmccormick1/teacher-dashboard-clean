@@ -208,6 +208,30 @@
   animation: lessonPanelIn 160ms ease-out;
 }
 
+.lesson-plan-side-panel.lesson-quick-editor {
+  width: min(380px, calc(100vw - 32px));
+  align-content: start;
+  gap: 18px;
+}
+
+.lesson-quick-editor .lesson-plan-top-fields {
+  grid-template-columns: minmax(0, 1fr);
+  order: 0;
+}
+
+.lesson-quick-editor > p {
+  margin: 0;
+}
+
+.lesson-quick-editor button {
+  min-height: 44px;
+}
+
+.lesson-quick-editor :is(button, input):focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 3px;
+}
+
 .lesson-panel-backdrop {
   position: fixed;
   inset: 0;
