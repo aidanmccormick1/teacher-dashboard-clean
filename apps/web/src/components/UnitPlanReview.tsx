@@ -1,4 +1,4 @@
-import { useId, useState, type CSSProperties } from 'react';
+import { useId, useRef, useState, type CSSProperties } from 'react';
 import type { GenerateUnitDraftResponse } from '@teacheros/contracts';
 import { distributeUnitPeriods } from '../lib/unit-plan-layout.js';
 
@@ -24,6 +24,15 @@ export function UnitPlanReview({
 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const editorId = useId();
+  const editor = useRef<HTMLElement>(null);
+  const selectLesson = (nextIndex: number) => {
+    setSelectedIndex(nextIndex);
+    editor.current?.focus({ preventScroll: true });
+    editor.current?.scrollIntoView({
+      block: 'start',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+    });
+  };
   const index = Math.min(selectedIndex, Math.max(0, unit.lessons.length - 1));
   const lesson = unit.lessons[index];
   const ranges = distributeUnitPeriods(startMeeting, unit.meetingCount, unit.lessons.length);
@@ -145,7 +154,7 @@ export function UnitPlanReview({
                   aria-pressed={index === i}
                   aria-controls={editorId}
                   disabled={busy}
-                  onClick={() => setSelectedIndex(i)}
+                  onClick={() => selectLesson(i)}
                 >
                   <span>Lesson {i + 1}</span>
                   <strong>{item.title || 'Untitled lesson'}</strong>
@@ -172,7 +181,7 @@ export function UnitPlanReview({
                   disabled={busy}
                   aria-current={index === i ? 'true' : undefined}
                   aria-controls={editorId}
-                  onClick={() => setSelectedIndex(i)}
+                  onClick={() => selectLesson(i)}
                 >
                   <span className="unit-plan-outline-number">{i + 1}</span>
                   <span>
@@ -190,6 +199,8 @@ export function UnitPlanReview({
         </nav>
 
         <section
+          ref={editor}
+          tabIndex={-1}
           id={editorId}
           className="unit-plan-lesson-editor"
           aria-label="Edit selected lesson"

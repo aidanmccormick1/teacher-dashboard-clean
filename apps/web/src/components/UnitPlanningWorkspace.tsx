@@ -250,7 +250,10 @@ export function UnitPlanningWorkspace({
                 type="button"
                 className="secondary"
                 disabled={busy || saveFailed}
-                onClick={() => setReview(false)}
+              onClick={(event) => {
+                event.preventDefault();
+                setReview(false);
+              }}
               >
                 Generate new idea
               </button>
