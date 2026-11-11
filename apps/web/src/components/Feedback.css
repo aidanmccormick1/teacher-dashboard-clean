@@ -12,19 +12,6 @@
 .feedback-dialog::backdrop {
   background: rgba(20, 31, 42, 0.45);
 }
-.feedback-capture-mask
-  :is(
-    input,
-    textarea,
-    [contenteditable='true'],
-    [data-feedback-private],
-    [data-student-sensitive],
-    .sidebar-account,
-    .sidebar-account-row,
-    .admin-sidebar-account
-  ) {
-  visibility: hidden !important;
-}
 .feedback-heading {
   display: flex;
   align-items: center;

@@ -327,17 +327,25 @@ describeDatabase('private feedback API against PostgreSQL', () => {
     ).json();
     expect(detail.attachments).toHaveLength(1);
     const attachmentUrl = `/v1/feedback/${id}/attachments/${detail.attachments[0].id}`;
-    for (const headers of [other, admin])
+    for (const headers of [teacher, other, admin])
       expect((await app.inject({ method: 'GET', url: attachmentUrl, headers })).statusCode).toBe(
-        404
+        403
       );
-    for (const headers of [teacher, owner]) {
-      const image = await app.inject({ method: 'GET', url: attachmentUrl, headers });
-      expect(image.statusCode).toBe(200);
-      expect(image.headers['content-type']).toMatch(/image\/png/);
-      expect(image.headers['cache-control']).toBe('private, no-store');
-      expect((await sharp(image.rawPayload).metadata()).width).toBe(10);
-    }
+    expect((await app.inject({ method: 'GET', url: attachmentUrl })).statusCode).toBe(401);
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: attachmentUrl,
+          headers: { ...teacher, 'x-feedback-password': 'incorrect' }
+        })
+      ).statusCode
+    ).toBe(403);
+    const image = await app.inject({ method: 'GET', url: attachmentUrl, headers: owner });
+    expect(image.statusCode).toBe(200);
+    expect(image.headers['content-type']).toMatch(/image\/png/);
+    expect(image.headers['cache-control']).toBe('private, no-store');
+    expect((await sharp(image.rawPayload).metadata()).width).toBe(10);
     const count = fakeObjects.size;
     expect(
       (await app.inject({ method: 'DELETE', url: `/v1/management/feedback/${id}`, headers: owner }))

@@ -54,7 +54,7 @@ function PrivateScreenshot({ reportId, attachmentId }: { reportId: string; attac
       <img
         className="feedback-preview"
         src={url}
-        alt="Teacher-reviewed screenshot with submitted annotations"
+        alt="Screenshot submitted with teacher feedback"
       />
     </a>
   ) : (
