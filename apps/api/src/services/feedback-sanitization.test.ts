@@ -16,10 +16,15 @@ describe('feedback privacy validation', () => {
   it('accepts written reports without diagnostics', () => {
     expect(FeedbackSubmissionSchema.safeParse(valid).success).toBe(true);
   });
-  it('rejects forged identity, empty descriptions and invalid categories', () => {
+  it('accepts blank or omitted optional descriptions', () => {
+    expect(FeedbackSubmissionSchema.parse({ ...valid, description: '  ' }).description).toBe('');
+    expect(FeedbackSubmissionSchema.parse({ ...valid, description: undefined }).description).toBe(
+      ''
+    );
+  });
+  it('rejects forged identity and invalid categories', () => {
     for (const data of [
       { ...valid, reporterUserId: randomUUID() },
-      { ...valid, description: '  ' },
       { ...valid, category: 'admin' }
     ])
       expect(FeedbackSubmissionSchema.safeParse(data).success).toBe(false);

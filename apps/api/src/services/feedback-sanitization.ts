@@ -179,7 +179,7 @@ export const FeedbackSubmissionSchema = z
     clientReportId: z.string().uuid(),
     clientSessionId: z.string().uuid().optional(),
     category: z.enum(['bug', 'feature_request', 'usability', 'other']),
-    description: z.string().trim().min(1).max(10000),
+    description: z.string().trim().max(10000).default(''),
     expectedBehavior: z.string().max(5000).optional(),
     reproductionSteps: z.string().max(5000).optional(),
     pagePath: z.string().max(500).transform(sanitizeLocation),

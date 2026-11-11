@@ -44,9 +44,6 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
   const [diagnostics, setDiagnostics] = useState(true);
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [editingImage, setEditingImage] = useState<string | null>(null);
-  const [selectedElement, setSelectedElement] = useState<Record<string, unknown> | null>(null);
-  const [selecting, setSelecting] = useState(false);
-  const [highlight, setHighlight] = useState<DOMRect | null>(null);
   const [busy, setBusy] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [captureError, setCaptureError] = useState('');
@@ -73,8 +70,11 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
     setAttachmentWarning('');
     setScreenshot(null);
     setEditingImage(null);
-    if (options?.category) setCategory(options.category);
-    if (options?.description) setDescription(options.description);
+    setCategory(options?.category ?? '');
+    setError('');
+    setDescription('');
+    setExpected('');
+    setSteps('');
     recordFeedbackEvent('feedback_opened');
     setOpen(true);
     void capture();
@@ -86,10 +86,10 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
   });
   useEffect(() => {
     const el = dialog.current;
-    if (open && !selecting) {
+    if (open) {
       if (!el?.open) el?.showModal();
     } else el?.close();
-  }, [open, selecting]);
+  }, [open]);
   useEffect(() => {
     captureGeneration.current++;
     capturingRef.current = false;
@@ -102,7 +102,6 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
     setScreenshot(null);
     setEditingImage(null);
     setReference('');
-    setSelectedElement(null);
     reportId.current = crypto.randomUUID();
   }, [auth.userId]);
   useEffect(
@@ -118,74 +117,6 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
     setOpen(false);
     returnFocus.current?.focus();
   };
-  useEffect(() => {
-    if (!selecting) return;
-    const move = (event: PointerEvent) => {
-      const el = document
-        .elementFromPoint(event.clientX, event.clientY)
-        ?.closest(
-          'button,a,input,select,textarea,[data-feedback-id],[data-feedback-component],[data-testid],main,section'
-        );
-      setHighlight(el?.getBoundingClientRect() ?? null);
-    };
-    const select = (event: MouseEvent) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const el = document
-        .elementFromPoint(event.clientX, event.clientY)
-        ?.closest(
-          'button,a,input,select,textarea,[data-feedback-id],[data-feedback-component],[data-testid],main,section'
-        );
-      if (el && !el.closest('[data-feedback-selection]')) {
-        const bounds = el.getBoundingClientRect();
-        setSelectedElement({
-          componentId:
-            el.getAttribute('data-feedback-id') ??
-            el.getAttribute('data-feedback-component') ??
-            undefined,
-          testId: el.getAttribute('data-testid') ?? undefined,
-          tagName: el.tagName.toLowerCase(),
-          parentComponentId:
-            el.parentElement?.closest('[data-feedback-id]')?.getAttribute('data-feedback-id') ??
-            undefined,
-          bounds: {
-            x: Math.round(bounds.x),
-            y: Math.round(bounds.y),
-            width: Math.round(bounds.width),
-            height: Math.round(bounds.height)
-          },
-          pagePath: window.location.pathname
-        });
-      }
-      setSelecting(false);
-      setHighlight(null);
-    };
-    const cancel = (event: KeyboardEvent) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (event.key === 'Escape') {
-        setSelecting(false);
-        setHighlight(null);
-      }
-    };
-    const suppress = (event: Event) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    };
-    document.addEventListener('pointermove', move, true);
-    document.addEventListener('pointerdown', suppress, true);
-    document.addEventListener('pointerup', suppress, true);
-    document.addEventListener('click', select, true);
-    document.addEventListener('keydown', cancel, true);
-    return () => {
-      document.removeEventListener('pointermove', move, true);
-      document.removeEventListener('pointerdown', suppress, true);
-      document.removeEventListener('pointerup', suppress, true);
-      document.removeEventListener('click', select, true);
-      document.removeEventListener('keydown', cancel, true);
-    };
-  }, [selecting]);
-
   const capture = async () => {
     if (capturingRef.current || busyRef.current) return;
     const generation = ++captureGeneration.current;
@@ -209,7 +140,7 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
   };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (busyRef.current || capturingRef.current || !category || !description.trim()) return;
+    if (busyRef.current || capturingRef.current || !category) return;
     busyRef.current = true;
     setBusy(true);
     setError('');
@@ -237,11 +168,7 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
           pagePath: location.pagePath,
           pageName: location.pageName,
           sanitizedUrl: location.sanitizedUrl,
-          context: diagnostics
-            ? { ...location.context, ...(selectedElement ? { selectedElement } : {}) }
-            : selectedElement
-              ? { selectedElement }
-              : {},
+          context: diagnostics ? location.context : {},
           diagnostics: snapshot ?? {},
           ...(screenshot ? { attachment: { dataUrl: screenshot } } : {})
         })
@@ -252,7 +179,6 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
       setExpected('');
       setSteps('');
       setScreenshot(null);
-      setSelectedElement(null);
       reportId.current = crypto.randomUUID();
     } catch (err) {
       setError(
@@ -268,24 +194,6 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
   return (
     <FeedbackContext.Provider value={launch}>
       {children}
-      {selecting && (
-        <>
-          <div className="feedback-select-hint" data-feedback-selection>
-            Click the problem area. Press Escape to cancel.
-          </div>
-          {highlight && (
-            <div
-              className="feedback-selection"
-              style={{
-                left: highlight.x,
-                top: highlight.y,
-                width: highlight.width,
-                height: highlight.height
-              }}
-            />
-          )}
-        </>
-      )}
       <dialog
         ref={dialog}
         className="feedback-dialog"
@@ -360,12 +268,10 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
               </select>
             </label>
             <label>
-              What happened?
+              Description <small>(optional)</small>
               <textarea
-                required
                 maxLength={10000}
                 rows={4}
-                placeholder="Describe what happened or what you were trying to do."
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
               />
@@ -427,14 +333,6 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
                   }}
                 />
               </label>
-              <button
-                className="secondary"
-                type="button"
-                disabled={capturing || busy}
-                onClick={() => setSelecting(true)}
-              >
-                Point to the problem
-              </button>
             </div>
             {capturing && (
               <p role="status">Capturing this page. You can keep writing your feedback.</p>
@@ -467,22 +365,6 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
                 </div>
               </div>
             )}
-            {selectedElement && (
-              <p>
-                Problem area selected:{' '}
-                {String(
-                  selectedElement.componentId ?? selectedElement.testId ?? selectedElement.tagName
-                )}
-                .{' '}
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setSelectedElement(null)}
-                >
-                  Remove selection
-                </button>
-              </p>
-            )}
             <label className="feedback-checkbox">
               <input
                 type="checkbox"
@@ -502,10 +384,7 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
               </p>
             )}
             <div className="feedback-actions">
-              <button
-                type="submit"
-                disabled={busy || capturing || !category || !description.trim()}
-              >
+              <button type="submit" disabled={busy || capturing || !category}>
                 {busy ? 'Sending feedback…' : 'Send Feedback'}
               </button>
             </div>

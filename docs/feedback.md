@@ -11,7 +11,7 @@ does not determine whether feedback saves successfully.
 
 | Feature                                                                          | Repository location                                                     |
 | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Global panel, capture and element selection                                      | `apps/web/src/components/FeedbackProvider.tsx`                          |
+| Global panel and automatic screenshot capture                                   | `apps/web/src/components/FeedbackProvider.tsx`                          |
 | Screenshot review, annotations and solid redaction                               | `apps/web/src/components/FeedbackImageEditor.tsx`                       |
 | Bounded diagnostics and page-context registration                                | `apps/web/src/lib/feedbackDiagnostics.ts`                               |
 | Owner inbox and teacher conversations                                            | `apps/web/src/pages/FeedbackPage.tsx`                                   |
@@ -41,7 +41,7 @@ and S3 settings continue to apply.
 | `FEEDBACK_NOTIFICATION_EMAIL` | Owner notification recipient; defaults to `am@aidanmccormick.com`. This does not grant dashboard access.             |
 | `FEEDBACK_EMAIL_ENABLED`      | Defaults to `true`. Set exactly `false` to pause delivery while feedback and the inbox continue working.             |
 | `FEEDBACK_INBOX_PASSWORD`     | Optional server-only override for the temporary developer inbox password.                                            |
-| `FEEDBACK_S3_BUCKET`          | Dedicated private attachment bucket. Required for screenshots; text feedback works without it.                       |
+| `FEEDBACK_S3_BUCKET`          | Optional private attachment bucket. Screenshots fall back to PostgreSQL when unavailable.                           |
 | `FEEDBACK_RETENTION_DAYS`     | Integer from 1 to 3650, default 90; applies to diagnostic details, screenshots, and completed notification metadata. |
 
 Create a sending domain in Resend, add the DNS records shown by Resend, and wait
@@ -80,7 +80,15 @@ to unlock the inbox.
 
 ## Private attachment storage
 
-Use the existing S3-compatible object storage, not a new public storage service.
+Screenshots are captured automatically and included when the teacher sends feedback.
+The description is optional and starts blank, including reports opened from an error.
+Migration `0030_feedback_database_screenshots.sql` adds private PostgreSQL screenshot
+storage. When object storage is absent or an upload fails, validated PNG bytes are
+saved in `feedback_attachments.image_data`, with the same 5 MiB limit and private
+inbox access as object-backed images. Database screenshots are deleted by retention
+cleanup and cascade when their report is deleted.
+
+To use the existing S3-compatible object storage:
 Set `FEEDBACK_S3_BUCKET` to a dedicated private bucket. Configure existing
 `S3_REGION`, `S3_ENDPOINT` (for non-AWS providers), `S3_FORCE_PATH_STYLE`,
 `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY`. Give the API only the required

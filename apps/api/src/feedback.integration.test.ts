@@ -4,25 +4,31 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { FastifyInstance } from 'fastify';
 
 const fakeObjects = vi.hoisted(() => new Map<string, Uint8Array>());
+const storage = vi.hoisted(() => ({ available: true, failUploads: false }));
 vi.mock('./lib/s3.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('./lib/s3.js')>();
   return {
     ...original,
-    createS3Client: () => ({
-      destroy() {},
-      async send(command: {
-        constructor: { name: string };
-        input: { Key: string; Body?: Uint8Array };
-      }) {
-        const key = command.input.Key;
-        if (command.constructor.name === 'PutObjectCommand')
-          fakeObjects.set(key, command.input.Body!);
-        if (command.constructor.name === 'DeleteObjectCommand') fakeObjects.delete(key);
-        if (command.constructor.name === 'GetObjectCommand')
-          return { Body: { transformToByteArray: async () => fakeObjects.get(key) } };
-        return {};
-      }
-    })
+    createS3Client: () =>
+      storage.available
+        ? {
+            destroy() {},
+            async send(command: {
+              constructor: { name: string };
+              input: { Key: string; Body?: Uint8Array };
+            }) {
+              const key = command.input.Key;
+              if (command.constructor.name === 'PutObjectCommand' && storage.failUploads)
+                throw new Error('Storage unavailable');
+              if (command.constructor.name === 'PutObjectCommand')
+                fakeObjects.set(key, command.input.Body!);
+              if (command.constructor.name === 'DeleteObjectCommand') fakeObjects.delete(key);
+              if (command.constructor.name === 'GetObjectCommand')
+                return { Body: { transformToByteArray: async () => fakeObjects.get(key) } };
+              return {};
+            }
+          }
+        : null
   };
 });
 
@@ -72,6 +78,8 @@ describeDatabase('private feedback API against PostgreSQL', () => {
     await app.ready();
   }, 60000);
   beforeEach(async () => {
+    storage.available = true;
+    storage.failUploads = false;
     const marker = randomUUID();
     teacher = {
       'x-dev-user-id': `feedback-teacher-${marker}`,
@@ -158,7 +166,6 @@ describeDatabase('private feedback API against PostgreSQL', () => {
   });
   it('rejects malformed requests without persisting reports', async () => {
     for (const body of [
-      { ...reportBody(), description: '' },
       { ...reportBody(), category: 'invalid' },
       { ...reportBody(), reporterUserId: randomUUID() }
     ]) {
@@ -356,6 +363,95 @@ describeDatabase('private feedback API against PostgreSQL', () => {
       (await app.inject({ method: 'GET', url: attachmentUrl, headers: owner })).statusCode
     ).toBe(404);
   });
+
+  it.each(['unconfigured', 'failed'] as const)(
+    'saves screenshot-only reports in PostgreSQL when object storage is %s',
+    async (mode) => {
+      storage.available = mode !== 'unconfigured';
+      storage.failUploads = mode === 'failed';
+      const { createApp } = await import('./app.js');
+      const fallbackApp = await createApp(app.config);
+      try {
+        const sharp = (await import('sharp')).default;
+        const png = await sharp({
+          create: { width: 20, height: 15, channels: 3, background: '#fff' }
+        })
+          .png()
+          .toBuffer();
+        const body = {
+          ...reportBody(),
+          description: '',
+          attachment: { dataUrl: `data:image/png;base64,${png.toString('base64')}` }
+        };
+        const response = await fallbackApp.inject({
+          method: 'POST',
+          url: '/v1/feedback',
+          headers: teacher,
+          payload: body
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json().attachmentWarning).toBeUndefined();
+        const id = response.json().id;
+        const saved = await db.pool.query(
+          'SELECT description,attachment_status FROM feedback_reports WHERE id=$1',
+          [id]
+        );
+        expect(saved.rows[0]).toEqual({ description: '', attachment_status: 'attached' });
+        const attachment = await db.pool.query(
+          'SELECT * FROM feedback_attachments WHERE report_id=$1',
+          [id]
+        );
+        expect(attachment.rows).toHaveLength(1);
+        expect(attachment.rows[0].storage_object_path).toBeNull();
+        expect(Buffer.isBuffer(attachment.rows[0].image_data)).toBe(true);
+        const retry = await fallbackApp.inject({
+          method: 'POST',
+          url: '/v1/feedback',
+          headers: teacher,
+          payload: body
+        });
+        expect(retry.json().id).toBe(id);
+        expect(retry.json().attachmentWarning).toBeUndefined();
+        const detail = await fallbackApp.inject({
+          method: 'GET',
+          url: `/v1/management/feedback/${id}`,
+          headers: owner
+        });
+        expect(detail.json().attachments).toHaveLength(1);
+        expect(JSON.stringify(detail.json())).not.toContain('imageData');
+        const list = await fallbackApp.inject({
+          method: 'GET',
+          url: '/v1/management/feedback',
+          headers: owner
+        });
+        expect(list.json().reports.find((r: { id: string }) => r.id === id).attachmentCount).toBe(
+          1
+        );
+        const url = `/v1/feedback/${id}/attachments/${attachment.rows[0].id}`;
+        expect(
+          (await fallbackApp.inject({ method: 'GET', url, headers: teacher })).statusCode
+        ).toBe(403);
+        const image = await fallbackApp.inject({ method: 'GET', url, headers: owner });
+        expect(image.statusCode).toBe(200);
+        expect(image.headers['cache-control']).toBe('private, no-store');
+        expect((await sharp(image.rawPayload).metadata()).width).toBe(20);
+        expect(
+          (
+            await fallbackApp.inject({
+              method: 'DELETE',
+              url: `/v1/management/feedback/${id}`,
+              headers: owner
+            })
+          ).statusCode
+        ).toBe(200);
+        expect(
+          (await db.pool.query('SELECT id FROM feedback_attachments WHERE report_id=$1', [id])).rows
+        ).toHaveLength(0);
+      } finally {
+        await fallbackApp.close();
+      }
+    }
+  );
 
   it('retains written feedback when screenshot validation fails', async () => {
     const response = await app.inject({

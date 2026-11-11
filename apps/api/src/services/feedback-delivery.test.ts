@@ -180,6 +180,17 @@ describe('abandoned feedback uploads', () => {
 });
 
 describe('feedback retention', () => {
+  it('expires database screenshots even without object storage', async () => {
+    vi.mocked(createS3Client).mockReturnValue(null);
+    const query = vi.mocked(pool.query);
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] } as never);
+    await cleanupFeedbackRetention({ ...config, FEEDBACK_RETENTION_DAYS: 90 } as AppConfig);
+    expect(query).toHaveBeenCalledWith(
+      'DELETE FROM feedback_attachments WHERE created_at<$1 AND storage_object_path IS NULL',
+      [expect.any(Date)]
+    );
+  });
   it('deletes the private object before deleting its attachment record', async () => {
     const send = vi.fn().mockResolvedValue({});
     const destroy = vi.fn();
@@ -229,7 +240,9 @@ describe('feedback retention', () => {
       } as AppConfig)
     ).rejects.toThrow('feedback_retention_storage_failed');
     expect(
-      query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM feedback_attachments'))
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes('DELETE FROM feedback_attachments WHERE id=')
+      )
     ).toBe(false);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("SET diagnostics='{}'"))).toBe(
       true

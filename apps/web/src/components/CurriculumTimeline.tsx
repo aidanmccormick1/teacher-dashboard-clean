@@ -2182,7 +2182,6 @@ export function CurriculumTimeline({
               year: 'numeric'
             })}
           </span>
-          <span aria-hidden="true">→</span>
           <span>
             <strong>End</strong>{' '}
             {new Date(`${schoolYearSettings.endDate}T12:00:00`).toLocaleDateString(undefined, {
@@ -2212,7 +2211,7 @@ export function CurriculumTimeline({
           <strong>{unplannedMeetings}</strong> open meetings
         </span>
         <span>
-          <strong>{conflicts.length}</strong> conflicts
+          <strong>{conflicts.length}</strong> overlaps
         </span>
       </div>
 
@@ -2265,7 +2264,7 @@ export function CurriculumTimeline({
       ) : null}
       {conflicts.length ? (
         <p className="curriculum-conflict-summary">
-          {conflicts[0]}. Adjust a bar or keep both plans.
+          Units overlap
         </p>
       ) : null}
 
@@ -2744,7 +2743,7 @@ export function CurriculumTimeline({
                         }
                         onClick={() => void moveSegment(segment.id, -1)}
                       >
-                        ↑
+                        Move up
                       </button>
                       <button
                         className="secondary"
@@ -2758,7 +2757,7 @@ export function CurriculumTimeline({
                         }
                         onClick={() => void moveSegment(segment.id, 1)}
                       >
-                        ↓
+                        Move down
                       </button>
                     </span>
                   </article>
@@ -2843,7 +2842,7 @@ export function CurriculumTimeline({
                 disabled={saving || !!pendingChange || !undoStack.length || !canEditSharedPlan}
                 onClick={() => void travelHistory('undo')}
               >
-                <TimelineIcon name="undo" />
+                Undo
               </button>
               <button
                 type="button"
@@ -2852,7 +2851,7 @@ export function CurriculumTimeline({
                 disabled={saving || !!pendingChange || !redoStack.length || !canEditSharedPlan}
                 onClick={() => void travelHistory('redo')}
               >
-                <TimelineIcon name="redo" />
+                Redo
               </button>
             </div>
             <div className="timeline-zoom-control">
@@ -2901,7 +2900,6 @@ export function CurriculumTimeline({
                   canvasWrapRef.current?.scrollTo({ left: 0 });
                 }}
               >
-                <TimelineIcon name="fit" />
                 Year
               </button>
               <button type="button" onClick={() => zoomTo(viewport.width / 20)}>
@@ -2925,7 +2923,7 @@ export function CurriculumTimeline({
                 aria-label="Show previous dates"
                 onClick={() => scrollCanvasBy(-1)}
               >
-                <TimelineIcon name="left" />
+                Earlier
               </button>
               <button
                 type="button"
@@ -2935,7 +2933,7 @@ export function CurriculumTimeline({
                 Today
               </button>
               <button type="button" aria-label="Show next dates" onClick={() => scrollCanvasBy(1)}>
-                <TimelineIcon name="right" />
+                Later
               </button>
               <button
                 type="button"
@@ -3051,7 +3049,7 @@ export function CurriculumTimeline({
                     )
                   }
                 >
-                  <TimelineIcon name="left" />
+                  Earlier
                 </button>
                 <button
                   type="button"
@@ -3063,7 +3061,7 @@ export function CurriculumTimeline({
                     )
                   }
                 >
-                  <TimelineIcon name="right" />
+                  Later
                 </button>
               </form>
             ) : (
@@ -3159,7 +3157,7 @@ export function CurriculumTimeline({
                       aria-label={`${expanded ? 'Collapse' : 'Expand'} ${position.unit.title}`}
                       onClick={() => toggleExpanded(position.unit.id)}
                     >
-                      {expanded ? '⌄' : '›'}
+                      <TimelineIcon name={expanded ? 'minus' : 'plus'} />
                     </button>
                     <button
                       className="curriculum-tree-select"
@@ -3267,7 +3265,7 @@ export function CurriculumTimeline({
                               aria-label={`Open lesson editor for ${lesson.title}`}
                               onClick={() => openLessonEditor(lesson.id)}
                             >
-                              ↗
+                              Open
                             </button>
                           </div>
                         );
@@ -3828,7 +3826,7 @@ export function CurriculumTimeline({
                 })()}
               >
                 <span>{planningRangeLabel(rangePreview, rangeMeetings)}</span>
-                {rangeOverlapsExistingPlan(rangePreview) ? <small>Existing plan</small> : null}
+                {rangeOverlapsExistingPlan(rangePreview) ? <small>Units overlap</small> : null}
               </div>
             ) : null}
           </div>
@@ -3935,8 +3933,7 @@ export function CurriculumTimeline({
             <span>{rangeDraft.meetingCount} course meetings selected.</span>
             {rangeOverlapsExistingPlan(rangeDraft) && rangeKind === 'unit' ? (
               <p className="curriculum-range-conflict" role="status">
-                An existing unit is planned here. It will not be overwritten; choose another range
-                or add lessons to a selected unit instead.
+                Units overlap
               </p>
             ) : null}
           </div>
@@ -4018,7 +4015,7 @@ export function CurriculumTimeline({
           aria-label="Confirm timeline adjustment"
         >
           <strong>
-            {pendingChange.kind === 'move' ? 'Move this unit' : 'Change this unit length'}
+            {pendingChange.kind === 'move' ? 'Move unit' : 'Resize unit'}
           </strong>
           <span>
             {pendingChange.kind === 'move'
@@ -4027,9 +4024,7 @@ export function CurriculumTimeline({
           </span>
           {pendingConflicts.length ? (
             <p className="curriculum-change-conflict" role="alert">
-              This change overlaps {pendingConflicts.map((item) => item.unit.title).join(', ')}. A
-              unit may end where the next one begins, but these plans use the same instructional
-              meeting(s).
+              Units overlap
             </p>
           ) : null}
           <div>
@@ -4038,7 +4033,7 @@ export function CurriculumTimeline({
               disabled={saving}
               onClick={() => void applyPendingChange('shift')}
             >
-              Shift Other Lessons
+              Shift others
             </button>
             <button
               className="secondary"
@@ -4046,7 +4041,7 @@ export function CurriculumTimeline({
               disabled={saving}
               onClick={() => void applyPendingChange('only')}
             >
-              Keep Both Plans
+              Keep both
             </button>
             <button className="button-link" type="button" onClick={() => setPendingChange(null)}>
               Cancel

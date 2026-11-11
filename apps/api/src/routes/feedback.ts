@@ -178,7 +178,6 @@ export async function feedbackRoutes(app: FastifyInstance) {
       if (attachClaimed && body.attachment) {
         const key = `feedback/${String(report.id)}/${randomUUID()}.png`;
         try {
-          if (!s3 || !bucket) throw new Error('storage_unconfigured');
           const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(
             body.attachment.dataUrl
           );
@@ -199,20 +198,41 @@ export async function feedbackRoutes(app: FastifyInstance) {
           // Decode and re-encode, stripping metadata and rejecting malformed/polyglot uploads.
           const data = await image.png().toBuffer();
           if (data.length > 5 * 1024 * 1024) throw new Error('image_too_large');
-          await s3.send(
-            new PutObjectCommand({ Bucket: bucket, Key: key, Body: data, ContentType: 'image/png' })
-          );
+          let storedInS3 = false;
+          if (s3 && bucket) {
+            try {
+              await s3.send(
+                new PutObjectCommand({
+                  Bucket: bucket,
+                  Key: key,
+                  Body: data,
+                  ContentType: 'image/png'
+                })
+              );
+              storedInS3 = true;
+            } catch {
+              request.log.warn({ reportId: report.id }, 'Using database screenshot storage');
+            }
+          }
           try {
             await pool.query(
-              'INSERT INTO feedback_attachments(report_id,storage_object_path,mime_type,file_size,width,height) VALUES($1,$2,$3,$4,$5,$6)',
-              [report.id, key, 'image/png', data.length, metadata.width, metadata.height]
+              'INSERT INTO feedback_attachments(report_id,storage_object_path,mime_type,file_size,width,height,image_data) VALUES($1,$2,$3,$4,$5,$6,$7)',
+              [
+                report.id,
+                storedInS3 ? key : null,
+                'image/png',
+                data.length,
+                metadata.width,
+                metadata.height,
+                storedInS3 ? null : data
+              ]
             );
             await pool.query(
               "UPDATE feedback_reports SET attachment_status='attached' WHERE id=$1",
               [report.id]
             );
           } catch (error) {
-            await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+            if (storedInS3) await s3!.send(new DeleteObjectCommand({ Bucket: bucket!, Key: key }));
             throw error;
           }
         } catch {
@@ -398,16 +418,20 @@ export async function feedbackRoutes(app: FastifyInstance) {
     );
     const attachment = result.rows[0];
     if (!attachment) fail(404, 'Screenshot not found.');
-    if (!s3 || !bucket) fail(503, 'Private screenshot storage is not configured.');
-    const object = await s3.send(
-      new GetObjectCommand({ Bucket: bucket, Key: attachment.storage_object_path })
-    );
-    if (!object.Body) fail(404, 'Screenshot not found.');
+    let data: Buffer = attachment.image_data;
+    if (!data) {
+      if (!s3 || !bucket) fail(503, 'Private screenshot storage is not configured.');
+      const object = await s3.send(
+        new GetObjectCommand({ Bucket: bucket, Key: attachment.storage_object_path })
+      );
+      if (!object.Body) fail(404, 'Screenshot not found.');
+      data = Buffer.from(await object.Body.transformToByteArray());
+    }
     reply
       .header('Cache-Control', 'private, no-store')
       .header('X-Content-Type-Options', 'nosniff')
       .type(attachment.mime_type);
-    return reply.send(Buffer.from(await object.Body.transformToByteArray()));
+    return reply.send(data);
   });
 
   app.patch('/v1/management/feedback/:id', async (request) => {
@@ -590,7 +614,7 @@ export async function feedbackRoutes(app: FastifyInstance) {
     const { id } = parse(params, request.params);
     await authorizedReport(id, user.id, true);
     const attachments = await pool.query(
-      'SELECT storage_object_path FROM feedback_attachments WHERE report_id=$1',
+      'SELECT storage_object_path FROM feedback_attachments WHERE report_id=$1 AND storage_object_path IS NOT NULL',
       [id]
     );
     if (attachments.rows.length && (!s3 || !bucket))

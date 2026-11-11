@@ -329,7 +329,7 @@ export async function cleanupFeedbackRetention(config: AppConfig): Promise<void>
   if (s3 && bucket) {
     try {
       const attachments = await pool.query<{ id: string; storage_object_path: string }>(
-        'SELECT id, storage_object_path FROM feedback_attachments WHERE created_at<$1 LIMIT 100',
+        'SELECT id, storage_object_path FROM feedback_attachments WHERE created_at<$1 AND storage_object_path IS NOT NULL LIMIT 100',
         [cutoff]
       );
       for (const attachment of attachments.rows) {
@@ -346,6 +346,10 @@ export async function cleanupFeedbackRetention(config: AppConfig): Promise<void>
       s3.destroy();
     }
   }
+  await pool.query(
+    'DELETE FROM feedback_attachments WHERE created_at<$1 AND storage_object_path IS NULL',
+    [cutoff]
+  );
   await pool.query(
     `UPDATE feedback_reports SET diagnostics='{}' WHERE created_at<$1 AND diagnostics<>'{}'::jsonb`,
     [cutoff]

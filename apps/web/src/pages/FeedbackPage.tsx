@@ -315,7 +315,7 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
                   <p>
                     {report.description.length > 180
                       ? `${report.description.slice(0, 180)}…`
-                      : report.description}
+                      : report.description || 'No description'}
                   </p>
                   <div className="feedback-row-meta">
                     <span>{report.reporterName ?? report.reporterEmail}</span>
@@ -409,7 +409,7 @@ export function FeedbackPage({ management = false }: { management?: boolean }) {
               </p>
             )}
             <h3>What happened?</h3>
-            <blockquote>{r.description}</blockquote>
+            <blockquote>{r.description || 'No description'}</blockquote>
             {r.expectedBehavior && (
               <>
                 <h3>Expected behavior</h3>

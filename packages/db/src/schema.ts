@@ -1,6 +1,7 @@
 import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
+  customType,
   date,
   index,
   integer,
@@ -1000,7 +1001,8 @@ export const feedbackAttachments = pgTable(
     reportId: uuid('report_id')
       .notNull()
       .references(() => feedbackReports.id, { onDelete: 'cascade' }),
-    storageObjectPath: text('storage_object_path').notNull().unique(),
+    storageObjectPath: text('storage_object_path').unique(),
+    imageData: customType<{ data: Buffer }>({ dataType: () => 'bytea' })('image_data'),
     mimeType: text('mime_type').notNull(),
     fileSize: integer('file_size').notNull(),
     width: integer('width').notNull(),
