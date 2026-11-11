@@ -126,6 +126,25 @@
   margin-top: 12px;
 }
 
+.lesson-hobie-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.lesson-hobie-modes button[aria-pressed='true'] {
+  background: #315b3b;
+  border-color: #315b3b;
+  color: white;
+}
+.lesson-hobie-quick-add {
+  margin-top: 12px;
+}
+.lesson-document-page .lesson-sequence .lesson-step.is-hobie-added {
+  background: #f0f6ee;
+  border-color: #476c58;
+}
+
 .lesson-hobie-panel textarea {
   resize: vertical;
   min-height: 96px;
@@ -230,7 +249,7 @@
   padding-left: 24px;
 }
 
-.lesson-hobie-step-preview li {
+.lesson-hobie-step-preview > li {
   padding: 12px 0 12px 8px;
   border-bottom: 1px solid #c5d6c7;
   white-space: pre-wrap;

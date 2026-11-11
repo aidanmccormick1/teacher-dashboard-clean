@@ -59,7 +59,8 @@ async function runMigrations() {
     for (const migration of [
       '0027_curriculum_invitations.sql',
       '0028_shared_lesson_import.sql',
-      '0029_lesson_edit_revision.sql'
+      '0029_lesson_edit_revision.sql',
+      '0032_lesson_resources.sql'
     ])
       await pool.query(await readFile(path.join(migrationsDir, migration), 'utf8'));
     return;
@@ -95,7 +96,8 @@ async function runMigrations() {
     '0026_feedback.sql',
     '0027_curriculum_invitations.sql',
     '0028_shared_lesson_import.sql',
-    '0029_lesson_edit_revision.sql'
+    '0029_lesson_edit_revision.sql',
+    '0032_lesson_resources.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -1857,6 +1859,7 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         };
       }>();
       expect(sharePayload).toEqual({
+        resources: [],
         courseName: 'Algebra I',
         unitTitle: 'Linear Equations',
         unitSlides: null,

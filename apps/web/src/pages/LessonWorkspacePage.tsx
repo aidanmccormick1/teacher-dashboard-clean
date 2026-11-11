@@ -8,12 +8,14 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type {
   HobieLessonDraftResponse,
   LessonCommentsResponse,
+  LessonResource,
   LessonWorkspaceResponse
 } from '@teacheros/contracts';
 import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 import { isGoogleSlidesUrl } from '../lib/googleSlides.js';
 import './LessonHobie.css';
+import { LessonResourceLibrary, LessonResourceTools } from '../components/LessonResources.js';
 
 type Workspace = LessonWorkspaceResponse;
 type Step = Workspace['lesson']['segments'][number];
@@ -254,8 +256,13 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
   const [dragged, setDragged] = useState<string | null>(null);
   const [hobieOpen, setHobieOpen] = useState(false);
   const [hobieInstruction, setHobieInstruction] = useState('');
+  const [hobieModeChoice, setHobieModeChoice] = useState<'add' | 'plan' | null>(null);
+  const hobieAdditionRequestId = useRef<string | null>(null);
+  const [hobieAdditionNotice, setHobieAdditionNotice] = useState<string | null>(null);
+  const [hobieAddedStepId, setHobieAddedStepId] = useState<string | null>(null);
   const [hobieResult, setHobieResult] = useState<HobieLessonDraftResponse | null>(null);
   const [hobieBusy, setHobieBusy] = useState(false);
+  const hobieAsking = useRef(false);
   const [hobieApplying, setHobieApplying] = useState(false);
   const [hobieError, setHobieError] = useState<string | null>(null);
   const [hobieApplied, setHobieApplied] = useState(false);
@@ -519,6 +526,29 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
     );
     return request;
   };
+  const prepareResource = async () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+      const snapshot = latest.current;
+      const version = draftVersion.current;
+      if (snapshot) saveChain.current = saveChain.current.then(() => save(snapshot, version));
+    }
+    await saveChain.current;
+    if (blocked.current || savedVersion.current !== draftVersion.current)
+      throw new Error('Save your lesson changes before creating a resource.');
+  };
+  const updateResource = (resource: LessonResource) => {
+    const current = latest.current;
+    if (!current) return;
+    const resources = [
+      ...(current.resources ?? []).filter((item) => item.id !== resource.id),
+      resource
+    ];
+    const next = { ...current, resources };
+    latest.current = next;
+    setData(next);
+  };
   const addStep = async () => {
     try {
       await queueServerMutation(() =>
@@ -737,37 +767,117 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
       setHobieApplying(false);
     }
   };
-  const askHobie = async (answer?: string) => {
-    if (hobieDrafting || hobieApplying || hobieInstruction.trim().length < 3) return;
+  const hobieMode =
+    hobieModeChoice ??
+    (data.lesson.segments.length || data.lesson.description || data.lesson.lessonPlan.objective
+      ? 'add'
+      : 'plan');
+  const askHobie = async (answer?: string, instruction = hobieInstruction) => {
+    if (hobieDrafting || hobieApplying || hobieAsking.current || instruction.trim().length < 3)
+      return;
+    hobieAsking.current = true;
     setHobieBusy(true);
+    setHobieInstruction(instruction);
+    setHobieAdditionNotice(null);
+    setHobieAddedStepId(null);
     setHobieError(null);
     setGenerationError(null);
     setHobieApplied(false);
-    hobieVersion.current = draftVersion.current;
     try {
-      const result = await api.draftLessonWithHobie(lessonId, hobieInstruction.trim(), answer);
-      if (!result.draft && (!result.question || answer))
+      await prepareResource();
+      const version = draftVersion.current;
+      const fresh = await api.getLessonWorkspace(lessonId);
+      if (version !== draftVersion.current)
+        throw new Error('The lesson changed. Try your request again.');
+      if (revision.current !== (fresh.lesson.editRevision ?? 0)) {
+        history.current = { undo: [], redo: [] };
+        setHistoryCount({ undo: 0, redo: 0 });
+      }
+      revision.current = fresh.lesson.editRevision ?? 0;
+      latest.current = fresh;
+      setData(fresh);
+      hobieVersion.current = version;
+      hobieAdditionRequestId.current = crypto.randomUUID();
+      const result = await api.draftLessonWithHobie(
+        lessonId,
+        instruction.trim(),
+        answer,
+        hobieMode
+      );
+      if (hobieMode === 'add' && result.draft)
+        throw new Error('Hobie returned a full lesson. Refresh and request the addition again.');
+      if (!result.addition && !result.draft && (!result.question || answer))
         throw new Error('No lesson draft returned.');
+      if (result.addition) setHobieModeChoice('add');
       setHobieResult(result);
     } catch (error) {
       setHobieError(
-        error instanceof ApiError ? error.message : 'Hobie could not finish the draft. Try again.'
+        error instanceof Error ? error.message : 'Hobie could not finish the draft. Try again.'
       );
     } finally {
+      hobieAsking.current = false;
       setHobieBusy(false);
     }
   };
 
   const applyHobie = async () => {
     const draft = hobieResult?.draft;
+    const addition = hobieResult?.addition;
     const current = latest.current;
-    if (!draft || !current || blocked.current || hobieApplying) return;
+    if ((!draft && !addition) || !current || blocked.current || hobieApplying) return;
     if (hobieVersion.current !== draftVersion.current) {
       setHobieError(
         'The lesson changed while Hobie was drafting. Create a fresh draft before applying it.'
       );
       return;
     }
+    if (addition) {
+      const requestId = hobieAdditionRequestId.current ?? crypto.randomUUID();
+      hobieAdditionRequestId.current = requestId;
+      setHobieApplying(true);
+      setHobieError(null);
+      try {
+        await queueServerMutation(() =>
+          api.addHobieLessonStep(lessonId, {
+            requestId,
+            expectedRevision: revision.current,
+            addition
+          })
+        );
+        setHobieResult(null);
+        setHobieApplied(false);
+        setHobieAdditionNotice(
+          addition.resourceKind === 'quiz'
+            ? 'Quiz added.'
+            : addition.resourceKind === 'worksheet'
+              ? 'Worksheet added.'
+              : 'Step added.'
+        );
+        setHobieAddedStepId(requestId);
+        setSelectedStepId(requestId);
+        setHobieOpen(false);
+        setHobieModeChoice(null);
+        requestAnimationFrame(() => {
+          const step = document.getElementById(`lesson-step-${requestId}`);
+          step?.scrollIntoView({ block: 'center', behavior: 'instant' });
+          step
+            ?.querySelector<HTMLElement>(
+              addition.resourceKind ? '.lesson-step-resource-tools button' : '.step-title'
+            )
+            ?.focus({ preventScroll: true });
+        });
+      } catch (error) {
+        setHobieError(
+          error instanceof Error
+            ? error.message
+            : 'Could not add this step. Retry to finish adding it.'
+        );
+      } finally {
+        setHobieApplying(false);
+      }
+      return;
+    }
+    if (!draft) return;
     // The existing editor stores rich text as HTML. Escape model text before
     // putting it into the same fields as teacher-authored rich text.
     const asRichText = (value: string) =>
@@ -809,6 +919,7 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
       setHobieResult(null);
       setHobieApplied(true);
       setHobieOpen(false);
+      setHobieModeChoice(null);
       hobieTrigger.current?.focus();
     } catch {
       setHobieResult(null);
@@ -820,10 +931,11 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
     }
   };
 
-  const hobieReview = !!hobieResult?.draft || !!generatedSteps;
+  const hobieReview = !!hobieResult?.addition || !!hobieResult?.draft || !!generatedSteps;
   const hobieFocused =
     hobieOpen && (hobieReview || hobieDrafting || hobieApplying || !!hobieResult?.question);
   const restartHobie = () => {
+    hobieAdditionRequestId.current = null;
     setHobieResult(null);
     setGeneratedSteps(null);
     setGenerationOpen(false);
@@ -1033,10 +1145,14 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
                   : hobieDrafting
                     ? 'Drafting…'
                     : hobieReview
-                      ? 'Review draft'
+                      ? hobieResult?.addition
+                        ? 'Add one step'
+                        : 'Review draft'
                       : hobieResult?.question
                         ? 'Quick question'
-                        : 'Plan a lesson'}
+                        : hobieMode === 'add'
+                          ? 'Add to lesson'
+                          : 'Plan a lesson'}
               </h2>
             </div>
             <button
@@ -1051,6 +1167,30 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
           </header>
           {!hobieFocused ? (
             <>
+              <div className="lesson-hobie-modes" role="group" aria-label="Hobie action">
+                <button
+                  type="button"
+                  className="secondary"
+                  aria-pressed={hobieMode === 'add'}
+                  onClick={() => {
+                    restartHobie();
+                    setHobieModeChoice('add');
+                  }}
+                >
+                  Add to lesson
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  aria-pressed={hobieMode === 'plan'}
+                  onClick={() => {
+                    restartHobie();
+                    setHobieModeChoice('plan');
+                  }}
+                >
+                  Plan lesson
+                </button>
+              </div>
               <form
                 className="stack"
                 onSubmit={(event) => {
@@ -1058,14 +1198,16 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
                   void askHobie();
                 }}
               >
-                <label htmlFor="lesson-hobie-instructions">Lesson idea</label>
+                <label htmlFor="lesson-hobie-instructions">
+                  {hobieMode === 'add' ? 'Request' : 'Lesson idea'}
+                </label>
                 <textarea
                   id="lesson-hobie-instructions"
                   className="input"
                   rows={3}
                   maxLength={3000}
                   value={hobieInstruction}
-                  placeholder="A lesson about…"
+                  placeholder={hobieMode === 'add' ? 'Add a quiz…' : 'A lesson about…'}
                   onChange={(event) => {
                     setHobieInstruction(event.target.value);
                     setHobieResult(null);
@@ -1078,26 +1220,48 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
                   Generate
                 </button>
               </form>
-              <button
-                className="secondary"
-                type="button"
-                disabled={hobieDrafting || hobieApplying}
-                aria-expanded={generationOpen}
-                onClick={() => setGenerationOpen((open) => !open)}
-              >
-                {generationOpen ? 'Hide steps' : 'Steps only'}
-              </button>
-              {generationOpen ? (
-                <aside className="lesson-generation-draft">
+              {hobieMode === 'add' ? (
+                <div className="profile-actions lesson-hobie-quick-add">
                   <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => void askHobie(undefined, 'Add a quiz for this lesson.')}
+                  >
+                    Draft quiz
+                  </button>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => void askHobie(undefined, 'Add a worksheet for this lesson.')}
+                  >
+                    Draft worksheet
+                  </button>
+                </div>
+              ) : null}
+              {hobieMode === 'plan' ? (
+                <>
+                  <button
+                    className="secondary"
                     type="button"
                     disabled={hobieDrafting || hobieApplying}
-                    aria-busy={isGeneratingSteps}
-                    onClick={() => void generateStepDraft()}
+                    aria-expanded={generationOpen}
+                    onClick={() => setGenerationOpen((open) => !open)}
                   >
-                    Generate steps
+                    {generationOpen ? 'Hide steps' : 'Steps only'}
                   </button>
-                </aside>
+                  {generationOpen ? (
+                    <aside className="lesson-generation-draft">
+                      <button
+                        type="button"
+                        disabled={hobieDrafting || hobieApplying}
+                        aria-busy={isGeneratingSteps}
+                        onClick={() => void generateStepDraft()}
+                      >
+                        Generate steps
+                      </button>
+                    </aside>
+                  ) : null}
+                </>
               ) : null}
             </>
           ) : null}
@@ -1156,6 +1320,37 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
               </ol>
             </div>
           ) : null}
+          {hobieResult?.addition && !hobieDrafting ? (
+            <div className="lesson-hobie-proposal">
+              <p className="lesson-hobie-provenance">
+                One new {hobieResult.addition.resourceKind ?? 'activity'} step
+              </p>
+              <h3>
+                {hobieResult.addition.title} · {hobieResult.addition.durationMinutes} min
+              </h3>
+              <p>{hobieResult.addition.description}</p>
+              {hobieResult.addition.document ? (
+                <>
+                  <h3>{hobieResult.addition.document.title}</h3>
+                  <p>{hobieResult.addition.document.instructions}</p>
+                  <ol className="lesson-hobie-step-preview">
+                    {hobieResult.addition.document.questions.map((question, index) => (
+                      <li key={index}>
+                        {question.prompt}
+                        {question.options.length ? (
+                          <ul>
+                            {question.options.map((option, i) => (
+                              <li key={i}>{option}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              ) : null}
+            </div>
+          ) : null}
           {generatedSteps && !hobieDrafting ? (
             <div className="lesson-hobie-proposal">
               <p className="lesson-hobie-provenance">Hobie draft · Not applied</p>
@@ -1179,9 +1374,11 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
           {hobieReview || hobieApplying ? (
             <footer className="lesson-hobie-apply-dock" aria-label="Hobie draft actions">
               <span>
-                {generatedSteps
-                  ? 'Adds these steps to your lesson.'
-                  : 'Adds lesson details and steps.'}
+                {hobieResult?.addition
+                  ? `Adds one ${hobieResult.addition.resourceKind ?? 'activity'} step.`
+                  : generatedSteps
+                    ? 'Adds these steps to your lesson.'
+                    : 'Updates lesson details and adds steps.'}
               </span>
               <button
                 className="secondary"
@@ -1196,16 +1393,30 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
                 disabled={blocked.current || hobieApplying}
                 onClick={() => void (generatedSteps ? acceptGeneratedSteps() : applyHobie())}
               >
-                {hobieApplying ? 'Applying…' : generatedSteps ? 'Add steps' : 'Apply draft'}
+                {hobieApplying
+                  ? 'Applying…'
+                  : hobieResult?.addition
+                    ? `Add ${hobieResult.addition.resourceKind ?? 'step'}`
+                    : generatedSteps
+                      ? 'Add steps'
+                      : 'Apply draft'}
               </button>
             </footer>
           ) : null}
         </section>
       ) : null}
-      {hobieApplied && !hobieFocused ? (
+      {(hobieApplied || hobieAdditionNotice) && !hobieFocused ? (
         <aside className="lesson-hobie-applied" role="status">
-          <strong>Draft applied. Edit below.</strong>
-          <button type="button" className="secondary" onClick={() => setHobieApplied(false)}>
+          <strong>{hobieAdditionNotice ?? 'Draft applied. Edit below.'}</strong>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setHobieApplied(false);
+              setHobieAdditionNotice(null);
+              setHobieAddedStepId(null);
+            }}
+          >
             Dismiss
           </button>
         </aside>
@@ -1308,6 +1519,10 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
               activeFieldId={activeRichFieldId}
               setActiveFieldId={setActiveRichFieldId}
             />
+            <LessonResourceLibrary
+              resources={(data.resources ?? []).filter((resource) => resource.kind !== 'video')}
+              onUpdate={updateResource}
+            />
           </section>
           <section className="lesson-field-card lesson-core-field">
             <div className="lesson-field-card-heading">
@@ -1328,6 +1543,7 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
               <p className="eyebrow">Resources</p>
               <span>Add links, or paste a Google Slides deck just for this lesson.</span>
             </div>
+            <LessonResourceLibrary resources={data.resources ?? []} onUpdate={updateResource} />
             <div className="lesson-resource-form">
               <label>
                 <span className="visually-hidden">Resource label</span>
@@ -1431,7 +1647,8 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
           <div className="lesson-sequence" aria-label="Lesson sequence">
             {data.lesson.segments.map((step, index) => (
               <article
-                className={`lesson-step ${selectedStepId === step.id ? 'is-selected' : ''} ${dragged === step.id ? 'is-dragging' : ''} ${
+                id={`lesson-step-${step.id}`}
+                className={`lesson-step ${hobieAddedStepId === step.id ? 'is-hobie-added' : ''} ${selectedStepId === step.id ? 'is-selected' : ''} ${dragged === step.id ? 'is-dragging' : ''} ${
                   dragOver === step.id && dragged !== step.id ? 'is-drag-target' : ''
                 }`}
                 key={step.id}
@@ -1538,6 +1755,14 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
                     setActiveFieldId={setActiveRichFieldId}
                   />
                 </div>
+                <LessonResourceTools
+                  lessonId={lessonId}
+                  step={step}
+                  resources={data.resources ?? []}
+                  prepare={prepareResource}
+                  onUpdate={updateResource}
+                  disabled={!!recovery || conflict || hobieApplying}
+                />
                 <details className="step-actions">
                   <summary aria-label={`Actions for ${step.title}`}>•••</summary>
                   <div className="step-actions-menu">

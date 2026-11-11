@@ -6,6 +6,7 @@ import type {
   PublicLessonResponse
 } from '@teacheros/contracts';
 import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
+import { SharedLessonResources } from '../components/LessonResources.js';
 import { ApiError, getPublicLesson, useApiClient } from '../lib/api.js';
 
 import { useAppAuth } from '../lib/auth.js';
@@ -223,14 +224,30 @@ export function SharedLessonPage() {
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(() => new Set());
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(() => new Set());
   useEffect(() => {
-    void getPublicLesson(token)
-      .then(setData)
-      .catch(() => setError(true));
+    let active = true;
+    const refresh = () => {
+      void getPublicLesson(token)
+        .then((next) => {
+          if (active) {
+            setData(next);
+            setError(false);
+          }
+        })
+        .catch(() => {
+          if (active) setError(true);
+        });
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refresh);
+    };
   }, [token]);
 
   useEffect(() => {
     if (data?.lesson.steps.length) setExpandedSteps(new Set([0]));
-  }, [data]);
+  }, [data?.lesson.steps.length]);
 
   if (error)
     return (
@@ -348,7 +365,7 @@ export function SharedLessonPage() {
               </div>
             </article>
           ) : null}
-          {data.unitSlides || data.lessonSlides || lesson.links.length ? (
+          {data.unitSlides || data.lessonSlides || lesson.links.length || data.resources?.length ? (
             <article
               className="shared-info-card shared-info-card-resources"
               aria-labelledby="shared-resources-heading"
@@ -360,6 +377,7 @@ export function SharedLessonPage() {
                 <p className="shared-card-label" id="shared-resources-heading">
                   Resources
                 </p>
+                <SharedLessonResources resources={data.resources ?? []} token={token} />
                 <ul className="shared-resource-list">
                   {data.unitSlides ? (
                     <li>
@@ -449,6 +467,12 @@ export function SharedLessonPage() {
                 </button>
                 {isExpanded ? (
                   <div className="shared-step-detail" id={stepId}>
+                    <SharedLessonResources
+                      resources={(data.resources ?? []).filter(
+                        (resource) => resource.segmentId === step.id
+                      )}
+                      token={token}
+                    />
                     {step.description ? (
                       <div dangerouslySetInnerHTML={{ __html: safeHtml(step.description) }} />
                     ) : (

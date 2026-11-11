@@ -40,6 +40,7 @@ const ConfigSchema = z.object({
     .enum(['low', 'medium', 'high', 'xhigh', 'max'])
     .default('xhigh'),
   OPENAI_MODEL_GENERATE_SEGMENTS: z.string().default('gpt-4o'),
+  OPENAI_MODEL_FIND_VIDEO: optionalStringFromEnv,
   OPENAI_MODEL_CONTINUITY: z.string().default('gpt-4o'),
   RUN_EMBEDDED_AI_WORKER: booleanFromEnv.default(false),
   S3_REGION: z.string().default('auto'),

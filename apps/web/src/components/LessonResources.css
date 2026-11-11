@@ -1,0 +1,305 @@
+.lesson-document-page .lesson-sequence .lesson-step {
+  grid-template-columns: 32px minmax(0, 1fr) minmax(160px, 200px) 34px;
+}
+
+.lesson-step-resource-tools {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 16px;
+  border-left: 1px solid #d9e5da;
+}
+
+.lesson-resource-primary,
+.lesson-step-resource-tools .lesson-resource-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 50px;
+  padding: 12px;
+  border: 1px solid #315b3b;
+  border-radius: 10px;
+  background: #315b3b;
+  color: white;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.lesson-resource-primary:hover {
+  background: #24462c;
+}
+.lesson-resource-primary:active {
+  transform: translateY(1px);
+}
+.lesson-resource-primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.lesson-resource-kind select {
+  width: 100%;
+  min-height: 44px;
+  background: #fff;
+}
+.lesson-resource-options {
+  font-size: 0.8rem;
+}
+.lesson-resource-options summary {
+  cursor: pointer;
+  padding: 6px 0;
+  min-height: 44px;
+}
+.lesson-resource-options label {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.lesson-resource-options textarea {
+  min-width: 0;
+  width: 100%;
+  resize: vertical;
+}
+.resource-tool-status {
+  color: #45604a;
+  font-size: 0.75rem;
+}
+.resource-tool-error {
+  font-size: 0.8rem;
+  color: #963e27;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.lesson-generated-resources,
+.shared-generated-resources {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.lesson-generated-resources > li,
+.shared-generated-resources > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #dce5dd;
+}
+.lesson-generated-resources > li > div,
+.shared-generated-resources > li > div {
+  flex: 1;
+  min-width: min(180px, 100%);
+  overflow-wrap: anywhere;
+}
+.lesson-generated-resources strong,
+.shared-generated-resources strong {
+  display: block;
+  font-size: 0.9rem;
+}
+.lesson-generated-resources span {
+  display: block;
+  color: #4e6253;
+  font-size: 0.75rem;
+  margin-top: 3px;
+}
+.shared-generated-resources p {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+}
+.lesson-generated-resources button,
+.shared-generated-resources a {
+  min-height: 44px;
+}
+
+.lesson-resource-dialog {
+  width: min(900px, calc(100vw - 24px));
+  max-height: 92dvh;
+  padding: 0;
+  border: 1px solid #b9c8bd;
+  border-radius: 16px;
+  background: #f2f4f0;
+  color: #1f2a24;
+  box-shadow: 0 20px 70px #172b2240;
+}
+.lesson-resource-dialog::backdrop {
+  background: #14241fcc;
+}
+.resource-editor-header,
+.resource-editor-footer {
+  position: sticky;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px 24px;
+  background: #fffdf8;
+}
+.resource-editor-header {
+  top: 0;
+  justify-content: space-between;
+  border-bottom: 1px solid #d5dfd6;
+}
+.resource-editor-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+.resource-editor-header span {
+  color: #4a6050;
+  font-size: 0.8rem;
+}
+.resource-editor-footer {
+  bottom: 0;
+  justify-content: flex-end;
+  border-top: 1px solid #d5dfd6;
+}
+.resource-editor-header button,
+.resource-editor-footer button {
+  min-height: 44px;
+  cursor: pointer;
+}
+.resource-editor-fields {
+  border: 0;
+  padding: 24px;
+  margin: 0;
+  min-width: 0;
+}
+.resource-document-paper {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: clamp(18px, 4vw, 48px);
+  background: white;
+  border: 1px solid #dfe3dd;
+}
+.resource-document-kind {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.resource-document-paper label {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+.resource-document-paper label > span {
+  color: #4b5f50;
+  font-size: 0.75rem;
+}
+.resource-document-paper :is(input, textarea) {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #c9d5cb;
+  border-radius: 5px;
+  background: white;
+  color: #202c24;
+  font: inherit;
+}
+.resource-document-paper textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+.resource-title-label input {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+.resource-student-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 0 22px;
+  font-size: 0.85rem;
+}
+.resource-question-list {
+  padding-left: 24px;
+  margin: 24px 0;
+}
+.resource-question-list > li {
+  padding: 0 0 24px 6px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #dfe4df;
+}
+.resource-question-settings {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.resource-question-settings label {
+  width: 90px;
+}
+.resource-document-paper details {
+  margin-top: 12px;
+}
+.resource-document-paper summary {
+  padding: 8px 0;
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.resource-document-paper details label {
+  margin-top: 12px;
+}
+
+.resource-document-paper button {
+  min-height: 44px;
+  cursor: pointer;
+}
+.lesson-resource-dialog > .notice {
+  margin: 16px 24px;
+}
+.lesson-resource-dialog :is(button, input, textarea, summary):focus-visible,
+.lesson-step-resource-tools :is(button, a, select, textarea, summary):focus-visible,
+.lesson-generated-resources button:focus-visible,
+.shared-generated-resources a:focus-visible {
+  outline: 3px solid #315b3b;
+  outline-offset: 3px;
+}
+.lesson-resource-dialog button:disabled {
+  cursor: not-allowed;
+}
+
+@media (max-width: 1000px) {
+  .lesson-document-page .lesson-sequence .lesson-step {
+    grid-template-columns: 28px minmax(0, 1fr) 34px;
+  }
+  .lesson-step-resource-tools {
+    grid-column: 2;
+    grid-row: 2;
+    padding: 12px 0 0;
+    border-left: 0;
+    border-top: 1px solid #d9e5da;
+  }
+  .lesson-document-page .step-actions {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+@media (max-width: 600px) {
+  .lesson-step-resource-tools {
+    grid-column: 1 / -1;
+  }
+  .resource-editor-fields {
+    padding: 10px;
+  }
+  .resource-editor-header,
+  .resource-editor-footer {
+    padding: 12px;
+  }
+  .resource-editor-footer button {
+    flex: 1;
+  }
+  .resource-document-paper {
+    padding: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lesson-resource-primary:active {
+    transform: none;
+  }
+}

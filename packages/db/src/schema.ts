@@ -529,6 +529,33 @@ export const lessons = pgTable(
   (table) => [index('idx_lessons_unit_order').on(table.unitId, table.orderIndex)]
 );
 
+export const lessonResources = pgTable(
+  'lesson_resources',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    lessonId: uuid('lesson_id')
+      .notNull()
+      .references(() => lessons.id, { onDelete: 'cascade' }),
+    segmentId: uuid('segment_id')
+      .notNull()
+      .references(() => lessonSegments.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'quiz' | 'worksheet' | 'video'>().notNull(),
+    status: text('status')
+      .$type<'generating' | 'ready' | 'failed'>()
+      .notNull()
+      .default('generating'),
+    revision: integer('revision').notNull().default(0),
+    document: jsonb('document').$type<unknown>(),
+    video: jsonb('video').$type<unknown>(),
+    error: text('error'),
+    generationId: uuid('generation_id').notNull().defaultRandom(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    unique('uniq_lesson_resource_step_kind').on(table.lessonId, table.segmentId, table.kind)
+  ]
+);
+
 export const lessonSegments = pgTable(
   'lesson_segments',
   {

@@ -1,4 +1,9 @@
-import type { HobieLessonDraftResponse } from '@teacheros/contracts';
+import type { HobieLessonAddition, HobieLessonDraftResponse } from '@teacheros/contracts';
+import type {
+  LessonResource,
+  LessonResourceDocument,
+  LessonResourceKind
+} from '@teacheros/contracts';
 import { useMemo } from 'react';
 
 import type {
@@ -145,6 +150,13 @@ export async function getPublicLesson(token: string): Promise<PublicLessonRespon
   return response.json() as Promise<PublicLessonResponse>;
 }
 
+export const publicResourcePdfUrl = (
+  token: string,
+  resourceId: string,
+  scope: 'lessons' | 'curriculum' = 'lessons'
+) =>
+  `${API_BASE_URL}/v1/public/${scope}/${encodeURIComponent(token)}/resources/${encodeURIComponent(resourceId)}/pdf`;
+
 export async function getPublicCurriculum(token: string): Promise<PublicCurriculumResponse> {
   const response = await fetch(`${API_BASE_URL}/v1/public/curriculum/${encodeURIComponent(token)}`);
   if (!response.ok) throw new ApiError('This curriculum link is unavailable.', response.status);
@@ -253,7 +265,10 @@ async function request<TResponse>(
     !path.includes('/feedback')
   )
     recordFeedbackEvent('api_action_completed', { method, endpoint: path, success: true });
-  if (response.headers.get('content-type')?.startsWith('image/'))
+  if (
+    response.headers.get('content-type')?.startsWith('image/') ||
+    response.headers.get('content-type')?.startsWith('application/pdf')
+  )
     return (await response.blob()) as TResponse;
   return (await response.json()) as TResponse;
 }
@@ -764,16 +779,74 @@ export function useApiClient() {
           { method: 'POST' },
           auth
         ),
-      draftLessonWithHobie: (lessonId: string, instruction: string, answer?: string) =>
+      draftLessonWithHobie: (
+        lessonId: string,
+        instruction: string,
+        answer?: string,
+        mode?: 'add' | 'plan'
+      ) =>
         request<HobieLessonDraftResponse>(
           `/v1/lessons/${lessonId}/hobie-draft`,
-          { method: 'POST', body: JSON.stringify({ instruction, answer }) },
+          { method: 'POST', body: JSON.stringify({ instruction, answer, mode }) },
           auth,
           AI_REQUEST_TIMEOUT_MS
         ),
       getLessonWorkspace: (lessonId: string) =>
         request<LessonWorkspaceResponse>(
           `/v1/lessons/${lessonId}/workspace`,
+          { method: 'GET' },
+          auth
+        ),
+      addHobieLessonStep: (
+        lessonId: string,
+        body: { requestId: string; expectedRevision: number; addition: HobieLessonAddition }
+      ) =>
+        request<LessonWorkspaceResponse>(
+          `/v1/lessons/${lessonId}/hobie-addition`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      getLessonResources: (lessonId: string) =>
+        request<{ resources: LessonResource[] }>(
+          `/v1/lessons/${lessonId}/resources`,
+          { method: 'GET' },
+          auth
+        ),
+      generateLessonResource: (
+        lessonId: string,
+        body: { segmentId: string; kind: LessonResourceKind; instruction: string }
+      ) =>
+        request<LessonResource>(
+          `/v1/lessons/${lessonId}/resources`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth,
+          AI_REQUEST_TIMEOUT_MS
+        ),
+      updateLessonResource: (
+        lessonId: string,
+        id: string,
+        expectedRevision: number,
+        document: LessonResourceDocument
+      ) =>
+        request<LessonResource>(
+          `/v1/lessons/${lessonId}/resources/${id}`,
+          { method: 'PATCH', body: JSON.stringify({ expectedRevision, document }) },
+          auth
+        ),
+      reviseLessonResourceQuestion: (
+        lessonId: string,
+        id: string,
+        body: { expectedRevision: number; questionIndex: number; instruction: string }
+      ) =>
+        request<LessonResource>(
+          `/v1/lessons/${lessonId}/resources/${id}/revise`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth,
+          AI_REQUEST_TIMEOUT_MS
+        ),
+      downloadLessonResource: (lessonId: string, id: string, answers = false) =>
+        request<Blob>(
+          `/v1/lessons/${lessonId}/resources/${id}/pdf?answers=${answers}`,
           { method: 'GET' },
           auth
         ),

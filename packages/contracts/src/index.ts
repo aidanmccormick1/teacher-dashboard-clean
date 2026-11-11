@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  HobieLessonAdditionSchema,
+  LessonResourceSchema,
+  PublicLessonResourceSchema
+} from './lesson-resources.js';
 
 export const UuidSchema = z.string().uuid();
 export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -726,9 +731,11 @@ export const GenerateUnitDraftResponseSchema = z.object({
 
 export const HobieLessonDraftRequestSchema = z.object({
   instruction: z.string().trim().min(3).max(3000),
+  mode: z.enum(['add', 'plan']).optional(),
   answer: z.string().trim().max(300).optional()
 });
 export const HobieLessonDraftResponseSchema = z.object({
+  addition: HobieLessonAdditionSchema.nullable().default(null),
   question: z
     .object({
       prompt: z.string().min(1),
@@ -1506,8 +1513,14 @@ export const LessonShareResponseSchema = z.object({
   token: z.string().uuid().nullable()
 });
 export const LessonWorkspaceResponseSchema = z.object({
+  resources: z.array(LessonResourceSchema).default([]),
   importedFromCourseName: z.string().optional(),
-  course: z.object({ id: UuidSchema, name: z.string() }),
+  course: z.object({
+    id: UuidSchema,
+    name: z.string(),
+    gradeLevel: z.string().nullable().optional(),
+    subject: z.string().nullable().optional()
+  }),
   unit: z.object({
     id: UuidSchema,
     title: z.string(),
@@ -1526,6 +1539,7 @@ export const LessonWorkspaceResponseSchema = z.object({
   share: LessonShareResponseSchema
 });
 export const PublicLessonResponseSchema = z.object({
+  resources: z.array(PublicLessonResourceSchema).default([]),
   courseName: z.string(),
   unitTitle: z.string(),
   unitSlides: UnitSlidesSchema.nullable(),
@@ -1539,6 +1553,7 @@ export const PublicLessonResponseSchema = z.object({
     estimatedDurationMinutes: z.number().int().positive().nullable(),
     steps: z.array(
       z.object({
+        id: UuidSchema.optional(),
         title: z.string(),
         description: z.string().nullable(),
         durationMinutes: z.number().int().positive().nullable(),
@@ -1560,6 +1575,7 @@ export const PublicCurriculumResponseSchema = z.object({
         unitSlides: UnitSlidesSchema.nullable(),
         lessons: z.array(
           z.object({
+            resources: z.array(PublicLessonResourceSchema).default([]),
             title: z.string(),
             description: z.string().nullable(),
             objective: z.string().nullable(),
@@ -1804,3 +1820,4 @@ export type SectionPlanningContextResponse = z.infer<typeof SectionPlanningConte
 export type DeleteEntityResponse = z.infer<typeof DeleteEntityResponseSchema>;
 
 export { positionCurriculumUnits, reflowLessonRanges } from './curriculum-pacing.js';
+export * from './lesson-resources.js';

@@ -54,7 +54,10 @@ export const authPlugin = fp(async (app) => {
       path.startsWith('/docs') ||
       (devAuthEnabled && path.startsWith('/v1/test-auth')) ||
       (request.method === 'GET' &&
-        /^\/v1\/public\/(?:lessons|curriculum)\/[0-9a-f-]{36}$/i.test(path))
+        (/^\/v1\/public\/(?:lessons|curriculum)\/[0-9a-f-]{36}$/i.test(path) ||
+          /^\/v1\/public\/(?:lessons|curriculum)\/[0-9a-f-]{36}\/resources\/[0-9a-f-]{36}\/pdf$/i.test(
+            path
+          )))
     )
       return;
 
@@ -63,11 +66,7 @@ export const authPlugin = fp(async (app) => {
     const devEmail = request.headers['x-dev-user-email'];
 
     if (!authHeader) {
-      if (
-        devAuthEnabled &&
-        typeof devUser === 'string' &&
-        devUser.length > 0
-      ) {
+      if (devAuthEnabled && typeof devUser === 'string' && devUser.length > 0) {
         request.principal = {
           clerkUserId: devUser,
           email: typeof devEmail === 'string' ? devEmail : null
@@ -130,11 +129,7 @@ export const authPlugin = fp(async (app) => {
       const clerkUserId = tokenClaims.sub;
       request.principal = {
         clerkUserId,
-        email: await resolveClerkEmail(
-          tokenClaims,
-          clerkUserId,
-          app.config.CLERK_SECRET_KEY
-        )
+        email: await resolveClerkEmail(tokenClaims, clerkUserId, app.config.CLERK_SECRET_KEY)
       };
     } catch {
       reply.code(401).send({ error: 'Invalid authentication token', requestId: request.id });

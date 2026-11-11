@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { CourseDetailResponse, PublicCurriculumResponse } from '@teacheros/contracts';
 import { UnitSlidesViewer } from '../components/UnitSlidesViewer.js';
+import { SharedLessonResources } from '../components/LessonResources.js';
 import { ApiError, getPublicCurriculum, useApiClient } from '../lib/api.js';
 import { useAppAuth } from '../lib/auth.js';
 
@@ -235,6 +236,11 @@ export function SharedCurriculumPage() {
                   );
                 })}
               </ol>
+              <SharedLessonResources
+                resources={lesson.resources ?? []}
+                token={token}
+                scope="curriculum"
+              />
             </article>
           ))}
           {unit.unitSlides ? (

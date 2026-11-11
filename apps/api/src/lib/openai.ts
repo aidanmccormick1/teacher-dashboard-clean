@@ -12,6 +12,8 @@ type PromptInput = {
   fileName?: string;
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   maxAttempts?: 1 | 2;
+  webSearch?: boolean;
+  onResponse?: (payload: unknown) => void;
 };
 
 const openAiRequestTimeoutMs = 75_000;
@@ -220,6 +222,13 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
           },
           body: JSON.stringify({
             model: params.model,
+            ...(params.webSearch
+              ? {
+                  tools: [{ type: 'web_search' }],
+                  tool_choice: 'required',
+                  include: ['web_search_call.action.sources']
+                }
+              : {}),
             input: [
               { role: 'system', content: params.systemPrompt },
               { role: 'user', content: buildUserContent(params) }
@@ -253,7 +262,9 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
       const outputText = extractOutputText(payload);
       const parsedOutput = JSON.parse(outputText) as unknown;
 
-      return params.schema.parse(normalizeScheduleTimes(parsedOutput)) as T;
+      const result = params.schema.parse(normalizeScheduleTimes(parsedOutput)) as T;
+      params.onResponse?.(payload);
+      return result;
     } catch (error) {
       lastError = error;
     }
