@@ -5,10 +5,13 @@ import type {
   LessonResourceDocument,
   LessonResourceQuestion,
   LessonWorkspaceResponse,
-  PublicLessonResource
+  PublicLessonResource,
+  QuizPreferences
 } from '@teacheros/contracts';
 import { ApiError, publicResourcePdfUrl, useApiClient } from '../lib/api.js';
 import './LessonResources.css';
+import { suggestedResourceKind } from '../lib/lessonResourceSuggestions.js';
+import { QuizSetup } from './QuizSetup.js';
 
 type Step = LessonWorkspaceResponse['lesson']['segments'][number];
 const labels: Record<LessonResourceKind, string> = {
@@ -20,20 +23,6 @@ const errorText = (error: unknown) =>
   error instanceof ApiError || error instanceof Error
     ? error.message
     : 'Something went wrong. Please retry.';
-
-export function suggestedResourceKind(
-  step: Pick<Step, 'title' | 'description' | 'stepType'>
-): LessonResourceKind {
-  const purpose = `${step.stepType ?? ''} ${step.title}`.toLowerCase();
-  if (/quiz|assess|exit ticket|check (?:for )?understanding|test\b|review/.test(purpose))
-    return 'quiz';
-  if (/worksheet|practice|activity|discussion|problem.solv|group work/.test(purpose))
-    return 'worksheet';
-  const text = `${step.stepType ?? ''} ${step.title} ${step.description ?? ''}`.toLowerCase();
-  if (/quiz|assess|exit ticket|check for understanding|test\b|review/.test(text)) return 'quiz';
-  if (/video|watch|introduc|instruction|explain|demonstrat|mini.lesson/.test(text)) return 'video';
-  return 'worksheet';
-}
 
 export function LessonResourceEditor({
   resource,
@@ -436,6 +425,7 @@ export function LessonResourceOpenButton({
 export function LessonResourceTools({
   lessonId,
   step,
+  subject,
   resources,
   prepare,
   onUpdate,
@@ -443,6 +433,7 @@ export function LessonResourceTools({
 }: {
   lessonId: string;
   step: Step;
+  subject?: string | null;
   resources: LessonResource[];
   prepare: () => Promise<void>;
   onUpdate: (resource: LessonResource) => void;
@@ -450,10 +441,30 @@ export function LessonResourceTools({
 }) {
   const api = useApiClient();
   const [choice, setChoice] = useState<LessonResourceKind | null>(null);
+  const [quizSetup, setQuizSetup] = useState(false);
+  const createButton = useRef<HTMLButtonElement>(null);
+  const activeKind = useRef<LessonResourceKind | null>(null);
+  const suggestion = suggestedResourceKind(step);
+  const stepResources = resources.filter(
+    (item) =>
+      item.segmentId === step.id &&
+      (item.status === 'ready' ||
+        item.kind === suggestion ||
+        (item.status === 'generating' && Date.now() - Date.parse(item.updatedAt) <= 120_000))
+  );
+  const existing = stepResources.find((item) => item.status === 'ready') ?? stepResources[0];
+  const availableKinds = [
+    ...new Set(
+      [suggestion, activeKind.current, ...stepResources.map((item) => item.kind)].filter(
+        (kind): kind is LessonResourceKind => kind !== null
+      )
+    )
+  ];
   const kind =
-    choice ??
-    resources.find((item) => item.segmentId === step.id && item.status === 'ready')?.kind ??
-    suggestedResourceKind(step);
+    (choice && availableKinds.includes(choice) ? choice : null) ??
+    suggestion ??
+    activeKind.current ??
+    existing?.kind;
   const resource = resources.find((item) => item.segmentId === step.id && item.kind === kind);
   const [busy, setBusy] = useState(false);
   const working = useRef(false);
@@ -482,8 +493,9 @@ export function LessonResourceTools({
     };
   }, [api, resource?.id, resource?.status, busy, lessonId, onUpdate]);
   const creating = busy || (resource?.status === 'generating' && !stale);
-  const generate = async () => {
-    if (working.current || creating || disabled) return;
+  const generate = async (quizPreferences?: QuizPreferences) => {
+    if (!kind || working.current || creating || disabled) return;
+    activeKind.current = kind;
     working.current = true;
     setBusy(true);
     setError('');
@@ -492,7 +504,8 @@ export function LessonResourceTools({
       const result = await api.generateLessonResource(lessonId, {
         segmentId: step.id,
         kind,
-        instruction
+        instruction,
+        ...(quizPreferences ? { quizPreferences } : {})
       });
       onUpdate(result);
       if (result.document && result.status === 'ready') setOpened(result);
@@ -500,19 +513,29 @@ export function LessonResourceTools({
       setError(errorText(error));
     } finally {
       working.current = false;
+      activeKind.current = null;
       setBusy(false);
     }
   };
+  if (!kind || (!suggestion && !existing && !busy)) return null;
   return (
     <aside className="lesson-step-resource-tools" aria-label={`Resources for ${step.title}`}>
       {resource?.status === 'ready' ? (
         <LessonResourceOpenButton resource={resource} onUpdate={onUpdate} primary />
       ) : (
         <button
+          ref={createButton}
           type="button"
           className="lesson-resource-primary"
-          disabled={disabled || creating}
-          onClick={() => void generate()}
+          disabled={disabled || creating || quizSetup}
+          onPointerDown={(event) => {
+            // Keep the rich-text toolbar from moving this button before the click lands.
+            event.preventDefault();
+          }}
+          onClick={() => {
+            if (kind === 'quiz') setQuizSetup(true);
+            else void generate();
+          }}
         >
           {creating
             ? kind === 'video'
@@ -523,21 +546,25 @@ export function LessonResourceTools({
               : `Create ${kind}`}
         </button>
       )}
-      <label className="lesson-resource-kind">
-        <span className="visually-hidden">Resource type for {step.title}</span>
-        <select
-          value={kind}
-          disabled={creating}
-          onChange={(event) => {
-            setChoice(event.target.value as LessonResourceKind);
-            setError('');
-          }}
-        >
-          <option value="quiz">Quiz</option>
-          <option value="worksheet">Worksheet</option>
-          <option value="video">Video</option>
-        </select>
-      </label>
+      {availableKinds.length > 1 ? (
+        <label className="lesson-resource-kind">
+          <span className="visually-hidden">Resource type for {step.title}</span>
+          <select
+            value={kind}
+            disabled={creating || quizSetup}
+            onChange={(event) => {
+              setChoice(event.target.value as LessonResourceKind);
+              setError('');
+            }}
+          >
+            {availableKinds.map((kind) => (
+              <option key={kind} value={kind}>
+                {labels[kind]}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       {resource?.status !== 'ready' && !creating ? (
         <details className="lesson-resource-options">
           <summary>Options</summary>
@@ -576,6 +603,20 @@ export function LessonResourceTools({
             onUpdate(resource);
           }}
           onClose={() => setOpened(null)}
+        />
+      ) : null}
+      {quizSetup ? (
+        <QuizSetup
+          step={step}
+          subject={subject}
+          onDismiss={(restoreFocus) => {
+            setQuizSetup(false);
+            if (restoreFocus) requestAnimationFrame(() => createButton.current?.focus());
+          }}
+          onCreate={(preferences) => {
+            setQuizSetup(false);
+            void generate(preferences);
+          }}
         />
       ) : null}
     </aside>

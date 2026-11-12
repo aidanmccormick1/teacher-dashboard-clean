@@ -1,6 +1,13 @@
 import { z } from 'zod';
 
 export const LessonResourceKindSchema = z.enum(['quiz', 'worksheet', 'video']);
+export const QuizPreferencesSchema = z.object({
+  focus: z.enum(['recall', 'application', 'mixed']),
+  format: z.enum(['multiple_choice', 'written', 'mixed']),
+  questionCount: z.number().int().min(2).max(20),
+  difficulty: z.enum(['support', 'standard', 'challenge']).default('standard')
+});
+export type QuizPreferences = z.infer<typeof QuizPreferencesSchema>;
 export const LessonResourceQuestionSchema = z.object({
   prompt: z.string().trim().min(1).max(2400),
   options: z.array(z.string().trim().min(1).max(600)).max(6),
@@ -61,7 +68,8 @@ export const PublicLessonResourceSchema = LessonResourceSchema.omit({
 export const LessonResourceGenerateSchema = z.object({
   segmentId: z.string().uuid(),
   kind: LessonResourceKindSchema,
-  instruction: z.string().trim().max(1000).default('')
+  instruction: z.string().trim().max(1000).default(''),
+  quizPreferences: QuizPreferencesSchema.optional()
 });
 export const LessonResourceUpdateSchema = z.object({
   expectedRevision: z.number().int().nonnegative(),

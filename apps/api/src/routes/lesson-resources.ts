@@ -116,7 +116,10 @@ export async function lessonResourceRoutes(app: FastifyInstance, authorize: Auth
       const { lessonId } = Params.parse(request.params);
       const workspace = await authorize(request, reply, lessonId);
       if (!workspace) return;
-      const body = LessonResourceGenerateSchema.parse(request.body);
+      const parsed = LessonResourceGenerateSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: 'Check the resource settings and try again.' });
+      const body = parsed.data;
       if (!workspace.lesson.segments.some((step) => step.id === body.segmentId))
         return reply.code(404).send({ error: 'Lesson step not found.' });
       if (!app.config.OPENAI_API_KEY)

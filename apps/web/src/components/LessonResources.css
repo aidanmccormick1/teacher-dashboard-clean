@@ -1,4 +1,8 @@
 .lesson-document-page .lesson-sequence .lesson-step {
+  grid-template-columns: 32px minmax(0, 1fr) 34px;
+}
+
+.lesson-document-page .lesson-sequence .lesson-step:has(> .lesson-step-resource-tools) {
   grid-template-columns: 32px minmax(0, 1fr) minmax(160px, 200px) 34px;
 }
 
@@ -265,7 +269,8 @@
 }
 
 @media (max-width: 1000px) {
-  .lesson-document-page .lesson-sequence .lesson-step {
+  .lesson-document-page .lesson-sequence .lesson-step,
+  .lesson-document-page .lesson-sequence .lesson-step:has(> .lesson-step-resource-tools) {
     grid-template-columns: 28px minmax(0, 1fr) 34px;
   }
   .lesson-step-resource-tools {

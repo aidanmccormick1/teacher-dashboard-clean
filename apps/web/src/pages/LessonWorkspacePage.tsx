@@ -1758,6 +1758,7 @@ function LessonWorkspaceEditor({ lessonId, userId }: { lessonId: string; userId:
                 <LessonResourceTools
                   lessonId={lessonId}
                   step={step}
+                  subject={data.course.subject}
                   resources={data.resources ?? []}
                   prepare={prepareResource}
                   onUpdate={updateResource}

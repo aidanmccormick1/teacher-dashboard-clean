@@ -1,4 +1,8 @@
-import type { HobieLessonAddition, HobieLessonDraftResponse } from '@teacheros/contracts';
+import type {
+  HobieLessonAddition,
+  HobieLessonDraftResponse,
+  QuizPreferences
+} from '@teacheros/contracts';
 import type {
   LessonResource,
   LessonResourceDocument,
@@ -814,7 +818,12 @@ export function useApiClient() {
         ),
       generateLessonResource: (
         lessonId: string,
-        body: { segmentId: string; kind: LessonResourceKind; instruction: string }
+        body: {
+          segmentId: string;
+          kind: LessonResourceKind;
+          instruction: string;
+          quizPreferences?: QuizPreferences;
+        }
       ) =>
         request<LessonResource>(
           `/v1/lessons/${lessonId}/resources`,

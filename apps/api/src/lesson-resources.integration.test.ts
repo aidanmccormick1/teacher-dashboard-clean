@@ -1,5 +1,5 @@
 import { readFile, readdir } from 'node:fs/promises';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db, pool, lessonResources } from '@teacheros/db';
 import type { LessonResource } from '@teacheros/contracts';
 import { createApp } from './app.js';
@@ -57,15 +57,15 @@ describe.skipIf(process.env.RUN_INTEGRATION_DB_TESTS !== '1')('lesson resources'
       : (await readdir(directory)).filter((file) => file.endsWith('.sql')).sort();
     for (const file of migrations)
       await pool.query(await readFile(new URL(file, directory), 'utf8'));
+  });
+  beforeEach(async () => {
+    await pool.query('TRUNCATE users CASCADE');
     app = await createApp({
       ...loadConfig(),
       NODE_ENV: 'test',
       OPENAI_API_KEY: 'resource-test-key',
       FEEDBACK_EMAIL_ENABLED: false
     });
-  });
-  beforeEach(async () => {
-    await pool.query('TRUNCATE users CASCADE');
     ai.mockReset().mockResolvedValue(response(document));
     vi.stubGlobal('fetch', ai);
     const onboard = await app.inject({
@@ -122,9 +122,11 @@ describe.skipIf(process.env.RUN_INTEGRATION_DB_TESTS !== '1')('lesson resources'
     });
     segmentId = segment.json().course.units[0].lessons[0].segments[0].id;
   });
-  afterAll(async () => {
+  afterEach(async () => {
     vi.unstubAllGlobals();
     await app?.close();
+  });
+  afterAll(async () => {
     await pool.end();
   });
   const generate = (kind = 'quiz') =>
@@ -414,6 +416,75 @@ describe.skipIf(process.env.RUN_INTEGRATION_DB_TESTS !== '1')('lesson resources'
     expect(prompt).not.toContain('Explain one food-chain relationship.');
     expect((await app.inject(request)).statusCode).toBe(409);
     expect(ai).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses quiz setup selections and rejects a document that ignores them', async () => {
+    const quizPreferences = {
+      focus: 'application',
+      format: 'written',
+      questionCount: 7,
+      difficulty: 'challenge'
+    };
+    const request = {
+      method: 'POST' as const,
+      url: `/v1/lessons/${lessonId}/resources`,
+      headers,
+      payload: { segmentId, kind: 'quiz', quizPreferences }
+    };
+    const mismatch = await app.inject(request);
+    expect(mismatch.statusCode).toBe(502);
+    expect(mismatch.json().error).toBe('Hobie could not match those quiz settings. Try again.');
+    const questions = Array.from({ length: 7 }, () => ({ ...document.questions[1]!, options: [] }));
+    ai.mockResolvedValue(response({ ...document, questions }));
+    const matching = await app.inject(request);
+    expect(matching.statusCode, matching.body).toBe(200);
+    expect(matching.json().document.questions).toHaveLength(7);
+    expect(
+      matching
+        .json()
+        .document.questions.every((question: { options: string[] }) => !question.options.length)
+    ).toBe(true);
+    const prompt = JSON.parse(JSON.parse(String(ai.mock.calls[1]![1]!.body)).input[1].content);
+    expect(prompt.quizPreferences).toEqual(quizPreferences);
+    expect(prompt.quizRequirements).toContain('without adding untaught content');
+    expect(ai).toHaveBeenCalledTimes(2);
+  });
+
+  it('defaults older quiz setups to lesson-level difficulty and rejects invalid count or difficulty before AI', async () => {
+    const request = {
+      method: 'POST' as const,
+      url: `/v1/lessons/${lessonId}/resources`,
+      headers
+    };
+    for (const quizPreferences of [
+      { focus: 'recall', format: 'written', questionCount: 2.5 },
+      { focus: 'recall', format: 'written', questionCount: 21 },
+      { focus: 'recall', format: 'written', questionCount: 2, difficulty: 'instant' }
+    ]) {
+      const invalid = await app.inject({
+        ...request,
+        payload: { segmentId, kind: 'quiz', quizPreferences }
+      });
+      expect(invalid.statusCode).toBe(400);
+    }
+    expect(ai).not.toHaveBeenCalled();
+    ai.mockResolvedValue(
+      response({
+        ...document,
+        questions: document.questions.map((question) => ({ ...question, options: [] }))
+      })
+    );
+    const legacy = await app.inject({
+      ...request,
+      payload: {
+        segmentId,
+        kind: 'quiz',
+        quizPreferences: { focus: 'recall', format: 'written', questionCount: 2 }
+      }
+    });
+    expect(legacy.statusCode, legacy.body).toBe(200);
+    const prompt = JSON.parse(JSON.parse(String(ai.mock.calls[0]![1]!.body)).input[1].content);
+    expect(prompt.quizPreferences.difficulty).toBe('standard');
   });
 
   it('rejects invented video URLs and permits a retry with a grounded playable video', async () => {
